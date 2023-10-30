@@ -1,0 +1,600 @@
+import os
+from glob import glob
+import h5py
+
+import numpy as np
+import pandas as pd
+import SimpleITK as sitk
+from scipy.ndimage import zoom
+from typing import List 
+
+from aim import aim
+from .contour import outer_contour, inner_contour, combined_threshold, getLargestCC
+from .transform import TimelapsedTransformation
+from .register import Registration
+from .remodell import hrpqct_remodelling_logic
+from .reposition import (
+    pad_array_centered, pad_and_crop_position, boundingbox_from_mask, update_pos_with_bb
+)
+from .visualise import dict_to_vtkFile
+from .motiongrade import automatic_motion_score
+from . import custom_logger
+
+import warnings
+
+# Suppress all warnings (not recommended for production code)
+#warnings.filterwarnings("ignore")
+
+def save_dict_to_hdf5(file_name: str, dictionary: dict):
+    """
+    Save a dictionary to an HDF5 file.
+
+    Parameters:
+        file_name (str): The name of the HDF5 file to create or overwrite.
+        dictionary (dict): The dictionary to be saved as an HDF5 dataset.
+    """
+    with h5py.File(file_name, "w") as h5file:
+        for key, value in dictionary.items():
+            h5file.create_dataset(str(key), data=value)
+
+def save_numpy_array_as_mha(numpy_array: np.ndarray, file_path: str):
+    """
+    Save a NumPy array as an MHA (MetaImage) file using SimpleITK.
+
+    Parameters:
+        numpy_array (np.ndarray): The NumPy array to be saved as an MHA file.
+        file_path (str): The file path for saving the MHA file.
+    """
+    # Convert the numpy array to a SimpleITK image
+    image = sitk.GetImageFromArray(numpy_array.astype(int))
+
+    # Save the image as an MHA file
+    sitk.WriteImage(image, file_path)
+
+def load_numpy_array_from_mha(file_path: str) -> np.ndarray:
+    """
+    Load a NumPy array from an MHA (MetaImage) file using SimpleITK.
+
+    Parameters:
+        file_path (str): The file path to the MHA file to be loaded.
+
+    Returns:
+        np.ndarray: The NumPy array loaded from the MHA file.
+    """
+    # Read the MHA file as a SimpleITK image
+    image = sitk.ReadImage(file_path)
+
+    # Convert the SimpleITK image to a NumPy array
+    numpy_array = sitk.GetArrayFromImage(image)
+
+    return numpy_array
+
+class TimelapsedImageSeries:
+    """
+    Initialize a TimelapsedImageSeries object.
+
+    Parameters:
+        site (str): The site associated with the image series.
+        name (str): The name of the image series.
+        verbose (bool): If True, enable verbose mode for debugging (default: False).
+        resolution (float or None): The desired resolution of the images (default: None).
+        crop (bool): If True, crop images to the smallest bounding box (default: False).
+    """
+
+    
+    def __init__(self, site, name, verbose=False, resolution=None, crop=False):
+        self.data = {}
+        self.reg_data = {}
+        self.path_data = {}
+        self.motion_data = {}
+        self.registration = None
+        self.transform = TimelapsedTransformation()
+        self.position = {}
+        self.image_contour_mapping = {}
+        self.contour_identifier = 'contour'
+        self.image_identifier = 'image'
+        self.shape = (0,0,0)
+        self.site = site
+        self.verbose = verbose
+        self.name = name.split('.AIM')[0]
+        self.cluster = None
+        self.threshold = None
+        self.analysis_results = []
+        self.resolution = resolution
+        self.crop = crop
+
+        # Create the CustomLogger instance and activate it
+        custom_logger.set_log_file(self.name)
+
+    
+    def add_image(self, image_name, image_path):
+        """
+        Add an image to the data dictionary.
+    
+        Parameters:
+        - image_name: str, the unique name/key for the image.
+        - image_path: str, the path to the image file.
+    
+        Raises:
+        - ValueError: If an image with the same image_name already exists.
+    
+        """
+        
+        # Check if the image_id already exists in the dictionary
+        if self.get_image(image_name) in self.data:
+            raise ValueError(f"Image with ID '{image_name}' already exists.")
+        else:
+            # Load the image
+            image_data, position = self.load_aim(image_path,crop=self.crop)
+
+            # Add the image and position to the series
+            self.data[self.get_image(image_name)] = image_data
+            self.position[self.get_image(image_name)] = position
+            self.path_data[self.get_image(image_name)] = image_path
+            
+            # get the new shape of the series and update size
+            self.shape = np.amax([self.shape, image_data.shape],axis=0)
+            self.update_size_and_position()
+
+    
+    def add_contour_to_image(self, image_name, contour_name, contour_path):
+        """
+        Add a contour to an existing image in the data dictionary and associate it with the image.
+    
+        Parameters:
+            image_name (str): The name/key of the image to which the contour belongs.
+            contour_name (str): The unique name/key for the contour.
+            contour_path (str): The path to the contour file.
+    
+        Raises:
+            ValueError: If the specified image_name does not exist in the data dictionary.
+        """
+        if self.get_image(image_name) in self.data:
+            contour_data, position = self.load_aim(contour_path, crop=self.crop)
+    
+            # Get the position from the image
+            new_position = self.position[self.get_image(image_name)]
+            contour_data = pad_and_crop_position(contour_data, position, new_position)
+    
+            # Add the cropped contour to the series
+            self.data[self.get_contour(contour_name, image_name)] = contour_data
+            self.position[self.get_contour(contour_name, image_name)] = new_position
+    
+            # Get the new shape of the series and update all to be the same
+            self.shape = np.amax([self.shape, contour_data.shape], axis=0)
+            self.update_size_and_position()
+    
+            if self.get_image(image_name) not in self.image_contour_mapping:
+                self.image_contour_mapping[self.get_image(image_name)] = []
+            self.image_contour_mapping[self.get_image(image_name)].append(self.get_contour(contour_name, image_name))
+        else:
+            raise ValueError(f"Image with name '{image_name}' not found.")
+
+
+    def generate_contour(self, image_name, path=None):
+        """
+        Generate 3 contours (OUT_MASK, TRAB_MASK, and CORT_MASK) for an existing image in the data dictionary 
+        and associate them with the image.
+    
+        Parameters:
+            image_name (str): The name/key of the image to which the contours belong.
+            path (str, optional): The path where the generated contours will be saved as MHA files. 
+                                  If not provided, the contours won't be saved.
+        """
+        key = self.get_image(image_name)
+    
+        if path is not None:
+            path = os.path.join(path, self.name)
+            if not os.path.exists(path):
+                os.makedirs(path)
+    
+        # Generate or load outer contour
+        if path is not None:
+            name_str = os.path.basename(self.path_data[key]).split('.AIM')[0]
+            OUT_MASK_PATH = os.path.join(path, name_str + '_OUT_MASK.mha')
+        
+        if (path is not None) and os.path.exists(OUT_MASK_PATH):
+            outer_mask = load_numpy_array_from_mha(OUT_MASK_PATH)
+            custom_logger.info('Loaded: {}'.format(OUT_MASK_PATH))
+        else:
+            outer_mask = outer_contour(self.data[key], verbose=self.verbose)
+    
+        # Add outer contour to the series
+        self.data[self.get_contour('OUT_MASK', image_name)] = outer_mask
+        self.position[self.get_contour('OUT_MASK', image_name)] = self.position[self.get_image(image_name)]
+    
+        # Generate or load trab and cort masks
+        if path is not None:
+            TRAB_MASK_PATH = os.path.join(path, name_str + '_TRAB_MASK.mha')
+            CORT_MASK_PATH = os.path.join(path, name_str + '_CORT_MASK.mha')
+    
+        if (path is not None) and os.path.exists(TRAB_MASK_PATH) and os.path.exists(CORT_MASK_PATH):
+            trab_mask = load_numpy_array_from_mha(TRAB_MASK_PATH)
+            cort_mask = load_numpy_array_from_mha(CORT_MASK_PATH)
+        else:
+            trab_mask, cort_mask = inner_contour(self.data[key], outer_mask, site=self.site, verbose=self.verbose)
+    
+        # Add trab and cort masks to the series
+        self.data[self.get_contour('TRAB_MASK', image_name)] = trab_mask
+        self.position[self.get_contour('TRAB_MASK', image_name)] = self.position[key]
+        self.data[self.get_contour('CORT_MASK', image_name)] = cort_mask
+        self.position[self.get_contour('CORT_MASK', image_name)] = self.position[key]
+    
+        # Create mapping between Contour and Images
+        if self.get_image(image_name) not in self.image_contour_mapping:
+            self.image_contour_mapping[key] = []
+    
+        # Map the masks with the images (this can be changed in the future)
+        self.image_contour_mapping[key].append(self.get_contour('OUT_MASK', image_name))
+        self.image_contour_mapping[key].append(self.get_contour('TRAB_MASK', image_name))
+        self.image_contour_mapping[key].append(self.get_contour('CORT_MASK', image_name))
+    
+        # Save masks as MHA files if path is provided
+        if path is not None:
+            save_numpy_array_as_mha(outer_mask, OUT_MASK_PATH)
+            save_numpy_array_as_mha(trab_mask, TRAB_MASK_PATH)
+            save_numpy_array_as_mha(cort_mask, CORT_MASK_PATH)
+
+    
+    def register(self, registration, mask_nr=0, path=None):
+        """
+        Register images in the timelapse using the provided registration method.
+
+        Parameters:
+            registration: The registration object to use for image registration.
+            mask_nr (int): The index of the contour mask to use for registration (default: 0).
+        """
+
+        if path is not None:
+            TRANSFORM_PATH = os.path.join(path,self.name)
+        else:
+            TRANSFORM_PATH = ''
+        
+        self.registration = registration
+
+        imkeys = self.get_all_images()
+        for baseline_num, followup_num in zip(imkeys[:-1],imkeys[1:]):
+
+            baseline_key = self.get_image(baseline_num)
+            followup_key = self.get_image(followup_num)
+            
+            custom_logger.info('Registering: {} to {}'.format(baseline_key, followup_key))
+            registration.setRegistrationParamaters(self.data[baseline_key], self.data[followup_key])
+
+            # Check if registration masks were set
+            if len(self.get_all_contours())>=len(self.get_all_images()):
+                registration.setRegistrationMask(
+                    self.data[self.get_contours_from_image(baseline_key)[mask_nr]],
+                    self.data[self.get_contours_from_image(followup_key)[mask_nr]])
+
+            # Here we start the registration
+            tpath = os.path.join(TRANSFORM_PATH,'{}_{}_{}.tfm').format(baseline_num,followup_num,self.name)
+
+            if os.path.exists(tpath):
+                self.transform.load_transform(tpath)
+                custom_logger.info('Loaded Transform: {}'.format(tpath))
+            else:
+                registration.execute()
+
+                # Get the transform and add it to the transform class that handles automatic
+                # compounding of transforms
+                transform = registration.get_transform()
+                metric = registration.reg.GetMetricValue()
+                self.transform.add_transform(transform, baseline_num, followup_num, metric)
+
+                if path is not None: 
+                    self.transform.save_transform(TRANSFORM_PATH)
+
+    def motion_grade(self,outpath=None):
+
+        for im in self.get_all_images():
+
+            key = self.get_image(im)
+            
+            mscore, mscorevalue = automatic_motion_score(
+                self.data[key], outpath=outpath, stackheight=168)
+
+            logger.info('Motion Score {}: {}'.format(key,mscore))
+            
+            self.motion_data[im] = mscore
+
+    
+    def transform_all(self,transform_to):
+        """
+        Transform all images and contours to a common reference space.
+
+        Parameters:
+            transform_to (str): The name/key of the image to which all data will be transformed.
+        """
+        # This is how easy it is to transform all masks/images into a certain space! 
+        nodes = list(self.transform.data.nodes)
+        #transform_to = self.get_image(transform_to)
+        
+        for data_key in self.get_all_data():
+            transform_from = [key for key in nodes if key in data_key][0]            
+            # Transform if necessary
+            if transform_to != transform_from:
+                 transformed_image = self.transform.transform(
+                    self.data[data_key], transform_to, transform_from)
+            # Otherwise don't
+            else:
+                transformed_image = self.data[data_key]
+
+            # Save registered data
+            self.reg_data[data_key] = transformed_image
+    
+    def analyse(self, baseline, followup, threshold=225, cluster=5):
+        """
+        Analyze the timelapse series and calculate various metrics.
+    
+        Parameters:
+            baseline (str): The name/key of the baseline image.
+            followup (str): The name/key of the followup image.
+            threshold (int): The threshold value for analysis (default: 225).
+            cluster (int): The cluster value for analysis (default: 5).
+        """
+        self.threshold = threshold
+        self.cluster = cluster
+    
+        # Get common region between baseline and followup images
+        common_region = self.common_region(baseline)
+    
+        # Load baseline and followup image data
+        baseline_data = self.reg_data[self.get_image(baseline)]
+        followup_data = self.reg_data[self.get_image(followup)]
+    
+        # Perform HR-pQCT remodelling analysis
+        remodelling_image = hrpqct_remodelling_logic(baseline_data, followup_data, mask=common_region)
+    
+        # Calculate metrics and save results
+        df = self.calculate_metrics_and_save_results(baseline, followup, remodelling_image)
+    
+        self.analysis_results.append(df)
+        custom_logger.info(df)
+    
+    def calculate_metrics_and_save_results(self, baseline, followup, remodelling_image):
+        """
+        Calculate metrics based on HR-pQCT remodelling image and save the results to a DataFrame.
+    
+        Parameters:
+            baseline (str): The name/key of the baseline image.
+            followup (str): The name/key of the followup image.
+            remodelling_image (numpy array): HR-pQCT remodelling image.
+    
+        Returns:
+            pd.DataFrame: DataFrame containing the calculated metrics.
+        """
+        cols = ['IM', 'SITE', 'BASE_FOLL', 'THR', 'CLUSTER', 'ROI', 'MEAS', 'VAL']
+        baseline_masks = self.get_contours_from_image(baseline)
+        followup_masks = self.get_contours_from_image(followup)
+    
+        dfs = []
+        for bmask_key, fmask_key in zip(baseline_masks, followup_masks):
+            bmask = self.reg_data[bmask_key]
+            fmask = self.reg_data[fmask_key]
+            common_str = bmask_key.split(self.contour_identifier)[1].split(self.image_identifier)[0].replace('_', '')
+    
+            mask = (bmask > 0) & (fmask > 0)
+            FVBV = np.sum(remodelling_image[mask] == 3) / np.sum(remodelling_image[mask] == 2)
+            RVBV = np.sum(remodelling_image[mask] == 1) / np.sum(remodelling_image[mask] == 2)
+            BV = np.sum(remodelling_image[mask] == 2)
+    
+            dfs.append(pd.DataFrame(
+                [[self.name, self.site, '{}_{}'.format(baseline, followup), self.threshold, self.cluster, common_str,
+                  'FVBV', FVBV]], columns=cols))
+            dfs.append(pd.DataFrame(
+                [[self.name, self.site, '{}_{}'.format(baseline, followup), self.threshold, self.cluster, common_str,
+                  'RVBV', RVBV]], columns=cols))
+            dfs.append(pd.DataFrame(
+                [[self.name, self.site, '{}_{}'.format(baseline, followup), self.threshold, self.cluster, common_str,
+                  'BV', BV]], columns=cols))
+    
+        df = pd.concat(dfs)
+        return df        
+
+    def common_region(self,image):
+        """
+        Calculate the common region among all masks and images.
+
+        Parameters:
+            image (str): The name/key of the image used as a reference for common region calculation.
+
+        Returns:
+            np.ndarray: The combined binary mask representing the common region.
+        """
+        # First all images need to be transformed
+        self.transform_all(image)
+
+        # Step 1: Separate masks based on their suffixes
+        contour_masks = {}
+        for key in self.reg_data:
+            if key.startswith(self.contour_identifier):
+                suffix = key.split('_')[-1]
+                if suffix not in contour_masks:
+                    contour_masks[suffix] = []
+                contour_masks[suffix].append(key)
+    
+        # Step 2: Combine masks with the same suffix using the '|' operator
+        combined_masks = {}
+        for suffix, masks in contour_masks.items():
+            combined_mask = None
+            for mask_key in masks:
+                mask_image = self.reg_data[mask_key].astype(bool)  # Convert to bool data type
+                if combined_mask is None:
+                    combined_mask = mask_image
+                else:
+                    combined_mask |= mask_image
+            combined_masks[f"image_{suffix}"] = combined_mask.astype(int)  # Convert back to int data type
+    
+        # Step 3: Combine the results using the '&' operator along the channel axis (axis=2)
+        final_mask = None
+        for mask_image in combined_masks.values():
+            if final_mask is None:
+                final_mask = mask_image
+            else:
+                final_mask &= mask_image
+    
+        self.reg_data['common_region'] = final_mask    
+        return final_mask
+
+    def save(self,image,path):
+        """
+        Save the timelapse series data and analysis results.
+
+        Parameters:
+            image (str): The name/key of the image used as a reference for saving data.
+            path (str): The path where data and analysis results will be saved.
+        """
+        path = os.path.join(path, self.name)
+        if not os.path.exists(path):
+            os.makedirs(path)
+        
+        self.common_region(image)
+        df = pd.concat(self.analysis_results)
+        
+        df.to_csv(os.path.join(path,self.name+'.csv'))
+        dict_to_vtkFile(self.reg_data, os.path.join(path,self.name+'.vti'))
+
+    
+    def get_image(self, image_name: str) -> str:
+        """
+        Get the key of an image in the data dictionary.
+
+        Returns:
+            str: Key of the image.
+        """
+        return '_'.join([self.image_identifier, image_name])
+
+    
+    def get_contour(self, contour_name: str, image_name: str) -> str:
+        """
+        Get the key of a contour in the data dictionary.
+
+        Returns:
+            str: Key of the contour.
+        """
+        return '_'.join([self.contour_identifier, contour_name, self.get_image(image_name)])
+
+    
+    def get_all_images(self) -> List[str]:
+        """
+        Get the keys of all images in the data dictionary.
+
+        Returns:
+            list of str: List of image keys/names.
+        """
+        return [
+            key[len(self.image_identifier) + 1:] 
+            for key in self.data.keys() 
+            if key.startswith(self.image_identifier)
+        ]
+
+    def get_all_contours(self) -> List[str]:
+        """
+        Get the keys of all contours in the data dictionary.
+
+        Returns:
+            list of str: List of contour keys/names.
+        """
+        return [
+            self.contour_identifier + key[len(self.contour_identifier):] 
+            for key in self.data.keys() 
+            if key.startswith(self.contour_identifier)
+        ]
+
+    
+    def get_all_data(self) -> List[str]:
+        """
+        Get all keys (images and contours) stored in the data dictionary.
+
+        Returns:
+            list of str: List of all keys.
+        """
+        return list(self.data.keys())
+
+    
+    def get_contours_from_image(self, image_name: str) -> List[str]:
+        """
+        Get the image and associated contour keys for a given image name.
+
+        Parameters:
+            image_name (str): The name/key of the image to retrieve.
+
+        Returns:
+            list of str: A list containing the associated contour keys.
+        """
+        contours = [
+            self.contour_identifier + key[len(self.contour_identifier):] 
+            for key in self.data.keys() 
+            if key.startswith(self.contour_identifier) and (key.find(image_name) != -1)
+        ]
+        if len(contours) < 1:
+            raise ValueError("Image not associated with any contour.")
+        return contours
+
+    
+    def load_aim(self,path,crop=False):
+        """
+        Load image and position data from an AIM file.
+
+        Parameters:
+            path (str): The path to the AIM file.
+            crop (bool): If True, crop images to the smallest bounding box (default: False).
+
+        Returns:
+            np.ndarray: The image data loaded from the AIM file.
+            dict: The position information loaded from the AIM file.
+        """
+        data = aim.load_aim(path)
+        image = np.asarray(data.data)
+        position = data.position
+        voxelsize = data.voxelsize.to('mm').magnitude[0]
+        
+        # This is to rescale different resolutions (rare case)
+        if self.resolution is not None:
+            if abs(self.resolution-voxelsize)>1e-3:
+                image = self.rescale_image(image, res_from=voxelsize, res_to=self.resolution)
+
+        if crop:
+            if len(np.unique(image)>2):
+                binary_mask = getLargestCC(combined_threshold(image))
+            else:
+                binary_mask = image
+            # Crop image to smallest bounding box
+            bb = boundingbox_from_mask(binary_mask)
+            image = image[bb]
+            position = update_pos_with_bb(position, bb)
+        
+        return image, position
+
+    
+    def rescale_image(self, data, res_from=1, res_to=1, order=1):
+        """
+        Rescale the image data to a different resolution.
+
+        Parameters:
+            data (np.ndarray): The image data to be rescaled.
+            res_from (float): The original resolution of the image (default: 1).
+            res_to (float): The desired resolution to which the image should be rescaled (default: 1).
+            order (int): The order of interpolation used for rescaling (default: 1).
+
+        Returns:
+            np.ndarray: The rescaled image data.
+        """  
+        # Calculate the scaling factor for each axis
+        scaling_factors = [res_from / res_to,]*3
+        
+        # Perform the upscaling using linear interpolation (order=1)
+        return zoom(data, scaling_factors, order=order, mode='nearest')
+    
+
+    def update_size_and_position(self):
+        """
+        Update the size and position information for all images and contours to match the overall shape.
+        """
+        for key in self.get_all_data():
+            self.data[key], self.position[key] = pad_array_centered(
+                self.data[key], self.position[key], self.shape)
+
+
+
