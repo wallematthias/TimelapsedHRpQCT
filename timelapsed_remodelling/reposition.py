@@ -70,10 +70,13 @@ def pad_and_crop_position(array, position, new_position):
     )
 
     # Crop the array if necessary
-    if crop_x > 0 or crop_y > 0 or crop_z > 0:
-        cropped_array = padded_array[crop_x:, crop_y:, crop_z:]
-    else:
-        cropped_array = padded_array
+    crop_x = np.max([crop_x,0])
+    crop_y = np.max([crop_y,0])
+    crop_z = np.max([crop_z,0])
+    
+    cropped_array = padded_array[crop_x:, crop_y:, crop_z:]
+
 
     return cropped_array
+
 

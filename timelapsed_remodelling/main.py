@@ -2,16 +2,16 @@
 from glob import glob
 import os
 import argparse
-
 from timelapsed_remodelling import custom_logger
 from timelapsed_remodelling.timelapse import TimelapsedImageSeries
 from timelapsed_remodelling.register import Registration
+import re
 
 def get_sort_key(filename):
     # Extract the part after the last underscore and sort based on that
     return filename.split('_')[-1]
 
-def process_patients(paths, result_pairs, tibia_identifiers, resolution, output_path):
+def process_patients(paths, result_pairs, tibia_identifiers, resolution, output_path, trabmask, cortmask):
     
     patient_name = os.path.basename(paths[0])
 
@@ -19,7 +19,7 @@ def process_patients(paths, result_pairs, tibia_identifiers, resolution, output_
         site = 'tibia'
     else:
         site = 'radius'
-    print('here')
+
     # Create an instance of the registration
     reg = Registration(
         sampling=0.01,
@@ -30,27 +30,35 @@ def process_patients(paths, result_pairs, tibia_identifiers, resolution, output_
         smoothingSigmas=[0, 0, 0, 0, 1, 0])
     reg.setInterpolator('linear')
     reg.setSimilarityMetric('correlation')
-    print('here2')
     processor = TimelapsedImageSeries(site, patient_name, resolution=resolution, crop=True)
 
     for i, scan in enumerate(paths):
         custom_logger.info(scan)
         processor.add_image(str(i), scan)
-        processor.generate_contour(str(i),path=output_path)
-    print('here3')    
+        
+        clean_scan_name = re.sub(r';\d+', '', scan)
+        custom_logger.info(clean_scan_name)
+        trab_mask_path = glob(clean_scan_name.replace('.AIM',f'_{trabmask}.AIM*'))
+        cort_mask_path = glob(clean_scan_name.replace('.AIM',f'_{cortmask}.AIM*'))
+        custom_logger.info(trab_mask_path[0])
+        custom_logger.info(cort_mask_path[0])
+        if len(trab_mask_path+cort_mask_path)>0:
+            processor.add_contour_to_image(str(i),trabmask,trab_mask_path[0])
+            processor.add_contour_to_image(str(i),cortmask,cort_mask_path[0])
+        else: #generate if not given                                                
+            processor.generate_contour(str(i),path=output_path)
+    processor.debug(outpath=output_path)   
+    processor.motion_grade(outpath=output_path)
     processor.register(reg,path=output_path)
     # Convert input into pairs of tuples (baseline, followup)
     pairs = [tuple(result_pairs[i:i+2]) for i in range(0, len(result_pairs), 2)]
     for i, (baseline, followup) in enumerate(pairs, 1):
-        custom_logger.info(baseline)
-        custom_logger.info(followup)
-        processor.analyse(str(baseline), str(followup), threshold=225, cluster=12)
+        processor.analyse(str(baseline), str(followup), threshold=225, cluster=12, outpath=output_path)
 
-    processor.save(str(result_pairs[0]), output_path)
+    processor.save(str(result_pairs[0]), output_path,visualise=False)
     
 
 def main():
-    print('here0')
     parser = argparse.ArgumentParser(description='Process patients from a directory using glob pattern.')
     parser.add_argument('paths', nargs="+", default='*.AIM*', type=str, help='Path to the directory containing the patient files.')
     parser.add_argument('--resolution', type=float, default=0.06069965288043022, help='Resolution value in mm.')
@@ -59,7 +67,7 @@ def main():
         "--result_pairs",
         nargs="+",
         type=str,
-        default = [['MOO', 'M06'],['M00','M12'],['M06','M12']],
+        default = ['0','1'],
         help="Baseline-followup pairs. Each pair should be separated by a space.")
     parser.add_argument(
         "--tibia_identifiers",
@@ -67,9 +75,15 @@ def main():
         type=str,
         default = ['DT','LT','RT','TR','TL'],
         help="Baseline-followup pairs. Each pair should be separated by a space.")
+    
+    parser.add_argument('--trabmask', default='TRAB_MASK')
+    parser.add_argument('--cortmask', default='CORT_MASK')
+    
 
     args = parser.parse_args()
-    process_patients(args.paths, args.result_pairs, args.tibia_identifiers ,args.resolution, args.output_path)
+    paths = [item for item in args.paths if "MASK" not in item]
+
+    process_patients(paths, args.result_pairs, args.tibia_identifiers ,args.resolution, args.output_path, args.trabmask, args.cortmask)
 
 
 if __name__ == "__main__":

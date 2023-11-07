@@ -7,7 +7,9 @@ import pandas as pd
 import SimpleITK as sitk
 from scipy.ndimage import zoom
 from typing import List 
-
+import matplotlib.pyplot as plt
+from matplotlib.colors import ListedColormap
+import uuid
 from aim import aim
 from .contour import outer_contour, inner_contour, combined_threshold, getLargestCC
 from .transform import TimelapsedTransformation
@@ -16,14 +18,81 @@ from .remodell import hrpqct_remodelling_logic
 from .reposition import (
     pad_array_centered, pad_and_crop_position, boundingbox_from_mask, update_pos_with_bb
 )
+from aim.resize_reposition_image import crop_pad_image
 from .visualise import dict_to_vtkFile
 from .motiongrade import automatic_motion_score
 from . import custom_logger
 
 import warnings
+from functools import reduce
 
 # Suppress all warnings (not recommended for production code)
 #warnings.filterwarnings("ignore")
+
+def plot_remodelling(array, image_key, path=None):
+    # Get the shape of the input array
+    z_dim, x_dim, y_dim = array.shape
+    
+    # Find the central slice along the z-axis
+    central_slice = array[z_dim // 2, :, :]
+    
+    # Define color mapping for 0, 1, 2, and 3
+    cmap = plt.cm.colors.ListedColormap(['white', 'purple', 'gray', 'orange'])
+    
+    # Create a figure and axis
+    fig, ax = plt.subplots()
+    
+    # Display the central slice with colors based on the colormap
+    ax.imshow(central_slice, cmap=cmap, interpolation='nearest')
+    
+    # Show the colorbar for reference
+    cbar = plt.colorbar(ax.imshow(central_slice, cmap=cmap, interpolation='nearest'), ax=ax, ticks=[0, 1, 2, 3])
+    cbar.set_ticklabels(['', 'Resorption', 'Quiescence', 'Formation'])
+    
+    ax.axis('off')
+
+    # Set plot title
+    file_name = f'{image_key}_remodelling.png'
+    plt.title(image_key)  # Set the title of the plot
+    plt.savefig(os.path.join(path,file_name))
+
+def plot_slice_with_masks_and_save(image, masks, image_key, path=None):
+    """
+    Plot one z-slice of the 3D grayscale image with masks overlaid, save the plot,
+    and use the image_key as the title.
+    
+    Args:
+        image (ndarray): 3D grayscale image.
+        masks (list of ndarray): List of 3D binary masks.
+        image_key (str): Title for the plot and part of the file name.
+    """
+    # Select a z-slice
+    z_slice = image.shape[2] // 2  # You can modify this to select a specific z-slice
+    
+    # Create a colormap with transparent colors
+    cmap = ListedColormap(['red', 'green', 'blue', 'purple', 'orange', 'yellow', 'cyan', 'magenta'])
+    
+    # Plot the grayscale image
+    plt.imshow(image[:, :, z_slice], cmap='gray')
+    
+    # Overlay masks with different transparent colors
+    for idx, mask in enumerate(masks):
+        mask_slice = mask[:, :, z_slice]
+        mask_rgba = np.zeros((mask_slice.shape[0], mask_slice.shape[1], 4))
+        mask_rgba[mask_slice > 0] = [idx/len(masks), 1, 1, 0.5]  # Set alpha channel to 0.5 for transparency
+        plt.imshow(mask_rgba, cmap=cmap, interpolation='none', aspect='auto')
+    
+    # Generate a random string for the file name
+    random_string = str(uuid.uuid4())
+    
+    # Save the plot with the randomly generated string and image_key in the file name
+    file_name = f'{image_key}_masks.png'
+    plt.title(image_key)  # Set the title of the plot
+    plt.savefig(os.path.join(path,file_name))
+    
+    # Show the plot (optional)
+    plt.show()
+
 
 def save_dict_to_hdf5(file_name: str, dictionary: dict):
     """
@@ -68,6 +137,7 @@ def load_numpy_array_from_mha(file_path: str) -> np.ndarray:
     numpy_array = sitk.GetArrayFromImage(image)
 
     return numpy_array
+
 
 class TimelapsedImageSeries:
     """
@@ -134,8 +204,6 @@ class TimelapsedImageSeries:
             
             # get the new shape of the series and update size
             self.shape = np.amax([self.shape, image_data.shape],axis=0)
-            self.update_size_and_position()
-
     
     def add_contour_to_image(self, image_name, contour_name, contour_path):
         """
@@ -154,16 +222,19 @@ class TimelapsedImageSeries:
     
             # Get the position from the image
             new_position = self.position[self.get_image(image_name)]
-            contour_data = pad_and_crop_position(contour_data, position, new_position)
-    
+            ref_image = self.data[self.get_image(image_name)]
+            new_shape = ref_image.shape
+            #contour_data = pad_and_crop_position(contour_data, position, new_position,new_shape)
+            contour_data = crop_pad_image(ref_image,contour_data, ref_img_position=new_position,
+                   resize_img_position=position)
+        
             # Add the cropped contour to the series
             self.data[self.get_contour(contour_name, image_name)] = contour_data
             self.position[self.get_contour(contour_name, image_name)] = new_position
     
             # Get the new shape of the series and update all to be the same
             self.shape = np.amax([self.shape, contour_data.shape], axis=0)
-            self.update_size_and_position()
-    
+
             if self.get_image(image_name) not in self.image_contour_mapping:
                 self.image_contour_mapping[self.get_image(image_name)] = []
             self.image_contour_mapping[self.get_image(image_name)].append(self.get_contour(contour_name, image_name))
@@ -250,6 +321,7 @@ class TimelapsedImageSeries:
         else:
             TRANSFORM_PATH = ''
         
+        self.update_size_and_position()
         self.registration = registration
 
         imkeys = self.get_all_images()
@@ -263,10 +335,15 @@ class TimelapsedImageSeries:
 
             # Check if registration masks were set
             if len(self.get_all_contours())>=len(self.get_all_images()):
+                
                 registration.setRegistrationMask(
-                    self.data[self.get_contours_from_image(baseline_key)[mask_nr]],
-                    self.data[self.get_contours_from_image(followup_key)[mask_nr]])
+                    #self.data[self.get_contours_from_image(baseline_key)[mask_nr]],
+                    #self.data[self.get_contours_from_image(followup_key)[mask_nr]])
+                    np.sum([self.data[key] for key in self.get_contours_from_image(baseline_key)],axis=0)>0,
+                    np.sum([self.data[key] for key in self.get_contours_from_image(followup_key)],axis=0)>0)
 
+                
+                
             # Here we start the registration
             tpath = os.path.join(TRANSFORM_PATH,'{}_{}_{}.tfm').format(baseline_num,followup_num,self.name)
 
@@ -287,18 +364,35 @@ class TimelapsedImageSeries:
 
     def motion_grade(self,outpath=None):
 
+        path = os.path.join(outpath, self.name)
+        if not os.path.exists(path):
+            os.makedirs(path)
+            
         for im in self.get_all_images():
 
             key = self.get_image(im)
-            
+            custom_logger.info(os.path.basename(self.path_data[key]))
+            name = os.path.basename(self.path_data[key]).split('.')[0]
             mscore, mscorevalue = automatic_motion_score(
-                self.data[key], outpath=outpath, stackheight=168)
+                self.data[key], outpath=os.path.join(path,name), stackheight=167)
 
-            logger.info('Motion Score {}: {}'.format(key,mscore))
+            custom_logger.info('Motion Score {}: {}'.format(key,mscore))
             
             self.motion_data[im] = mscore
 
-    
+    def debug(self,outpath=None):
+        
+        path = os.path.join(outpath, self.name)
+        if not os.path.exists(path):
+            os.makedirs(path)
+        
+        self.update_size_and_position()
+        for im in self.get_all_images():
+            image_key = self.get_image(im)
+            image = self.data[image_key]
+            contours = [self.data[key] for key in self.get_contours_from_image(image_key)]
+            plot_slice_with_masks_and_save(image, contours, image_key, path)
+            
     def transform_all(self,transform_to):
         """
         Transform all images and contours to a common reference space.
@@ -311,7 +405,8 @@ class TimelapsedImageSeries:
         #transform_to = self.get_image(transform_to)
         
         for data_key in self.get_all_data():
-            transform_from = [key for key in nodes if key in data_key][0]            
+            transform_from = [key for key in nodes if key in data_key][0]
+            #custom_logger.info(transform_from)
             # Transform if necessary
             if transform_to != transform_from:
                  transformed_image = self.transform.transform(
@@ -323,7 +418,7 @@ class TimelapsedImageSeries:
             # Save registered data
             self.reg_data[data_key] = transformed_image
     
-    def analyse(self, baseline, followup, threshold=225, cluster=5):
+    def analyse(self, baseline, followup, threshold=225, cluster=5, outpath=None):
         """
         Analyze the timelapse series and calculate various metrics.
     
@@ -345,13 +440,17 @@ class TimelapsedImageSeries:
     
         # Perform HR-pQCT remodelling analysis
         remodelling_image = hrpqct_remodelling_logic(baseline_data, followup_data, mask=common_region)
-    
+        
+        plot_remodelling(remodelling_image, f'{baseline}_{followup}_remodelling', os.path.join(outpath,self.name))
+
         # Calculate metrics and save results
         df = self.calculate_metrics_and_save_results(baseline, followup, remodelling_image)
     
         self.analysis_results.append(df)
         custom_logger.info(df)
     
+            
+            
     def calculate_metrics_and_save_results(self, baseline, followup, remodelling_image):
         """
         Calculate metrics based on HR-pQCT remodelling image and save the results to a DataFrame.
@@ -364,7 +463,10 @@ class TimelapsedImageSeries:
         Returns:
             pd.DataFrame: DataFrame containing the calculated metrics.
         """
-        cols = ['IM', 'SITE', 'BASE_FOLL', 'THR', 'CLUSTER', 'ROI', 'MEAS', 'VAL']
+        cols = ['IM','BASE_NAME','FOLLOW_NAME' ,'SITE','BASE_FOLL','BASE_MOTION','FOLLOW_MOTION', 'THR', 'CLUSTER', 'ROI', 'MEAS', 'VAL']
+        baseline_name = os.path.basename(self.path_data[self.get_image(baseline)]).split('.')[0]
+        followup_name = os.path.basename(self.path_data[self.get_image(followup)]).split('.')[0]
+        
         baseline_masks = self.get_contours_from_image(baseline)
         followup_masks = self.get_contours_from_image(followup)
     
@@ -380,13 +482,13 @@ class TimelapsedImageSeries:
             BV = np.sum(remodelling_image[mask] == 2)
     
             dfs.append(pd.DataFrame(
-                [[self.name, self.site, '{}_{}'.format(baseline, followup), self.threshold, self.cluster, common_str,
+                [[self.name, baseline_name, followup_name, self.site, '{}_{}'.format(baseline, followup), self.motion_data[baseline], self.motion_data[followup], self.threshold, self.cluster, common_str,
                   'FVBV', FVBV]], columns=cols))
             dfs.append(pd.DataFrame(
-                [[self.name, self.site, '{}_{}'.format(baseline, followup), self.threshold, self.cluster, common_str,
+                [[self.name, baseline_name, followup_name, self.site, '{}_{}'.format(baseline, followup), self.motion_data[baseline], self.motion_data[followup], self.threshold, self.cluster, common_str,
                   'RVBV', RVBV]], columns=cols))
             dfs.append(pd.DataFrame(
-                [[self.name, self.site, '{}_{}'.format(baseline, followup), self.threshold, self.cluster, common_str,
+                [[self.name, baseline_name, followup_name, self.site, '{}_{}'.format(baseline, followup), self.motion_data[baseline], self.motion_data[followup], self.threshold, self.cluster, common_str,
                   'BV', BV]], columns=cols))
     
         df = pd.concat(dfs)
@@ -437,7 +539,7 @@ class TimelapsedImageSeries:
         self.reg_data['common_region'] = final_mask    
         return final_mask
 
-    def save(self,image,path):
+    def save(self,image,path,visualise=True):
         """
         Save the timelapse series data and analysis results.
 
@@ -453,7 +555,8 @@ class TimelapsedImageSeries:
         df = pd.concat(self.analysis_results)
         
         df.to_csv(os.path.join(path,self.name+'.csv'))
-        dict_to_vtkFile(self.reg_data, os.path.join(path,self.name+'.vti'))
+        if visualise:
+            dict_to_vtkFile(self.reg_data, os.path.join(path,self.name+'.vti'))
 
     
     def get_image(self, image_name: str) -> str:

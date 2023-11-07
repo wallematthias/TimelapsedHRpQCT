@@ -8,5 +8,10 @@ pandas
 scikit-image
 matplotlib
 tabulate
+prettytable
+h5py
+vtk
+tensorflow
+opencv-python
 itkwidgets[all]>=1.0a21
-#aim @ git+'https://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@github.com/OpenMSKImaging/aim.git'
+# aim @ git+'https://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@github.com/OpenMSKImaging/aim.git'

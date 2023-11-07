@@ -1,3 +1,10 @@
+
+import os
+import warnings
+warnings.filterwarnings("ignore")
+os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
+os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
+os.environ["TF_ENABLE_ONEDNN_OPTS"] = "0"
 from aim import aim
 from skimage.filters import gaussian
 from skimage.measure import label   
@@ -9,8 +16,11 @@ from PIL import Image
 import cv2
 import matplotlib.pyplot as plt
 from pathlib import Path
-import os
 from tensorflow.keras.preprocessing.image import img_to_array
+import pandas as pd
+from IPython.display import display, clear_output 
+from IPython.display import Image as iImage
+
 
 
 def pad_to_square(image):
@@ -83,8 +93,10 @@ def get_indices(scores, confidences):
     return indices, scores
 
 def automatic_motion_score(im_raw, outpath=None, stackheight=168):
-   
-    os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
+    
+    if stackheight>im_raw.shape[2]:
+        print(f'Stackheight input {stackheight} larger than image {im_raw.shape[2]} reducing stackheight')
+        stackheight = im_raw.shape[2]
 
     model_paths = sorted(glob(os.path.join(
             os.path.dirname(
@@ -174,10 +186,108 @@ def automatic_motion_score(im_raw, outpath=None, stackheight=168):
         t = ax.text(-0.9, y + stackheight / 2, 'Score {} ({})'.format(s, val), fontsize=8)
         t.set_bbox(dict(facecolor='white', alpha=0.6, edgecolor='white'))
 
-    plt.savefig(os.path.join(outpath,'motiongrade.png'), transparent=False)
+    # Convert mscorevalue to a percentage
+    mscore_percentage = int(mscorevalue * 100)
+    mscore_int = int(mscore)
+
+    # Create the filename using f-string formatting
+    filename = f'{outpath}_{mscore_int}_{mscore_percentage}_motion.png'
+        
+    plt.savefig(filename, transparent=False)
     plt.show()
     plt.close(fig)
     if len(score) > 1:
         return np.append(score, mscore), np.append(scorevalue, mscorevalue)
     else:
         return mscore, mscorevalue
+
+def grade_images(image_folder_path,stackheight,outpath):
+
+    paths = glob(image_folder_path)
+
+    # Keywords to exclude (case-insensitive)
+    exclude_keywords = ['mask', 'trab', 'cort']
+    
+    # Filter out images containing excluded keywords in their filename
+    paths = [path for path in paths if not any(keyword.lower() in os.path.basename(path).lower() for keyword in exclude_keywords)]
+    
+    for path in paths:
+        file = aim.load_aim(path)
+        name = os.path.basename(path).split('.')[0]
+        mscore, mscorevalue = automatic_motion_score(
+            file.data, outpath=os.path.join(outpath,name), stackheight=stackheight)
+        
+        print('Motion Score {}: {}'.format(name,mscore))
+    
+def confirm_images(image_folder_path, confidence_threshold, output_path):
+    image_files = glob(image_folder_path)
+
+    data = []
+    total_images = len(image_files)
+    graded_images = 0
+
+    for image_path in image_files:
+        file_name = os.path.splitext(os.path.basename(image_path))[0]
+        file_parts = file_name.split('_')
+
+        if len(file_parts) >= 3:
+            motion_score_default = int(file_parts[-3])  
+            confidence_default = int(file_parts[-2])
+            filename = '_'.join(file_parts[:-3]) 
+        else:
+            motion_score_default = ""
+            confidence_default = ""
+            filename = ""
+
+        grading_type = "automatic" if confidence_default >= confidence_threshold else "manual"
+
+        if confidence_default < confidence_threshold:
+            clear_output(wait=True)
+            graded_images += 1
+            remaining_images = total_images - graded_images
+            print(f"Graded {graded_images} out of {total_images} images. {remaining_images} images remaining.")
+            display(iImage(filename=image_path))
+            motion_score = input(f"Enter your assessment for the motion score [{motion_score_default}]: ")
+            if not motion_score:
+                motion_score = motion_score_default
+
+        else:
+            motion_score = motion_score_default
+            graded_images += 1
+
+        data.append({'filename': filename, 'manual_grade': int(motion_score), 'automatic_grade': int(motion_score_default), 'confidence': int(confidence_default)})
+
+    data_df = pd.DataFrame(data)
+    data_df.to_csv(output_path, index=False)
+
+    correct_predictions = (data_df['manual_grade'] == data_df['automatic_grade']).sum()
+    total_predictions = len(data_df)
+    accuracy = correct_predictions / total_predictions
+
+    print("Grading completed. Graded data saved to '{}'.".format(output_path))
+    print(f"Accuracy: {accuracy * 100:.2f}%")
+    
+def main(option='grade'):
+    # Get user input or specify the arguments here
+    
+    
+    if option == 'confirm':
+        image_folder_path = input("Enter the image folder path (e.g., /path/to/data/*motion.png): ")
+        confidence_threshold = int(input("Enter the confidence threshold (e.g., 75 [%]): "))
+        output_path = input("Enter the output file path for graded data (e.g., graded_data.csv): ")
+    
+        # Call the function with user-provided arguments
+        confirm_images(image_folder_path, confidence_threshold, output_path)
+        
+    elif option=='grade':
+        image_folder_path = input("Enter the image folder path (e.g. /path/to/data/*.AIM): ")
+        stackheight = int(input("Enter the stackheight (e.g. 168): "))
+        output_path = input("Enter the output file path for graded data (e.g., /path/to/output/data/): ")
+        
+        grade_images(image_folder_path,stackheight,output_path)
+    else: 
+        print('Enter valid option grade/confirm')
+    
+    
+if __name__ == "__main__":
+    main()
