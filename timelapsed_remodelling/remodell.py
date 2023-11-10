@@ -3,6 +3,7 @@ import numpy as np
 from skimage.morphology import remove_small_objects
 from .contour import combined_threshold
 from . import custom_logger
+from skimage.filters import gaussian
 
 def hrpqct_remodelling_logic(baseline, followup, mask=None, threshold=225, cluster=5):
     """
@@ -44,7 +45,7 @@ def hrpqct_remodelling_logic(baseline, followup, mask=None, threshold=225, clust
     seg_followup = combined_threshold(followup) * mask
     
     # Calculate the grayscale difference between the follow-up and baseline images, considering only the region of interest.
-    grayscale_difference = (followup - baseline) * mask
+    grayscale_difference = (gaussian(followup, sigma=1.2) - gaussian(baseline, sigma=1.2)) * mask
 
     # Classify regions of bone formation and resorption based on thresholding the segmented images and grayscale difference.
     binary_formation = ~seg_baseline & seg_followup
@@ -56,6 +57,10 @@ def hrpqct_remodelling_logic(baseline, followup, mask=None, threshold=225, clust
     formation = remove_small_objects(binary_formation & gray_formation, min_size=cluster)
     resorption = remove_small_objects(binary_resorption & gray_resorption, min_size=cluster)
 
+    # Mineralisation
+    #formation = remove_small_objects(gray_formation & (seg_baseline | seg_followup), min_size=cluster)
+    #resorption = remove_small_objects(gray_resorption & (seg_baseline | seg_followup), min_size=cluster)
+    
     # Classify regions of quiescence where no significant changes are observed.
     quiescence = seg_baseline & ~formation & ~resorption
 

@@ -476,7 +476,7 @@ class TimelapsedImageSeries:
             fmask = self.reg_data[fmask_key]
             common_str = bmask_key.split(self.contour_identifier)[1].split(self.image_identifier)[0].replace('_', '')
     
-            mask = (bmask > 0) & (fmask > 0)
+            mask = (bmask > 0) #| (fmask > 0) #just based on baseline is better
             FVBV = np.sum(remodelling_image[mask] == 3) / np.sum(remodelling_image[mask] == 2)
             RVBV = np.sum(remodelling_image[mask] == 1) / np.sum(remodelling_image[mask] == 2)
             BV = np.sum(remodelling_image[mask] == 2)

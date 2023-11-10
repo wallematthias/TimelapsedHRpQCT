@@ -53,7 +53,10 @@ def process_patients(paths, result_pairs, tibia_identifiers, resolution, output_
     # Convert input into pairs of tuples (baseline, followup)
     pairs = [tuple(result_pairs[i:i+2]) for i in range(0, len(result_pairs), 2)]
     for i, (baseline, followup) in enumerate(pairs, 1):
-        processor.analyse(str(baseline), str(followup), threshold=225, cluster=12, outpath=output_path)
+        try:
+            processor.analyse(str(baseline), str(followup), threshold=225, cluster=12, outpath=output_path)
+        except:
+            custom_logger.info(f'Could not analyse baseline {baseline} followup {followup}')
 
     processor.save(str(result_pairs[0]), output_path,visualise=False)
     
@@ -82,8 +85,9 @@ def main():
 
     args = parser.parse_args()
     paths = [item for item in args.paths if "MASK" not in item]
+    sorted_paths = sorted(paths)
 
-    process_patients(paths, args.result_pairs, args.tibia_identifiers ,args.resolution, args.output_path, args.trabmask, args.cortmask)
+    process_patients(sorted_paths, args.result_pairs, args.tibia_identifiers ,args.resolution, args.output_path, args.trabmask, args.cortmask)
 
 
 if __name__ == "__main__":
