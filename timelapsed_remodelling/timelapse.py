@@ -1,7 +1,7 @@
 import os
 from glob import glob
 import h5py
-
+import copy
 import numpy as np
 import pandas as pd
 import SimpleITK as sitk
@@ -437,9 +437,35 @@ class TimelapsedImageSeries:
         # Load baseline and followup image data
         baseline_data = self.reg_data[self.get_image(baseline)]
         followup_data = self.reg_data[self.get_image(followup)]
-    
+
+        # This part is a bit hacky and only for the silly trab/cort segmentation
+        if 1:
+            baseline_masks = self.get_contours_from_image(baseline)
+            followup_masks = self.get_contours_from_image(followup)
+            print(baseline_masks)
+            print(followup_masks)
+            # Find the first string containing "Trab" (case-insensitive)
+            btrab_key = next((s for s in baseline_masks if 'trab' in s.lower()), None)
+            bcort_key = next((s for s in baseline_masks if 'cort' in s.lower()), None)
+            ftrab_key = next((s for s in followup_masks if 'trab' in s.lower()), None)
+            fcort_key = next((s for s in followup_masks if 'cort' in s.lower()), None)
+            print(btrab_key)
+            print(bcort_key)
+            print(ftrab_key)
+            print(fcort_key)
+            # Get the according masks
+            # Assuming self.reg_data is a dictionary
+            segmask = {
+                'b_trab': copy.deepcopy(self.reg_data.get(btrab_key, {})),
+                'b_cort': copy.deepcopy(self.reg_data.get(bcort_key, {})),
+                'f_trab': copy.deepcopy(self.reg_data.get(ftrab_key, {})),
+                'f_cort': copy.deepcopy(self.reg_data.get(fcort_key, {}))
+            }
+        else:
+            segmask = None
+
         # Perform HR-pQCT remodelling analysis
-        remodelling_image = hrpqct_remodelling_logic(baseline_data, followup_data, mask=common_region)
+        remodelling_image = hrpqct_remodelling_logic(baseline_data, followup_data, mask=common_region, segmask=segmask)
         
         plot_remodelling(remodelling_image, f'{baseline}_{followup}_remodelling', os.path.join(outpath,self.name))
 

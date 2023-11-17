@@ -5,7 +5,7 @@ from .contour import combined_threshold
 from . import custom_logger
 from skimage.filters import gaussian
 
-def hrpqct_remodelling_logic(baseline, followup, mask=None, threshold=225, cluster=5):
+def hrpqct_remodelling_logic(baseline, followup, mask=None, threshold=225, cluster=5, segmask=None):
     """
     Apply remodelling logic to analyze changes between two images and classify the regions.
     
@@ -41,11 +41,31 @@ def hrpqct_remodelling_logic(baseline, followup, mask=None, threshold=225, clust
         mask = np.asarray(mask, dtype=bool)
         
     # Apply a thresholding function (combined_threshold) to segment the baseline and follow-up images based on pixel intensity.
-    seg_baseline = combined_threshold(baseline) * mask
-    seg_followup = combined_threshold(followup) * mask
+    
+    if segmask is not None: 
+        # Segment Baseline according to XT2 segmentation
+        baseline = gaussian(baseline, sigma=1.2)
+        followup = gaussian(followup, sigma=1.2)
+        seg_baseline = np.zeros_like(baseline).astype(bool)
+        seg_baseline[(baseline>320) & (segmask['b_trab']>0)]=True
+        seg_baseline[(baseline>450) & (segmask['b_cort']>0)]=True
+        
+        # Segment Followup according to XT2 segmentation
+        seg_followup = np.zeros_like(followup).astype(bool)
+        seg_followup[(followup>320) & (segmask['f_trab']>0)]=True
+        seg_followup[(followup>450) & (segmask['f_cort']>0)]=True
+        
+    else:
+        seg_baseline = combined_threshold(baseline)
+        seg_followup = combined_threshold(followup)
+        baseline = gaussian(baseline, sigma=1.2)
+        followup = gaussian(followup, sigma=1.2)
+        
+    seg_baseline *= mask
+    seg_followup *= mask
     
     # Calculate the grayscale difference between the follow-up and baseline images, considering only the region of interest.
-    grayscale_difference = (gaussian(followup, sigma=1.2) - gaussian(baseline, sigma=1.2)) * mask
+    grayscale_difference = (followup-baseline) * mask
 
     # Classify regions of bone formation and resorption based on thresholding the segmented images and grayscale difference.
     binary_formation = ~seg_baseline & seg_followup
