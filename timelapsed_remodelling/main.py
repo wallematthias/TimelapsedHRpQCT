@@ -48,15 +48,16 @@ def process_patients(paths, result_pairs, tibia_identifiers, resolution, output_
         else: #generate if not given                                                
             processor.generate_contour(str(i),path=output_path)
     processor.debug(outpath=output_path)   
-    processor.motion_grade(outpath=output_path)
+    #processor.motion_grade(outpath=output_path)
     processor.register(reg,path=output_path)
     # Convert input into pairs of tuples (baseline, followup)
     pairs = [tuple(result_pairs[i:i+2]) for i in range(0, len(result_pairs), 2)]
     for i, (baseline, followup) in enumerate(pairs, 1):
-        try:
-            processor.analyse(str(baseline), str(followup), threshold=225, cluster=12, outpath=output_path)
-        except:
-            custom_logger.info(f'Could not analyse baseline {baseline} followup {followup}')
+        #try:
+        processor.analyse(str(baseline), str(followup), threshold=225, cluster=12, outpath=output_path)
+        #except Exception as e:
+        #    print(e)
+        #    custom_logger.info(f'Could not analyse baseline {baseline} followup {followup}')
 
     processor.save(str(result_pairs[0]), output_path,visualise=False)
     

@@ -44,7 +44,7 @@ def pad_array_centered(array, position ,max_shape):
 
     # Create a new array with the required padding on each side
     padded_array = np.pad(array, ((pad_front, pad_back), (pad_left, pad_right), (pad_top, pad_bottom)), mode='constant', constant_values=0)
-    position_update = np.add(position,(pad_front, pad_left, pad_top))
+    position_update = np.add(position,(-pad_front, -pad_left, -pad_top))
     
     return padded_array, position_update
 

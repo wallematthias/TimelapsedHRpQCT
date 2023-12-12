@@ -29,6 +29,36 @@ from functools import reduce
 # Suppress all warnings (not recommended for production code)
 #warnings.filterwarnings("ignore")
 
+def write_mha_file(data, spacing=(1.0, 1.0, 1.0), origin=(0.0, 0.0, 0.0), direction=None, file_path="output.mha"):
+    """
+    Write a 3D NumPy array to an MHA file using SimpleITK.
+
+    Parameters:
+        data (numpy.ndarray): The 3D NumPy array.
+        spacing (tuple): Voxel spacing (default is (1.0, 1.0, 1.0)).
+        origin (tuple): Image origin (default is (0.0, 0.0, 0.0)).
+        direction (tuple): Image direction as a 3x3 matrix (default is None).
+        file_path (str): Output MHA file path (default is "output.mha").
+    """
+    # Create a SimpleITK image from the NumPy array
+
+    data = np.swapaxes(data, 0, 2)
+    spacing = spacing[::-1]
+    origin = origin[::-1]
+
+    image = sitk.GetImageFromArray(data)
+
+    # Set image metadata
+    image.SetSpacing(spacing)
+    image.SetOrigin(origin)
+    if direction is not None:
+        image.SetDirection(direction)
+
+    # Write the image to the MHA file
+    sitk.WriteImage(image, file_path)
+
+    print(f"Image written to {file_path}")
+
 def plot_remodelling(array, image_key, path=None):
     # Get the shape of the input array
     z_dim, x_dim, y_dim = array.shape
@@ -160,6 +190,7 @@ class TimelapsedImageSeries:
         self.registration = None
         self.transform = TimelapsedTransformation()
         self.position = {}
+        self.voxelsize= None
         self.image_contour_mapping = {}
         self.contour_identifier = 'contour'
         self.image_identifier = 'image'
@@ -374,7 +405,7 @@ class TimelapsedImageSeries:
             custom_logger.info(os.path.basename(self.path_data[key]))
             name = os.path.basename(self.path_data[key]).split('.')[0]
             mscore, mscorevalue = automatic_motion_score(
-                self.data[key], outpath=os.path.join(path,name), stackheight=167)
+                self.data[key], outpath=os.path.join(path,name), stackheight=168)
 
             custom_logger.info('Motion Score {}: {}'.format(key,mscore))
             
@@ -468,16 +499,25 @@ class TimelapsedImageSeries:
         remodelling_image = hrpqct_remodelling_logic(baseline_data, followup_data, mask=common_region, segmask=segmask)
         
         plot_remodelling(remodelling_image, f'{baseline}_{followup}_remodelling', os.path.join(outpath,self.name))
-
+        common_position = self.position[self.get_image(baseline)]
+        self.common_position = common_position
+        write_mha_file(
+            remodelling_image,
+            spacing=[self.voxelsize,]*3, 
+            origin = [int(x) for x in common_position],
+            file_path=os.path.join(outpath,self.name,f'{self.name}_remodelling_{baseline}_{followup}.mha')
+            )
+    
         # Calculate metrics and save results
-        df = self.calculate_metrics_and_save_results(baseline, followup, remodelling_image)
+        df = self.calculate_metrics_and_save_results(baseline, followup, remodelling_image,outpath=outpath)
     
         self.analysis_results.append(df)
         custom_logger.info(df)
-    
+
+
             
             
-    def calculate_metrics_and_save_results(self, baseline, followup, remodelling_image):
+    def calculate_metrics_and_save_results(self, baseline, followup, remodelling_image, outpath=None):
         """
         Calculate metrics based on HR-pQCT remodelling image and save the results to a DataFrame.
     
@@ -493,30 +533,52 @@ class TimelapsedImageSeries:
         baseline_name = os.path.basename(self.path_data[self.get_image(baseline)]).split('.')[0]
         followup_name = os.path.basename(self.path_data[self.get_image(followup)]).split('.')[0]
         
-        baseline_masks = self.get_contours_from_image(baseline)
-        followup_masks = self.get_contours_from_image(followup)
-    
+        baseline_masks = ['FULLMASK',] + self.get_contours_from_image(baseline)
+        followup_masks = ['FULLMASK',] + self.get_contours_from_image(followup)
+        
+        
         dfs = []
         for bmask_key, fmask_key in zip(baseline_masks, followup_masks):
-            bmask = self.reg_data[bmask_key]
-            fmask = self.reg_data[fmask_key]
-            common_str = bmask_key.split(self.contour_identifier)[1].split(self.image_identifier)[0].replace('_', '')
+            
+            # We are adding the full region for further analysis
+            if bmask_key == 'FULLMASK':
+                bmask = np.ones_like(remodelling_image)>0
+                fmask = np.ones_like(remodelling_image)>0
+                common_str = bmask_key
+            else:
+                bmask = self.reg_data[bmask_key]
+                fmask = self.reg_data[fmask_key]
+                common_str = bmask_key.split(self.contour_identifier)[1].split(self.image_identifier)[0].replace('_', '')
     
             mask = (bmask > 0) #| (fmask > 0) #just based on baseline is better
             FVBV = np.sum(remodelling_image[mask] == 3) / np.sum(remodelling_image[mask] == 2)
             RVBV = np.sum(remodelling_image[mask] == 1) / np.sum(remodelling_image[mask] == 2)
             BV = np.sum(remodelling_image[mask] == 2)
-    
+
+            try:
+                bmotion = self.motion_data[baseline]
+                fmotion = self.motion_data[followup]
+            except:
+                bmotion = np.nan
+                fmotion = np.nan
+
             dfs.append(pd.DataFrame(
-                [[self.name, baseline_name, followup_name, self.site, '{}_{}'.format(baseline, followup), self.motion_data[baseline], self.motion_data[followup], self.threshold, self.cluster, common_str,
+                [[self.name, baseline_name, followup_name, self.site, '{}_{}'.format(baseline, followup), bmotion, fmotion, self.threshold, self.cluster, common_str,
                   'FVBV', FVBV]], columns=cols))
             dfs.append(pd.DataFrame(
-                [[self.name, baseline_name, followup_name, self.site, '{}_{}'.format(baseline, followup), self.motion_data[baseline], self.motion_data[followup], self.threshold, self.cluster, common_str,
+                [[self.name, baseline_name, followup_name, self.site, '{}_{}'.format(baseline, followup), bmotion, fmotion, self.threshold, self.cluster, common_str,
                   'RVBV', RVBV]], columns=cols))
             dfs.append(pd.DataFrame(
-                [[self.name, baseline_name, followup_name, self.site, '{}_{}'.format(baseline, followup), self.motion_data[baseline], self.motion_data[followup], self.threshold, self.cluster, common_str,
+                [[self.name, baseline_name, followup_name, self.site, '{}_{}'.format(baseline, followup), bmotion, fmotion, self.threshold, self.cluster, common_str,
                   'BV', BV]], columns=cols))
     
+            write_mha_file(
+                mask.astype(int),
+                spacing=[self.voxelsize,]*3, 
+                origin = [int(x) for x in self.common_position],
+                file_path=os.path.join(outpath,self.name,f'{self.name}_{common_str}_{baseline}_{followup}.mha')
+                )
+
         df = pd.concat(dfs)
         return df        
 
@@ -683,6 +745,9 @@ class TimelapsedImageSeries:
         if self.resolution is not None:
             if abs(self.resolution-voxelsize)>1e-3:
                 image = self.rescale_image(image, res_from=voxelsize, res_to=self.resolution)
+                voxelsize = self.resolution
+
+        self.voxelsize=voxelsize
 
         if crop:
             if len(np.unique(image)>2):

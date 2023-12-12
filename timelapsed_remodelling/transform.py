@@ -99,7 +99,7 @@ class TimelapsedTransformation:
             custom_logger.info('Warning: Returning empty transformation')
             return sitk.Euler3DTransform()
 
-    def transform(self, image, source, target):
+    def transform(self, image, source, target, interpolator=sitk.sitkLinear):
         """
         Perform resampling of the input image using the computed transformation.
 
@@ -116,10 +116,10 @@ class TimelapsedTransformation:
         transform = self.get_transform(source=source, target=target)
 
         # Cast ITK images
-        im = sitk.Cast(sitk.GetImageFromArray(image.astype(int)), sitk.sitkFloat32)
+        im = sitk.Cast(sitk.GetImageFromArray(image.astype(float)), sitk.sitkFloat32)
 
         # Resample Images and get array
-        resampled_image = sitk.GetArrayFromImage(sitk.Resample(im, im, transform, sitk.sitkLinear, 0.0, im.GetPixelID()))
+        resampled_image = sitk.GetArrayFromImage(sitk.Resample(im, im, transform,interpolator , 0.0, im.GetPixelID()))
 
         return resampled_image
 
