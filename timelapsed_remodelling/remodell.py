@@ -5,7 +5,7 @@ from .contour import combined_threshold
 from . import custom_logger
 from skimage.filters import gaussian
 
-def hrpqct_remodelling_logic(baseline, followup, mask=None, threshold=225, cluster=5, segmask=None):
+def hrpqct_remodelling_logic(baseline, followup, mask=None, threshold=225, cluster=12, segmask=None):
     """
     Apply remodelling logic to analyze changes between two images and classify the regions.
     

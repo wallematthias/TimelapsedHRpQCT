@@ -1,4 +1,4 @@
-from ifb_framework.visualisations import _overlay_RGB_texture, overlay_mask
+from timelapsed_remodelling.visualise import _overlay_RGB_texture, overlay_mask
 import os
 import numpy as np
 

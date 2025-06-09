@@ -48,6 +48,9 @@ def write_mha_file(data, spacing=(1.0, 1.0, 1.0), origin=(0.0, 0.0, 0.0), direct
 
     image = sitk.GetImageFromArray(data)
 
+    # Ensure the image is of type float32
+    image = sitk.Cast(image, sitk.sitkUInt16)
+    
     # Set image metadata
     image.SetSpacing(spacing)
     image.SetOrigin(origin)
@@ -338,7 +341,7 @@ class TimelapsedImageSeries:
             save_numpy_array_as_mha(cort_mask, CORT_MASK_PATH)
 
     
-    def register(self, registration, mask_nr=0, path=None):
+    def register(self, registration, mask_nr=0, path=None, registration_mode = "sequential"):
         """
         Register images in the timelapse using the provided registration method.
 
@@ -356,7 +359,19 @@ class TimelapsedImageSeries:
         self.registration = registration
 
         imkeys = self.get_all_images()
-        for baseline_num, followup_num in zip(imkeys[:-1],imkeys[1:]):
+        
+        # Loop through the image keys
+        for followup_idx in range(1, len(imkeys)):
+            if registration_mode == "baseline":
+                # Register to the baseline image (index 0)
+                baseline_num = imkeys[0]
+                followup_num = imkeys[followup_idx]
+            else:
+                # Register consecutively
+                baseline_num = imkeys[followup_idx - 1]
+                followup_num = imkeys[followup_idx]        
+
+        #for baseline_num, followup_num in zip(imkeys[:-1],imkeys[1:]):
 
             baseline_key = self.get_image(baseline_num)
             followup_key = self.get_image(followup_num)
@@ -449,7 +464,7 @@ class TimelapsedImageSeries:
             # Save registered data
             self.reg_data[data_key] = transformed_image
     
-    def analyse(self, baseline, followup, threshold=225, cluster=5, outpath=None):
+    def analyse(self, baseline, followup, threshold=225, cluster=12, outpath=None):
         """
         Analyze the timelapse series and calculate various metrics.
     
@@ -462,41 +477,35 @@ class TimelapsedImageSeries:
         self.threshold = threshold
         self.cluster = cluster
     
-        # Get common region between baseline and followup images
+        # Get common region between baseline and followup images 
+        # This also transforms all images to "baseline"
         common_region = self.common_region(baseline)
     
-        # Load baseline and followup image data
+        # Load baseline and followup image data (registered to baseline)
         baseline_data = self.reg_data[self.get_image(baseline)]
         followup_data = self.reg_data[self.get_image(followup)]
 
         # This part is a bit hacky and only for the silly trab/cort segmentation
-        if 1:
-            baseline_masks = self.get_contours_from_image(baseline)
-            followup_masks = self.get_contours_from_image(followup)
-            print(baseline_masks)
-            print(followup_masks)
-            # Find the first string containing "Trab" (case-insensitive)
-            btrab_key = next((s for s in baseline_masks if 'trab' in s.lower()), None)
-            bcort_key = next((s for s in baseline_masks if 'cort' in s.lower()), None)
-            ftrab_key = next((s for s in followup_masks if 'trab' in s.lower()), None)
-            fcort_key = next((s for s in followup_masks if 'cort' in s.lower()), None)
-            print(btrab_key)
-            print(bcort_key)
-            print(ftrab_key)
-            print(fcort_key)
-            # Get the according masks
-            # Assuming self.reg_data is a dictionary
-            segmask = {
-                'b_trab': copy.deepcopy(self.reg_data.get(btrab_key, {})),
-                'b_cort': copy.deepcopy(self.reg_data.get(bcort_key, {})),
-                'f_trab': copy.deepcopy(self.reg_data.get(ftrab_key, {})),
-                'f_cort': copy.deepcopy(self.reg_data.get(fcort_key, {}))
-            }
-        else:
-            segmask = None
+        baseline_masks = self.get_contours_from_image(baseline)
+        followup_masks = self.get_contours_from_image(followup)
+
+        # Find the first string containing "Trab" (case-insensitive)
+        btrab_key = next((s for s in baseline_masks if 'trab' in s.lower()), None)
+        bcort_key = next((s for s in baseline_masks if 'cort' in s.lower()), None)
+        ftrab_key = next((s for s in followup_masks if 'trab' in s.lower()), None)
+        fcort_key = next((s for s in followup_masks if 'cort' in s.lower()), None)
+
+        # Get the according masks
+        # Assuming self.reg_data is a dictionary
+        segmask = {
+            'b_trab': copy.deepcopy(self.reg_data.get(btrab_key, {})),
+            'b_cort': copy.deepcopy(self.reg_data.get(bcort_key, {})),
+            'f_trab': copy.deepcopy(self.reg_data.get(ftrab_key, {})),
+            'f_cort': copy.deepcopy(self.reg_data.get(fcort_key, {}))
+        }
 
         # Perform HR-pQCT remodelling analysis
-        remodelling_image = hrpqct_remodelling_logic(baseline_data, followup_data, mask=common_region, segmask=segmask)
+        remodelling_image = hrpqct_remodelling_logic(baseline_data, followup_data, mask=common_region, segmask=segmask, threshold=threshold, cluster=cluster)
         
         plot_remodelling(remodelling_image, f'{baseline}_{followup}_remodelling', os.path.join(outpath,self.name))
         common_position = self.position[self.get_image(baseline)]
@@ -504,7 +513,7 @@ class TimelapsedImageSeries:
         write_mha_file(
             remodelling_image,
             spacing=[self.voxelsize,]*3, 
-            origin = [int(x) for x in common_position],
+            #origin = [int(x) for x in common_position],
             file_path=os.path.join(outpath,self.name,f'{self.name}_remodelling_{baseline}_{followup}.mha')
             )
     
@@ -575,7 +584,7 @@ class TimelapsedImageSeries:
             write_mha_file(
                 mask.astype(int),
                 spacing=[self.voxelsize,]*3, 
-                origin = [int(x) for x in self.common_position],
+                #origin = [int(x) for x in self.common_position],
                 file_path=os.path.join(outpath,self.name,f'{self.name}_{common_str}_{baseline}_{followup}.mha')
                 )
 

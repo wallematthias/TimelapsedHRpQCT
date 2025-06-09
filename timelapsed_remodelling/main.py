@@ -11,7 +11,7 @@ def get_sort_key(filename):
     # Extract the part after the last underscore and sort based on that
     return filename.split('_')[-1]
 
-def process_patients(paths, result_pairs, tibia_identifiers, resolution, output_path, trabmask, cortmask):
+def process_patients(paths, result_pairs, tibia_identifiers, resolution, output_path, trabmask, cortmask, threshold=225, cluster=12):
     
     patient_name = os.path.basename(paths[0])
 
@@ -48,13 +48,14 @@ def process_patients(paths, result_pairs, tibia_identifiers, resolution, output_
         else: #generate if not given                                                
             processor.generate_contour(str(i),path=output_path)
     processor.debug(outpath=output_path)   
-    #processor.motion_grade(outpath=output_path)
+    #Activate motion grading
+    processor.motion_grade(outpath=output_path)
     processor.register(reg,path=output_path)
     # Convert input into pairs of tuples (baseline, followup)
     pairs = [tuple(result_pairs[i:i+2]) for i in range(0, len(result_pairs), 2)]
     for i, (baseline, followup) in enumerate(pairs, 1):
         #try:
-        processor.analyse(str(baseline), str(followup), threshold=225, cluster=12, outpath=output_path)
+        processor.analyse(str(baseline), str(followup), threshold=threshold, cluster=cluster, outpath=output_path)
         #except Exception as e:
         #    print(e)
         #    custom_logger.info(f'Could not analyse baseline {baseline} followup {followup}')
@@ -82,13 +83,15 @@ def main():
     
     parser.add_argument('--trabmask', default='TRAB_MASK')
     parser.add_argument('--cortmask', default='CORT_MASK')
+    parser.add_argument('--cluster', type=float, default=12)
+    parser.add_argument('--threshold', type=float, default=225)
     
 
     args = parser.parse_args()
     paths = [item for item in args.paths if "MASK" not in item]
     sorted_paths = sorted(paths)
 
-    process_patients(sorted_paths, args.result_pairs, args.tibia_identifiers ,args.resolution, args.output_path, args.trabmask, args.cortmask)
+    process_patients(sorted_paths, args.result_pairs, args.tibia_identifiers ,args.resolution, args.output_path, args.trabmask, args.cortmask, cluster=args.cluster, threshold=args.threshold)
 
 
 if __name__ == "__main__":

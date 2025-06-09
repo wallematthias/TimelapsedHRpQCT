@@ -1,6 +1,35 @@
 # Ignore egg_info and ipynb checkpoints
 **/egg_info/
+
 # Ignore egg_info directories and related files
 *.egg-info/
 *.egg-info/*
 **/*.ipynb_checkpoints/
+
+# Byte-compiled / optimized / DLL files
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Model weights
+motionscore/models/DNN_*.h5
+
+# Environment and package management
+*.env
+*.venv
+.env/
+.venv/
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# Installer logs
+pip-log.txt
+
+# Mac system files
+.DS_Store
+
+# VSCode settings
+.vscode/

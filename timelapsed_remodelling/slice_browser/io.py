@@ -1,7 +1,7 @@
 import itk
 import os
 import numpy as np
-from ifb_framework.timelapsed_remodelling.visualise import vtkFile_to_dict
+from timelapsed_remodelling.visualise import vtkFile_to_dict
 
 class File:
     '''
