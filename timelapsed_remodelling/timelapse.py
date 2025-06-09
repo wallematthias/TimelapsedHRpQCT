@@ -11,6 +11,8 @@ import matplotlib.pyplot as plt
 from matplotlib.colors import ListedColormap
 import uuid
 from aim import aim
+from motionscore.cli import automatic_motion_score
+
 from .contour import outer_contour, inner_contour, combined_threshold, getLargestCC
 from .transform import TimelapsedTransformation
 from .register import Registration
@@ -20,7 +22,7 @@ from .reposition import (
 )
 from aim.resize_reposition_image import crop_pad_image
 from .visualise import dict_to_vtkFile
-from .motiongrade import automatic_motion_score
+
 from . import custom_logger
 
 import warnings

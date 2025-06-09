@@ -3,8 +3,14 @@ from setuptools import setup, find_packages
 with open('README.md', 'r') as f:
     long_description = f.read()
 
-with open('requirements.txt', 'r') as f:
-    requirements = f.read().splitlines()
+def load_requirements(filename):
+    with open(filename, 'r') as f:
+        return [line.strip() for line in f if line.strip() and not line.startswith('#')]
+
+common_requirements = load_requirements('requirements.txt')
+mac_requirements = load_requirements('requirements-mac.txt')
+unix_requirements = load_requirements('requirements-unix.txt')
+
 
 setup(
     name='timelapsed_remodelling',
@@ -16,7 +22,11 @@ setup(
     long_description_content_type='text/markdown',
     url='https://github.com/OpenMSKImaging/remodelling',
     packages=find_packages(),
-    install_requires=requirements,
+    install_requires=common_requirements,
+    extras_require={
+        "mac": mac_requirements,
+        "unix": unix_requirements
+    },
     classifiers=[
         'Programming Language :: Python :: 3',
         'License :: OSI Approved :: MIT License',
