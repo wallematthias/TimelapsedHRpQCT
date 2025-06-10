@@ -5,6 +5,9 @@ Re-developed by Matthias Walle and collaborators, 2025
 
 ---
 
+![image](https://github.com/user-attachments/assets/dedcbd1e-5611-4a99-8a96-97906476aa4c)
+
+
 ## Overview
 
 `TimelapsedRemodelling` is a Python 3.8 tool for automated analysis of longitudinal bone scans acquired with HR-pQCT.  
