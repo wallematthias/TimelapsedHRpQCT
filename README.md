@@ -1,4 +1,4 @@
-# TimelapsedRemodelling
+# Timelapsed HR-pQCT
 
 Quantifying remodelling activity from time-lapsed HR-pQCT images of the distal radius or tibia  
 Re-developed by Matthias Walle and collaborators, 2025  
@@ -16,6 +16,22 @@ It performs:
 - Output of 3D masks, diagnostic figures, and per-region metrics
 
 The tool is optimized for standardized file naming and organized input directories.
+
+---
+
+## Citation
+
+If you use this tool in a publication, please cite:
+
+> Walle, M., Whittier, D.E., Schenk, D., Atkins, P.R., Blauth, M., Zysset, P., Lippuner, K., Müller, R. and Collins, C.J., 2023. Precision of bone mechanoregulation assessment in humans using longitudinal high-resolution peripheral quantitative computed tomography in vivo. Bone, 172, p.116780.
+
+For related methodology, cite:
+
+> Walle, M., Duseja, A., Whittier, D.E., Vilaca, T., Paggiosi, M., Eastell, R., Müller, R. and Collins, C.J., 2024. Bone remodeling and responsiveness to mechanical stimuli in individuals with type 1 diabetes mellitus. Journal of Bone and Mineral Research, 39(2), pp.85-94.
+
+> Whittier, D.E., Walle, M., Schenk, D., Atkins, P.R., Collins, C.J., Zysset, P., Lippuner, K. and Müller, R., 2023. A multi-stack registration technique to improve measurement accuracy and precision across longitudinal HR-pQCT scans. Bone, 176, p.116893.
+
+> Walle, M., Gabel, L., Whittier, D.E., Liphardt, A.M., Hulme, P.A., Heer, M., Zwart, S.R., Smith, S.M., Sibonga, J.D. and Boyd, S.K., 2024. Tracking of spaceflight-induced bone remodeling reveals a limited time frame for recovery of resorption sites in humans. Science Advances, 10(51), p.eadq3632.
 
 ---
 
@@ -37,7 +53,7 @@ conda create -n timelapse python=3.8 -y
 conda activate timelapse
 
 # Clone this repository
-git clone https://github.com/wallematthias/TimelapsedRemodelling.git
+git clone https://github.com/wallematthias/TimelapsedHRpQCT.git
 cd TimelapsedRemodelling
 
 # Install dependencies
@@ -173,22 +189,6 @@ Stay tuned for updates in future versions.
 
 - **Wrong masks associated?**  
   Double-check file naming — suffixes must match the `--trabmask` and `--cortmask` arguments.
-
----
-
-## Citation
-
-If you use this tool in a publication, please cite:
-
-> Walle, M., Whittier, D.E., Schenk, D., Atkins, P.R., Blauth, M., Zysset, P., Lippuner, K., Müller, R. and Collins, C.J., 2023. Precision of bone mechanoregulation assessment in humans using longitudinal high-resolution peripheral quantitative computed tomography in vivo. Bone, 172, p.116780.
-
-For related methodology, cite:
-
-> Walle, M., Duseja, A., Whittier, D.E., Vilaca, T., Paggiosi, M., Eastell, R., Müller, R. and Collins, C.J., 2024. Bone remodeling and responsiveness to mechanical stimuli in individuals with type 1 diabetes mellitus. Journal of Bone and Mineral Research, 39(2), pp.85-94.
-
-> Whittier, D.E., Walle, M., Schenk, D., Atkins, P.R., Collins, C.J., Zysset, P., Lippuner, K. and Müller, R., 2023. A multi-stack registration technique to improve measurement accuracy and precision across longitudinal HR-pQCT scans. Bone, 176, p.116893.
-
-> Walle, M., Gabel, L., Whittier, D.E., Liphardt, A.M., Hulme, P.A., Heer, M., Zwart, S.R., Smith, S.M., Sibonga, J.D. and Boyd, S.K., 2024. Tracking of spaceflight-induced bone remodeling reveals a limited time frame for recovery of resorption sites in humans. Science Advances, 10(51), p.eadq3632.
 
 ---
 
