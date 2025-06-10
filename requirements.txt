@@ -11,7 +11,4 @@ tabulate
 prettytable
 h5py
 vtk
-opencv-python
-itkwidgets[all]>=1.0a21
 aim @ git+https://github.com/wallematthias/ScancoAIMreader.git
-motionscore @ git+https://github.com/wallematthias/MotionScoreCNN.git

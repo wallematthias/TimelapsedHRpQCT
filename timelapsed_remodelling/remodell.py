@@ -77,10 +77,6 @@ def hrpqct_remodelling_logic(baseline, followup, mask=None, threshold=225, clust
     formation = remove_small_objects(binary_formation & gray_formation, min_size=cluster)
     resorption = remove_small_objects(binary_resorption & gray_resorption, min_size=cluster)
 
-    # Mineralisation
-    #formation = remove_small_objects(gray_formation & (seg_baseline | seg_followup), min_size=cluster)
-    #resorption = remove_small_objects(gray_resorption & (seg_baseline | seg_followup), min_size=cluster)
-    
     # Classify regions of quiescence where no significant changes are observed.
     quiescence = seg_baseline & ~formation & ~resorption
 

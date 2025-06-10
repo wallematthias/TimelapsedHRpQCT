@@ -6,12 +6,11 @@ import numpy as np
 import pandas as pd
 import SimpleITK as sitk
 from scipy.ndimage import zoom
-from typing import List 
+from typing import List
 import matplotlib.pyplot as plt
 from matplotlib.colors import ListedColormap
 import uuid
 from aim import aim
-from motionscore.cli import automatic_motion_score
 
 from .contour import outer_contour, inner_contour, combined_threshold, getLargestCC
 from .transform import TimelapsedTransformation
@@ -29,150 +28,7 @@ import warnings
 from functools import reduce
 
 # Suppress all warnings (not recommended for production code)
-#warnings.filterwarnings("ignore")
-
-def write_mha_file(data, spacing=(1.0, 1.0, 1.0), origin=(0.0, 0.0, 0.0), direction=None, file_path="output.mha"):
-    """
-    Write a 3D NumPy array to an MHA file using SimpleITK.
-
-    Parameters:
-        data (numpy.ndarray): The 3D NumPy array.
-        spacing (tuple): Voxel spacing (default is (1.0, 1.0, 1.0)).
-        origin (tuple): Image origin (default is (0.0, 0.0, 0.0)).
-        direction (tuple): Image direction as a 3x3 matrix (default is None).
-        file_path (str): Output MHA file path (default is "output.mha").
-    """
-    # Create a SimpleITK image from the NumPy array
-
-    data = np.swapaxes(data, 0, 2)
-    spacing = spacing[::-1]
-    origin = origin[::-1]
-
-    image = sitk.GetImageFromArray(data)
-
-    # Ensure the image is of type float32
-    image = sitk.Cast(image, sitk.sitkUInt16)
-    
-    # Set image metadata
-    image.SetSpacing(spacing)
-    image.SetOrigin(origin)
-    if direction is not None:
-        image.SetDirection(direction)
-
-    # Write the image to the MHA file
-    sitk.WriteImage(image, file_path)
-
-    print(f"Image written to {file_path}")
-
-def plot_remodelling(array, image_key, path=None):
-    # Get the shape of the input array
-    z_dim, x_dim, y_dim = array.shape
-    
-    # Find the central slice along the z-axis
-    central_slice = array[z_dim // 2, :, :]
-    
-    # Define color mapping for 0, 1, 2, and 3
-    cmap = plt.cm.colors.ListedColormap(['white', 'purple', 'gray', 'orange'])
-    
-    # Create a figure and axis
-    fig, ax = plt.subplots()
-    
-    # Display the central slice with colors based on the colormap
-    ax.imshow(central_slice, cmap=cmap, interpolation='nearest')
-    
-    # Show the colorbar for reference
-    cbar = plt.colorbar(ax.imshow(central_slice, cmap=cmap, interpolation='nearest'), ax=ax, ticks=[0, 1, 2, 3])
-    cbar.set_ticklabels(['', 'Resorption', 'Quiescence', 'Formation'])
-    
-    ax.axis('off')
-
-    # Set plot title
-    file_name = f'{image_key}_remodelling.png'
-    plt.title(image_key)  # Set the title of the plot
-    plt.savefig(os.path.join(path,file_name))
-
-def plot_slice_with_masks_and_save(image, masks, image_key, path=None):
-    """
-    Plot one z-slice of the 3D grayscale image with masks overlaid, save the plot,
-    and use the image_key as the title.
-    
-    Args:
-        image (ndarray): 3D grayscale image.
-        masks (list of ndarray): List of 3D binary masks.
-        image_key (str): Title for the plot and part of the file name.
-    """
-    # Select a z-slice
-    z_slice = image.shape[2] // 2  # You can modify this to select a specific z-slice
-    
-    # Create a colormap with transparent colors
-    cmap = ListedColormap(['red', 'green', 'blue', 'purple', 'orange', 'yellow', 'cyan', 'magenta'])
-    
-    # Plot the grayscale image
-    plt.imshow(image[:, :, z_slice], cmap='gray')
-    
-    # Overlay masks with different transparent colors
-    for idx, mask in enumerate(masks):
-        mask_slice = mask[:, :, z_slice]
-        mask_rgba = np.zeros((mask_slice.shape[0], mask_slice.shape[1], 4))
-        mask_rgba[mask_slice > 0] = [idx/len(masks), 1, 1, 0.5]  # Set alpha channel to 0.5 for transparency
-        plt.imshow(mask_rgba, cmap=cmap, interpolation='none', aspect='auto')
-    
-    # Generate a random string for the file name
-    random_string = str(uuid.uuid4())
-    
-    # Save the plot with the randomly generated string and image_key in the file name
-    file_name = f'{image_key}_masks.png'
-    plt.title(image_key)  # Set the title of the plot
-    plt.savefig(os.path.join(path,file_name))
-    
-    # Show the plot (optional)
-    plt.show()
-
-
-def save_dict_to_hdf5(file_name: str, dictionary: dict):
-    """
-    Save a dictionary to an HDF5 file.
-
-    Parameters:
-        file_name (str): The name of the HDF5 file to create or overwrite.
-        dictionary (dict): The dictionary to be saved as an HDF5 dataset.
-    """
-    with h5py.File(file_name, "w") as h5file:
-        for key, value in dictionary.items():
-            h5file.create_dataset(str(key), data=value)
-
-def save_numpy_array_as_mha(numpy_array: np.ndarray, file_path: str):
-    """
-    Save a NumPy array as an MHA (MetaImage) file using SimpleITK.
-
-    Parameters:
-        numpy_array (np.ndarray): The NumPy array to be saved as an MHA file.
-        file_path (str): The file path for saving the MHA file.
-    """
-    # Convert the numpy array to a SimpleITK image
-    image = sitk.GetImageFromArray(numpy_array.astype(int))
-
-    # Save the image as an MHA file
-    sitk.WriteImage(image, file_path)
-
-def load_numpy_array_from_mha(file_path: str) -> np.ndarray:
-    """
-    Load a NumPy array from an MHA (MetaImage) file using SimpleITK.
-
-    Parameters:
-        file_path (str): The file path to the MHA file to be loaded.
-
-    Returns:
-        np.ndarray: The NumPy array loaded from the MHA file.
-    """
-    # Read the MHA file as a SimpleITK image
-    image = sitk.ReadImage(file_path)
-
-    # Convert the SimpleITK image to a NumPy array
-    numpy_array = sitk.GetArrayFromImage(image)
-
-    return numpy_array
-
+warnings.filterwarnings("ignore")
 
 class TimelapsedImageSeries:
     """
@@ -186,12 +42,10 @@ class TimelapsedImageSeries:
         crop (bool): If True, crop images to the smallest bounding box (default: False).
     """
 
-    
     def __init__(self, site, name, verbose=False, resolution=None, crop=False):
         self.data = {}
         self.reg_data = {}
         self.path_data = {}
-        self.motion_data = {}
         self.registration = None
         self.transform = TimelapsedTransformation()
         self.position = {}
@@ -212,7 +66,6 @@ class TimelapsedImageSeries:
         # Create the CustomLogger instance and activate it
         custom_logger.set_log_file(self.name)
 
-    
     def add_image(self, image_name, image_path):
         """
         Add an image to the data dictionary.
@@ -277,6 +130,61 @@ class TimelapsedImageSeries:
         else:
             raise ValueError(f"Image with name '{image_name}' not found.")
 
+    def load_aim(self,path,crop=False):
+        """
+        Load image and position data from an AIM file.
+
+        Parameters:
+            path (str): The path to the AIM file.
+            crop (bool): If True, crop images to the smallest bounding box (default: False).
+
+        Returns:
+            np.ndarray: The image data loaded from the AIM file.
+            dict: The position information loaded from the AIM file.
+        """
+        data = aim.load_aim(path)
+        image = np.asarray(data.data)
+        position = data.position
+        voxelsize = data.voxelsize.to('mm').magnitude[0]
+        
+        # This is to rescale different resolutions (rare case)
+        if self.resolution is not None:
+            if abs(self.resolution-voxelsize)>1e-3:
+                image = self.rescale_image(image, res_from=voxelsize, res_to=self.resolution)
+                voxelsize = self.resolution
+
+        self.voxelsize=voxelsize
+
+        if crop:
+            if len(np.unique(image)>2):
+                binary_mask = getLargestCC(combined_threshold(image))
+            else:
+                binary_mask = image
+            # Crop image to smallest bounding box
+            bb = boundingbox_from_mask(binary_mask)
+            image = image[bb]
+            position = update_pos_with_bb(position, bb)
+        
+        return image, position
+
+    def rescale_image(self, data, res_from=1, res_to=1, order=1):
+        """
+        Rescale the image data to a different resolution.
+
+        Parameters:
+            data (np.ndarray): The image data to be rescaled.
+            res_from (float): The original resolution of the image (default: 1).
+            res_to (float): The desired resolution to which the image should be rescaled (default: 1).
+            order (int): The order of interpolation used for rescaling (default: 1).
+
+        Returns:
+            np.ndarray: The rescaled image data.
+        """  
+        # Calculate the scaling factor for each axis
+        scaling_factors = [res_from / res_to,]*3
+        
+        # Perform the upscaling using linear interpolation (order=1)
+        return zoom(data, scaling_factors, order=order, mode='nearest')
 
     def generate_contour(self, image_name, path=None):
         """
@@ -341,8 +249,7 @@ class TimelapsedImageSeries:
             save_numpy_array_as_mha(outer_mask, OUT_MASK_PATH)
             save_numpy_array_as_mha(trab_mask, TRAB_MASK_PATH)
             save_numpy_array_as_mha(cort_mask, CORT_MASK_PATH)
-
-    
+ 
     def register(self, registration, mask_nr=0, path=None, registration_mode = "sequential"):
         """
         Register images in the timelapse using the provided registration method.
@@ -409,24 +316,6 @@ class TimelapsedImageSeries:
 
                 if path is not None: 
                     self.transform.save_transform(TRANSFORM_PATH)
-
-    def motion_grade(self,outpath=None):
-
-        path = os.path.join(outpath, self.name)
-        if not os.path.exists(path):
-            os.makedirs(path)
-            
-        for im in self.get_all_images():
-
-            key = self.get_image(im)
-            custom_logger.info(os.path.basename(self.path_data[key]))
-            name = os.path.basename(self.path_data[key]).split('.')[0]
-            mscore, mscorevalue = automatic_motion_score(
-                self.data[key], outpath=os.path.join(path,name), stackheight=168)
-
-            custom_logger.info('Motion Score {}: {}'.format(key,mscore))
-            
-            self.motion_data[im] = mscore
 
     def debug(self,outpath=None):
         
@@ -524,10 +413,7 @@ class TimelapsedImageSeries:
     
         self.analysis_results.append(df)
         custom_logger.info(df)
-
-
-            
-            
+     
     def calculate_metrics_and_save_results(self, baseline, followup, remodelling_image, outpath=None):
         """
         Calculate metrics based on HR-pQCT remodelling image and save the results to a DataFrame.
@@ -540,7 +426,7 @@ class TimelapsedImageSeries:
         Returns:
             pd.DataFrame: DataFrame containing the calculated metrics.
         """
-        cols = ['IM','BASE_NAME','FOLLOW_NAME' ,'SITE','BASE_FOLL','BASE_MOTION','FOLLOW_MOTION', 'THR', 'CLUSTER', 'ROI', 'MEAS', 'VAL']
+        cols = ['IM','BASE_NAME','FOLLOW_NAME' ,'SITE','BASE_FOLL', 'THR', 'CLUSTER', 'ROI', 'MEAS', 'VAL']
         baseline_name = os.path.basename(self.path_data[self.get_image(baseline)]).split('.')[0]
         followup_name = os.path.basename(self.path_data[self.get_image(followup)]).split('.')[0]
         
@@ -566,21 +452,14 @@ class TimelapsedImageSeries:
             RVBV = np.sum(remodelling_image[mask] == 1) / np.sum(remodelling_image[mask] == 2)
             BV = np.sum(remodelling_image[mask] == 2)
 
-            try:
-                bmotion = self.motion_data[baseline]
-                fmotion = self.motion_data[followup]
-            except:
-                bmotion = np.nan
-                fmotion = np.nan
-
             dfs.append(pd.DataFrame(
-                [[self.name, baseline_name, followup_name, self.site, '{}_{}'.format(baseline, followup), bmotion, fmotion, self.threshold, self.cluster, common_str,
+                [[self.name, baseline_name, followup_name, self.site, '{}_{}'.format(baseline, followup), self.threshold, self.cluster, common_str,
                   'FVBV', FVBV]], columns=cols))
             dfs.append(pd.DataFrame(
-                [[self.name, baseline_name, followup_name, self.site, '{}_{}'.format(baseline, followup), bmotion, fmotion, self.threshold, self.cluster, common_str,
+                [[self.name, baseline_name, followup_name, self.site, '{}_{}'.format(baseline, followup), self.threshold, self.cluster, common_str,
                   'RVBV', RVBV]], columns=cols))
             dfs.append(pd.DataFrame(
-                [[self.name, baseline_name, followup_name, self.site, '{}_{}'.format(baseline, followup), bmotion, fmotion, self.threshold, self.cluster, common_str,
+                [[self.name, baseline_name, followup_name, self.site, '{}_{}'.format(baseline, followup), self.threshold, self.cluster, common_str,
                   'BV', BV]], columns=cols))
     
             write_mha_file(
@@ -593,7 +472,7 @@ class TimelapsedImageSeries:
         df = pd.concat(dfs)
         return df        
 
-    def common_region(self,image):
+    def common_region(self, image):
         """
         Calculate the common region among all masks and images.
 
@@ -654,10 +533,22 @@ class TimelapsedImageSeries:
         df = pd.concat(self.analysis_results)
         
         df.to_csv(os.path.join(path,self.name+'.csv'))
+        custom_logger.info(f"Saved analysis results to {os.path.join(path,self.name+'.csv')}")
         if visualise:
             dict_to_vtkFile(self.reg_data, os.path.join(path,self.name+'.vti'))
 
-    
+# ----------------------------------------
+# Internal Dictionary Queries and Key Helpers
+# ----------------------------------------
+
+    def update_size_and_position(self):
+        """
+        Update the size and position information for all images and contours to match the overall shape.
+        """
+        for key in self.get_all_data():
+            self.data[key], self.position[key] = pad_array_centered(
+                self.data[key], self.position[key], self.shape)
+
     def get_image(self, image_name: str) -> str:
         """
         Get the key of an image in the data dictionary.
@@ -666,8 +557,7 @@ class TimelapsedImageSeries:
             str: Key of the image.
         """
         return '_'.join([self.image_identifier, image_name])
-
-    
+ 
     def get_contour(self, contour_name: str, image_name: str) -> str:
         """
         Get the key of a contour in the data dictionary.
@@ -677,7 +567,6 @@ class TimelapsedImageSeries:
         """
         return '_'.join([self.contour_identifier, contour_name, self.get_image(image_name)])
 
-    
     def get_all_images(self) -> List[str]:
         """
         Get the keys of all images in the data dictionary.
@@ -704,7 +593,6 @@ class TimelapsedImageSeries:
             if key.startswith(self.contour_identifier)
         ]
 
-    
     def get_all_data(self) -> List[str]:
         """
         Get all keys (images and contours) stored in the data dictionary.
@@ -714,7 +602,6 @@ class TimelapsedImageSeries:
         """
         return list(self.data.keys())
 
-    
     def get_contours_from_image(self, image_name: str) -> List[str]:
         """
         Get the image and associated contour keys for a given image name.
@@ -734,72 +621,158 @@ class TimelapsedImageSeries:
             raise ValueError("Image not associated with any contour.")
         return contours
 
+# ----------------------------------------
+# Internal I/O functions
+# ----------------------------------------
+
+def write_mha_file(data, spacing=(1.0, 1.0, 1.0), origin=(0.0, 0.0, 0.0), direction=None, file_path="output.mha"):
+    """
+    Write a 3D NumPy array to an MHA file using SimpleITK.
+
+    Parameters:
+        data (numpy.ndarray): The 3D NumPy array.
+        spacing (tuple): Voxel spacing (default is (1.0, 1.0, 1.0)).
+        origin (tuple): Image origin (default is (0.0, 0.0, 0.0)).
+        direction (tuple): Image direction as a 3x3 matrix (default is None).
+        file_path (str): Output MHA file path (default is "output.mha").
+    """
+    # Create a SimpleITK image from the NumPy array
+
+    data = np.swapaxes(data, 0, 2)
+    spacing = spacing[::-1]
+    origin = origin[::-1]
+
+    image = sitk.GetImageFromArray(data)
+
+    # Ensure the image is of type float32
+    image = sitk.Cast(image, sitk.sitkUInt16)
     
-    def load_aim(self,path,crop=False):
-        """
-        Load image and position data from an AIM file.
+    # Set image metadata
+    image.SetSpacing(spacing)
+    image.SetOrigin(origin)
+    if direction is not None:
+        image.SetDirection(direction)
 
-        Parameters:
-            path (str): The path to the AIM file.
-            crop (bool): If True, crop images to the smallest bounding box (default: False).
+    # Write the image to the MHA file
+    sitk.WriteImage(image, file_path)
 
-        Returns:
-            np.ndarray: The image data loaded from the AIM file.
-            dict: The position information loaded from the AIM file.
-        """
-        data = aim.load_aim(path)
-        image = np.asarray(data.data)
-        position = data.position
-        voxelsize = data.voxelsize.to('mm').magnitude[0]
-        
-        # This is to rescale different resolutions (rare case)
-        if self.resolution is not None:
-            if abs(self.resolution-voxelsize)>1e-3:
-                image = self.rescale_image(image, res_from=voxelsize, res_to=self.resolution)
-                voxelsize = self.resolution
+    print(f"Image written to {file_path}")
 
-        self.voxelsize=voxelsize
+def save_dict_to_hdf5(file_name: str, dictionary: dict):
+    """
+    Save a dictionary to an HDF5 file.
 
-        if crop:
-            if len(np.unique(image)>2):
-                binary_mask = getLargestCC(combined_threshold(image))
-            else:
-                binary_mask = image
-            # Crop image to smallest bounding box
-            bb = boundingbox_from_mask(binary_mask)
-            image = image[bb]
-            position = update_pos_with_bb(position, bb)
-        
-        return image, position
+    Parameters:
+        file_name (str): The name of the HDF5 file to create or overwrite.
+        dictionary (dict): The dictionary to be saved as an HDF5 dataset.
+    """
+    with h5py.File(file_name, "w") as h5file:
+        for key, value in dictionary.items():
+            h5file.create_dataset(str(key), data=value)
 
+def save_numpy_array_as_mha(numpy_array: np.ndarray, file_path: str):
+    """
+    Save a NumPy array as an MHA (MetaImage) file using SimpleITK.
+
+    Parameters:
+        numpy_array (np.ndarray): The NumPy array to be saved as an MHA file.
+        file_path (str): The file path for saving the MHA file.
+    """
+    # Convert the numpy array to a SimpleITK image
+    image = sitk.GetImageFromArray(numpy_array.astype(int))
+
+    # Save the image as an MHA file
+    sitk.WriteImage(image, file_path)
+
+def load_numpy_array_from_mha(file_path: str) -> np.ndarray:
+    """
+    Load a NumPy array from an MHA (MetaImage) file using SimpleITK.
+
+    Parameters:
+        file_path (str): The file path to the MHA file to be loaded.
+
+    Returns:
+        np.ndarray: The NumPy array loaded from the MHA file.
+    """
+    # Read the MHA file as a SimpleITK image
+    if not os.path.isfile(file_path):
+        raise FileNotFoundError(f"File not found: {file_path}")
     
-    def rescale_image(self, data, res_from=1, res_to=1, order=1):
-        """
-        Rescale the image data to a different resolution.
-
-        Parameters:
-            data (np.ndarray): The image data to be rescaled.
-            res_from (float): The original resolution of the image (default: 1).
-            res_to (float): The desired resolution to which the image should be rescaled (default: 1).
-            order (int): The order of interpolation used for rescaling (default: 1).
-
-        Returns:
-            np.ndarray: The rescaled image data.
-        """  
-        # Calculate the scaling factor for each axis
-        scaling_factors = [res_from / res_to,]*3
-        
-        # Perform the upscaling using linear interpolation (order=1)
-        return zoom(data, scaling_factors, order=order, mode='nearest')
+    try:
+        image = sitk.ReadImage(file_path)
+        array = sitk.GetArrayFromImage(image)
+        return array
+    except Exception as e:
+        raise RuntimeError(f"Failed to read MHA file {file_path}: {e}")
     
 
-    def update_size_and_position(self):
-        """
-        Update the size and position information for all images and contours to match the overall shape.
-        """
-        for key in self.get_all_data():
-            self.data[key], self.position[key] = pad_array_centered(
-                self.data[key], self.position[key], self.shape)
+# ----------------------------------------
+# Internal visualisation functions
+# ----------------------------------------
 
+def plot_remodelling(array, image_key, path=None):
+    # Get the shape of the input array
+    z_dim, x_dim, y_dim = array.shape
+    
+    # Find the central slice along the z-axis
+    central_slice = array[z_dim // 2, :, :]
+    
+    # Define color mapping for 0, 1, 2, and 3
+    cmap = plt.cm.colors.ListedColormap(['white', 'purple', 'gray', 'orange'])
+    
+    # Create a figure and axis
+    fig, ax = plt.subplots()
+    
+    # Display the central slice with colors based on the colormap
+    ax.imshow(central_slice, cmap=cmap, interpolation='nearest')
+    
+    # Show the colorbar for reference
+    cbar = plt.colorbar(ax.imshow(central_slice, cmap=cmap, interpolation='nearest'), ax=ax, ticks=[0, 1, 2, 3])
+    cbar.set_ticklabels(['', 'Resorption', 'Quiescence', 'Formation'])
+    
+    ax.axis('off')
 
+    # Set plot title
+    file_name = f'{image_key}_remodelling.png'
+    plt.title(image_key)  # Set the title of the plot
+    plt.savefig(os.path.join(path,file_name))
+    plt.close(fig)  # Close the figure to free memory
+
+def plot_slice_with_masks_and_save(image, masks, image_key, path=None):
+    """
+    Plot one z-slice of the 3D grayscale image with masks overlaid, save the plot,
+    and use the image_key as the title.
+    
+    Args:
+        image (ndarray): 3D grayscale image.
+        masks (list of ndarray): List of 3D binary masks.
+        image_key (str): Title for the plot and part of the file name.
+    """
+
+    # Select a z-slice
+    z_slice = image.shape[2] // 2
+
+    # Create figure and axis
+    fig, ax = plt.subplots()
+
+    # Plot the grayscale background
+    ax.imshow(image[:, :, z_slice], cmap='gray')
+
+    # Overlay each mask slice
+    for idx, mask in enumerate(masks):
+        mask_slice = mask[:, :, z_slice]
+        mask_rgba = np.zeros((*mask_slice.shape, 4))
+        mask_rgba[mask_slice > 0] = [idx / len(masks), 1, 1, 0.5]  # Transparent overlay
+        ax.imshow(mask_rgba, interpolation='none', aspect='auto')
+
+    # Add title and save
+    ax.set_title(image_key)
+    ax.axis('off')
+    file_name = f'{image_key}_masks.png'
+    full_path = os.path.join(path, file_name)
+    fig.savefig(full_path, bbox_inches='tight')
+    plt.close(fig)  # Close the figure properly
+
+    # Optional: print path for debugging
+    print(f"Saved mask overlay to: {full_path}")
 

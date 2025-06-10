@@ -1,20 +1,3 @@
-# -----------------------------------------------------
-# Registration_ITK.py
-#
-# Created by:  Ryan Yan
-# Created on:  24-01-2022
-#
-# Modified by:  Matthias Walle
-# Modified on:  22-09-2022
-#
-# Description: This module performs longitudinal image registration given a baseline and a follow-up image.
-#
-# -----------------------------------------------------
-# Usage:       Image Registration Module with ITK
-#
-# Note:        Uses script from Ryan Yan and Manske Lab
-#
-# -----------------------------------------------------
 import SimpleITK as sitk
 import numpy as np
 import time

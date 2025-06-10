@@ -36,8 +36,6 @@ def overlay_plot(ax, finite_element_image, masks):
     # Customize the plot
     ax.axis('off')  # Turn off axis labels and ticks
 
-
-
 def confusion_matrix_per_threshold_set(data_per_category, threshold_list):
     """
     Function to compute the confusion matrix (True vs Predicted data) for a set of data spanning the same independent variable (Ex: Formation, Quiescence, Resorption histogram counts across normalised SED bins).
@@ -79,7 +77,6 @@ def confusion_matrix_per_threshold_set(data_per_category, threshold_list):
     
     return confusion_matrix
 
-
 def ccr_from_conf_matrix(data_per_category, threshold_list):
     """
     Function to compute the Correct Classification Coefficient of a confusion matrix.
@@ -114,7 +111,6 @@ def ccr_from_conf_matrix(data_per_category, threshold_list):
     ccr = np.matrix.trace(conf_matrix)
 
     return ccr
-
 
 def max_ccr(hist_data, hist_bin_edges):
     """
@@ -177,7 +173,6 @@ def remXmech_regression(event,strains,support):
 
     return out_sm, logit
 
-
 def mechreg_regression(R_strains,Q_strains,F_strains):
     
     F_class = [1,]*len(F_strains) + [0,]*len(R_strains) + [0,]*len(Q_strains)
@@ -192,7 +187,6 @@ def mechreg_regression(R_strains,Q_strains,F_strains):
     
     return  y_pred_res, y_pred_qui, y_pred_form, support, model_res, model_form
 
-# Confidence intervals
 def ci(var,alpha=0.01):
     coef = np.asarray(var)
     c_mean = np.mean(coef)

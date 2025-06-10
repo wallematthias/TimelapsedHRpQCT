@@ -8,8 +8,6 @@ def load_requirements(filename):
         return [line.strip() for line in f if line.strip() and not line.startswith('#')]
 
 common_requirements = load_requirements('requirements.txt')
-mac_requirements = load_requirements('requirements-mac.txt')
-unix_requirements = load_requirements('requirements-unix.txt')
 
 
 setup(
@@ -23,10 +21,6 @@ setup(
     url='https://github.com/OpenMSKImaging/remodelling',
     packages=find_packages(),
     install_requires=common_requirements,
-    extras_require={
-        "mac": mac_requirements,
-        "unix": unix_requirements
-    },
     classifiers=[
         'Programming Language :: Python :: 3',
         'License :: OSI Approved :: MIT License',
@@ -34,7 +28,7 @@ setup(
     ],
     entry_points={
         'console_scripts': [
-            'remodelling=example.main:main',
+            'remodell=timelapsed_remodelling.main:main',
         ],
     },
 )
