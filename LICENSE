@@ -1,0 +1,28 @@
+Creative Commons Attribution-NonCommercial-NoDerivatives 4.0 International  
+(CC BY-NC-ND 4.0)
+
+You are free to:
+
+- **Share** — copy and redistribute the material in any medium or format
+
+Under the following terms:
+
+- **Attribution** — You must give appropriate credit, provide a link to the license, and indicate if changes were made.  
+  You must cite the following publication when using the model weights:
+
+  Walle, M., Whittier, D.E., Schenk, D., Atkins, P.R., Blauth, M., Zysset, P., Lippuner, K., Müller, R. and Collins, C.J., 2023. Precision of bone mechanoregulation assessment in humans using longitudinal high-resolution peripheral quantitative computed tomography in vivo. Bone, 172, p.116780.
+
+
+- **NonCommercial** — You may not use the material for commercial purposes.
+
+- **NoDerivatives** — If you remix, transform, or build upon the material, you may not distribute the modified material.
+
+- **No Additional Restrictions** — You may not apply legal terms or technological measures that legally restrict others from doing anything the license permits.
+
+---
+
+This license applies to the pretrained model weights.  
+The accompanying code in this repository is licensed separately under the MIT License (see `LICENSE_CODE` if applicable).
+
+To view a copy of this license, visit:  
+https://creativecommons.org/licenses/by-nc-nd/4.0/

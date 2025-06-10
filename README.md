@@ -56,6 +56,7 @@ SUBJECT_SITE_TIMEPOINT.AIM
 e.g., PT001_DR_T0.AIM, PT001_DR_T1.AIM .. 
 ```
 DT LT RT TR TL = Tibia identifiers (these can be changed via `--tibia_identifiers` flag)
+
 Otherwise = Treated as Radius (important for contouring) 
 
 ### Contours must use matching names with suffixes:
@@ -101,7 +102,7 @@ Each timepoint pair generates several `.mha` images:
   - `TRAB_MASK`
   
 - Note you can check the .log files to see which image is associated with which index. 
-   
+
 - Remodelling labels are saved with the same convention (e.g., `remodelling_0_1.mha`).
 
 > Note: `0_1` and `1_2` outputs are aligned to different baselines (0 and 1 respectively), so they are not directly overlaid. However, the **common region** analyzed is always defined relative to the baseline.
