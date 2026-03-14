@@ -1,3 +1,7 @@
+<p align="center">
+  <img src="assets/TimelapsedHRpQCT-logo.png" alt="TimelapsedHRpQCT logo" width="320">
+</p>
+
 # TimelapsedHRpQCT
 
 [![CI](https://github.com/wallematthias/TimelapsedHRpQCT/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/wallematthias/TimelapsedHRpQCT/actions/workflows/ci.yml)
