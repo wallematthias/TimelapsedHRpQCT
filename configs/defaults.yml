@@ -1,0 +1,170 @@
+# -----------------------------------------------------------------------------
+# TimelapsedMultistack default configuration
+# -----------------------------------------------------------------------------
+
+# -----------------------------------------------------------------------------
+# Import
+# -----------------------------------------------------------------------------
+import:
+  stack_depth: 168
+  on_incomplete_stack: error
+
+  image_role_patterns:
+    image: [".AIM"]
+    trab: ["TRAB_MASK", "_TRAB"]
+    cort: ["CORT_MASK", "_CORT"]
+    full: ["FULL_MASK", "_FULL"]
+    seg: ["_SEG", "SEG"]
+
+  crop_to_subject_box: true
+  crop_threshold_bmd: 450.0
+  crop_padding_voxels: 5
+  crop_num_largest_components: 1
+
+# -----------------------------------------------------------------------------
+# Discovery
+# -----------------------------------------------------------------------------
+discovery:
+  session_regex: '(?P<subject>INSR_\d+)_DT_(?P<session>C\d+)(?:_(?P<role>.*))?\.AIM$'
+
+  role_aliases:
+    cort: ["CORT_MASK", "_CORT", "CORTICAL"]
+    trab: ["TRAB_MASK", "_TRAB", "TRABECULAR"]
+    full: ["FULL_MASK", "_FULL"]
+    seg: ["_SEG", "SEG"]
+
+# -----------------------------------------------------------------------------
+# Mask generation on imported stacks
+# -----------------------------------------------------------------------------
+masks:
+  generate: true
+  overwrite: false
+  derive_full_from_cort_trab: true
+
+  outer:
+    periosteal_threshold: 300
+    periosteal_kernelsize: 5
+    gaussian_sigma: 1.5
+    gaussian_truncate: 1.0
+    expansion_depth: [0, 5]
+    init_pad: 15
+    fill_holes: true
+    use_adaptive_threshold: true
+
+  inner:
+    site: radius
+    endosteal_threshold: 500
+    endosteal_kernelsize: 3
+    gaussian_sigma: 1.5
+    gaussian_truncate: 1.0
+    peel: 3
+    expansion_depth: [0, 3, 10, 3]
+    init_pad: 30
+    use_adaptive_threshold: false
+
+  segmentation:
+    method: global
+    enabled: true
+    gaussian_sigma: 1.0
+    trab_threshold: 320
+    cort_threshold: 450
+    adaptive_low_threshold: 190
+    adaptive_high_threshold: 450
+    adaptive_block_size: 13
+    min_size_voxels: 64
+    keep_largest_component: true
+
+# -----------------------------------------------------------------------------
+# Timelapsed registration
+# -----------------------------------------------------------------------------
+timelapsed_registration:
+  debug: true
+  strategy: sequential_to_baseline
+  reference_session: baseline
+  transform_type: euler
+  metric: correlation
+  sampling_percentage: 0.002
+  interpolator: linear
+  optimizer: adaptive_stochastic_gradient_descent
+  number_of_iterations: 250
+  initializer: geometry
+  number_of_resolutions: 4
+  use_masks: true
+
+# -----------------------------------------------------------------------------
+# Multistack correction
+# -----------------------------------------------------------------------------
+multistack_correction:
+  enabled: true
+  transform_type: euler
+  metric: mattes
+  sampling_percentage: 0.01
+  interpolator: linear
+  optimizer: adaptive_stochastic_gradient_descent
+  number_of_iterations: 250
+  initializer: geometry
+  number_of_resolutions: 1
+  use_masks: true
+  debug: true
+
+# -----------------------------------------------------------------------------
+# Transform application
+# -----------------------------------------------------------------------------
+transform:
+  image_interpolator: linear
+  mask_interpolator: nearest
+
+# -----------------------------------------------------------------------------
+# Fusion and optional filling
+# -----------------------------------------------------------------------------
+fusion:
+  save_fused: true
+  save_fusedfilled: true
+  enable_filling: true
+
+# -----------------------------------------------------------------------------
+# Filling
+# -----------------------------------------------------------------------------
+filling:
+  spatial_min_size: 3
+  spatial_max_size: 23
+  spatial_step: 5
+  temporal_n_images: 3
+  small_object_min_size_factor: 9
+  support_closing_z: 11
+  roi_margin_xy: 3
+  roi_margin_z_extra: 2
+
+# -----------------------------------------------------------------------------
+# Analysis
+# -----------------------------------------------------------------------------
+analysis:
+  method: grayscale_and_binary
+  compartments:
+    - trab
+    - cort
+    - full
+  thresholds:
+    - 225
+  cluster_sizes:
+    - 12
+  pair_mode: adjacent
+  use_filled_images: false
+
+  valid_region:
+    erosion_voxels: 1
+
+# -----------------------------------------------------------------------------
+# Visualization
+# -----------------------------------------------------------------------------
+visualization:
+  enabled: true
+  threshold: 225
+  cluster_size: 12
+
+  label_map:
+    resorption: 1
+    demineralisation: 2
+    quiescent: 3
+    formation: 4
+    mineralisation: 5

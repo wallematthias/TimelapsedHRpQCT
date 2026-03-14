@@ -1,0 +1,48 @@
+{% set pyproject = load_file_data("../pyproject.toml", from_recipe_dir=True) %}
+{% set project = pyproject["project"] %}
+{% set version = project["version"] %}
+
+package:
+  name: multistack-registration
+  version: {{ version }}
+
+source:
+  path: ..
+
+build:
+  noarch: python
+  script: "{{ PYTHON }} -m pip install . --no-deps --no-build-isolation -vv"
+  entry_points:
+    - timelapse = multistack_registration.cli:main
+
+requirements:
+  host:
+    - python >=3.10
+    - pip
+    - setuptools >=68
+    - wheel
+  run:
+    - python >=3.10
+    - numpy
+    - pandas
+    - pyyaml
+    - scikit-image
+    - scipy
+    - simpleitk
+    - vtk
+    - vtkbone
+
+test:
+  imports:
+    - multistack_registration
+  commands:
+    - timelapse --help
+
+about:
+  home: https://github.com/matthiaswalle/TimelapsedMultistack
+  summary: {{ project["description"] }}
+  license: AGPL-3.0-only
+
+extra:
+  recipe-maintainers:
+    - matthiaswalle

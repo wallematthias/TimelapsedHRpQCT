@@ -1,0 +1,34 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "multistack-registration"
+version = "0.1.0"
+description = "Refactored scaffold for longitudinal HR-pQCT multistack registration"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [{name = "Matthias Walle"}]
+license = "AGPL-3.0-only"
+dependencies = [
+  "numpy",
+  "pandas",
+  "PyYAML",
+  "scikit-image",
+  "scipy",
+  "SimpleITK",
+  "vtk",
+  "vtkbone",
+]
+
+[project.optional-dependencies]
+test = ["pytest"]
+
+[project.scripts]
+timelapse = "multistack_registration.cli:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]

@@ -1,0 +1,27 @@
+# OS / editor noise
+.DS_Store
+
+# Python caches and test artifacts
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Packaging / build artifacts
+*.egg-info/
+build/
+dist/
+
+# Local environments
+.venv/
+venv/
+
+# Project data and generated derivatives
+data/
+
+# Imaging / binary artifacts that should never be committed accidentally
+*.AIM
+*.aim
+*.MHA
+*.mha
+*.H5
+*.h5
