@@ -1,6 +1,6 @@
 # TimelapsedHRpQCT
 
-[![CI](https://github.com/matthiaswalle/TimelapsedHRpQCT/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/matthiaswalle/TimelapsedHRpQCT/actions/workflows/ci.yml)
+[![CI](https://github.com/wallematthias/TimelapsedHRpQCT/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/wallematthias/TimelapsedHRpQCT/actions/workflows/ci.yml)
 
 Quantifying remodelling activity from time-lapsed HR-pQCT images of the distal radius or tibia. Changes from v1: 
 
