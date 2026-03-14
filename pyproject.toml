@@ -18,7 +18,6 @@ dependencies = [
   "scipy",
   "SimpleITK",
   "vtk",
-  "vtkbone",
 ]
 
 [project.optional-dependencies]

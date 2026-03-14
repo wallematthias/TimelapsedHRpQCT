@@ -33,7 +33,7 @@ If you prefer to build an environment yourself:
 conda create -n timelapsed-hrpqct python=3.11
 conda activate timelapsed-hrpqct
 conda install -c numerics88 -c conda-forge vtk vtkbone simpleitk numpy pandas pyyaml scipy scikit-image pytest
-pip install -e .
+pip install -e . --no-deps
 ```
 
 ## Editable Development Install
@@ -41,8 +41,10 @@ pip install -e .
 Inside an already prepared environment:
 
 ```bash
-pip install -e .
+pip install -e . --no-deps
 ```
+
+Use `--no-deps` in conda-managed environments so `pip` does not try to resolve packages like `vtkbone` from PyPI.
 
 ## Validate The Install
 
@@ -87,5 +89,5 @@ Make sure both `vtk` and `vtkbone` are present in the same environment.
 Reinstall the package in the active environment:
 
 ```bash
-pip install -e .
+pip install -e . --no-deps
 ```
