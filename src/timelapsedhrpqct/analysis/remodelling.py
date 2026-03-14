@@ -11,6 +11,7 @@ from skimage.morphology import remove_small_objects
 
 @dataclass(slots=True)
 class AnalysisParams:
+    method: str
     compartments: list[str]
     remodeling_thresholds: list[float]
     cluster_sizes: list[int]
@@ -197,21 +198,32 @@ def compute_remodelling_outputs(
 
                     delta = dens1 - dens0
                     valid = valid_mask_series
+                    if params.method == "grayscale_and_binary":
+                        b0 = seg0 & valid
+                        b1 = seg1 & valid
 
-                    b0 = seg0 & valid
-                    b1 = seg1 & valid
-
-                    formation_raw = (~b0) & b1 & (delta > thr) & valid
-                    resorption_raw = b0 & (~b1) & (delta < -thr) & valid
-                    mineralisation_raw = b0 & b1 & (delta > thr) & valid
-                    demineralisation_raw = b0 & b1 & (delta < -thr) & valid
+                        formation_raw = (~b0) & b1 & (delta > thr) & valid
+                        resorption_raw = b0 & (~b1) & (delta < -thr) & valid
+                        mineralisation_raw = b0 & b1 & (delta > thr) & valid
+                        demineralisation_raw = b0 & b1 & (delta < -thr) & valid
+                    elif params.method == "grayscale_delta_only":
+                        b0 = valid
+                        b1 = valid
+                        formation_raw = (delta > thr) & valid
+                        resorption_raw = (delta < -thr) & valid
+                        mineralisation_raw = np.zeros_like(valid, dtype=bool)
+                        demineralisation_raw = np.zeros_like(valid, dtype=bool)
+                    else:
+                        raise ValueError(f"Unsupported analysis method: {params.method}")
 
                     formation = remove_small(formation_raw, cluster_size)
                     resorption = remove_small(resorption_raw, cluster_size)
                     mineralisation = remove_small(mineralisation_raw, cluster_size)
                     demineralisation = remove_small(demineralisation_raw, cluster_size)
 
-                    quiescent = b0 & ~(resorption | mineralisation | demineralisation)
+                    quiescent = valid & ~(
+                        formation | resorption | mineralisation | demineralisation
+                    )
 
                     bv0 = int(np.count_nonzero(b0))
                     bv1 = int(np.count_nonzero(b1))
@@ -268,8 +280,16 @@ def compute_remodelling_outputs(
                             "threshold": thr,
                             "cluster_min_size": cluster_size,
                             "common_region_path": common_region_path_for(compartment),
-                            "binary_source_t0": session_seg_paths[i0],
-                            "binary_source_t1": session_seg_paths[i1],
+                            "binary_source_t0": (
+                                session_seg_paths[i0]
+                                if params.method == "grayscale_and_binary"
+                                else None
+                            ),
+                            "binary_source_t1": (
+                                session_seg_paths[i1]
+                                if params.method == "grayscale_and_binary"
+                                else None
+                            ),
                             "BV0_vox": bv0,
                             "BV1_vox": bv1,
                             "TV_valid_vox": tv_valid,

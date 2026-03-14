@@ -110,6 +110,18 @@ This writes:
 timelapse analyse /path/to/raw_data/imported_dataset
 ```
 
+If you want a full-mask-only workflow without segmentation-dependent remodelling logic, set this in your config:
+
+```yaml
+masks:
+  roles: [full]
+  generate_segmentation: false
+
+analysis:
+  method: grayscale_delta_only
+  compartments: [full]
+```
+
 Optional overrides:
 
 ```bash

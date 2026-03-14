@@ -36,7 +36,11 @@ Controls generated mask and segmentation behavior on imported stacks.
 
 - `generate`: enable the mask-generation stage
 - `overwrite`: regenerate masks even if outputs already exist
+- `roles`: mask roles to keep and use. Typical values are `["full", "trab", "cort"]` or `["full"]`
+- `generate_segmentation`: whether the mask-generation stage should also write segmentation outputs
 - `derive_full_from_cort_trab`: allow reconstruction of the full mask from cortical and trabecular masks
+
+If you only want to work with a total mask, set `roles: ["full"]`. In that case the pipeline will not require `trab` or `cort` masks.
 
 ### `masks.outer`
 
@@ -159,6 +163,7 @@ Broadly:
 
 Controls remodelling analysis.
 
+- `method`: `grayscale_and_binary` or `grayscale_delta_only`
 - `compartments`
 - `thresholds`
 - `cluster_sizes`
@@ -167,6 +172,10 @@ Controls remodelling analysis.
 - `valid_region.erosion_voxels`
 
 Use `pair_mode=adjacent` for typical longitudinal progression, and `pair_mode=baseline` when all follow-up timepoints should be compared back to baseline.
+
+Use `method=grayscale_and_binary` when you have segmentation images and want the full formation, resorption, mineralisation, and demineralisation logic.
+
+Use `method=grayscale_delta_only` when segmentation is unavailable and you only want thresholded grayscale change analysis. In that mode, positive deltas above threshold are reported as formation and negative deltas below threshold are reported as resorption after cluster filtering.
 
 ## `visualization`
 

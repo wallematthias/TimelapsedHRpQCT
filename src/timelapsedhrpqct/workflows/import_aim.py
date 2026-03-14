@@ -24,7 +24,7 @@ from timelapsedhrpqct.processing.import_outputs import (
     build_stack_metadata,
     build_stack_output_paths,
 )
-from timelapsedhrpqct.processing.masks import same_geometry, resolve_masks
+from timelapsedhrpqct.processing.masks import align_mask_to_image, same_geometry, resolve_masks
 from timelapsedhrpqct.processing.stacks import compute_stack_ranges
 from timelapsedhrpqct.utils.logging import ensure_pipeline_dataset_description
 from timelapsedhrpqct.utils.paths import append_session_to_index
@@ -65,6 +65,12 @@ def _normalize_mask_roles(raw_masks: dict[str, Path]) -> dict[str, Path]:
             normalized["full"] = path
 
     return normalized
+
+
+def _configured_mask_roles(config: AppConfig) -> list[str]:
+    masks_cfg = getattr(config, "masks", None)
+    roles = list(getattr(masks_cfg, "roles", ["full", "trab", "cort"]))
+    return [role for role in roles if role in {"full", "trab", "cort"}]
 
 
 def _align_label_image_to_reference(
@@ -330,7 +336,10 @@ def import_raw_session(
     normalized_mask_paths = _normalize_mask_roles(raw_session.raw_mask_paths)
     for role, path in normalized_mask_paths.items():
         mask_img, _mask_meta = read_aim(path, scaling="native")
-        provided_masks[role] = sitk.Cast(mask_img, sitk.sitkUInt8)
+        provided_masks[role] = align_mask_to_image(
+            mask=sitk.Cast(mask_img, sitk.sitkUInt8),
+            image=image,
+        )
 
     seg_image: sitk.Image | None = None
     if raw_session.raw_seg_path is not None:
@@ -402,6 +411,7 @@ def import_raw_session(
     resolved_masks, mask_provenance = resolve_masks(
         image=image,
         provided_masks=provided_masks,
+        desired_roles=_configured_mask_roles(config),
     )
 
     z_slices = image.GetSize()[2]

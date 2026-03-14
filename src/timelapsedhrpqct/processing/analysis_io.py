@@ -22,7 +22,7 @@ class SessionAnalysisInputs:
     subject_id: str
     session_id: str
     image_path: Path
-    seg_path: Path
+    seg_path: Path | None
     mask_paths: dict[str, Path]
 
 
@@ -34,6 +34,7 @@ def discover_analysis_sessions(
     dataset_root: Path,
     subject_id: str,
     use_filled_images: bool,
+    require_seg: bool,
 ) -> list[SessionAnalysisInputs]:
     sessions: list[SessionAnalysisInputs] = []
     grouped = group_fused_sessions_by_subject(iter_fused_session_records(dataset_root))
@@ -46,7 +47,9 @@ def discover_analysis_sessions(
             image_path = record.image_path
             seg_path = record.seg_path
 
-        if not image_path.exists() or seg_path is None or not seg_path.exists():
+        if not image_path.exists():
+            continue
+        if require_seg and (seg_path is None or not seg_path.exists()):
             continue
 
         mask_paths = {
@@ -77,6 +80,7 @@ def build_analysis_summary_metadata(
     subject_id: str,
     use_filled_images: bool,
     compartments: list[str],
+    method: str,
     thresholds: list[float],
     cluster_sizes: list[int],
     pair_mode: str,
@@ -90,8 +94,11 @@ def build_analysis_summary_metadata(
     return {
         "subject_id": subject_id,
         "kind": "analysis_summary",
+        "method": method,
         "use_filled_images": use_filled_images,
-        "binary_state_source": "seg_fused" if not use_filled_images else "seg_fusedfilled",
+        "binary_state_source": (
+            "seg_fused" if not use_filled_images else "seg_fusedfilled"
+        ) if method == "grayscale_and_binary" else None,
         "compartments": compartments,
         "thresholds": thresholds,
         "cluster_sizes": cluster_sizes,

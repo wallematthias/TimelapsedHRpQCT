@@ -94,6 +94,8 @@ class MaskSegmentationConfig:
 class MasksConfig:
     generate: bool = False
     overwrite: bool = False
+    roles: list[str] = field(default_factory=lambda: ["full", "trab", "cort"])
+    generate_segmentation: bool = True
 
     # kept from your earlier mask-resolution logic
     derive_full_from_cort_trab: bool = True

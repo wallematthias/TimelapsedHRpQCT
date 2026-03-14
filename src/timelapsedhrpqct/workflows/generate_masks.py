@@ -92,6 +92,12 @@ def _derive_params(config: AppConfig) -> ContourGenerationParams:
     return params
 
 
+def _configured_mask_roles(config: AppConfig) -> list[str]:
+    masks_cfg = getattr(config, "masks", None)
+    roles = list(getattr(masks_cfg, "roles", ["full", "trab", "cort"]))
+    return [role for role in roles if role in {"full", "trab", "cort"}]
+
+
 def run_mask_generation(dataset_root: str | Path, config: AppConfig) -> None:
     """
     Generate missing stack-level masks and/or seg after import, before
@@ -110,6 +116,8 @@ def run_mask_generation(dataset_root: str | Path, config: AppConfig) -> None:
         return
 
     overwrite = bool(getattr(masks_cfg, "overwrite", False))
+    configured_roles = _configured_mask_roles(config)
+    generate_seg = bool(getattr(masks_cfg, "generate_segmentation", True))
 
     params = _derive_params(config)
     seg_method = params.segmentation.method
@@ -124,19 +132,24 @@ def run_mask_generation(dataset_root: str | Path, config: AppConfig) -> None:
         has_trab = paths["trab"].exists()
         has_cort = paths["cort"].exists()
         has_seg = paths["seg"].exists()
+        has_by_role = {
+            "full": has_full,
+            "trab": has_trab,
+            "cort": has_cort,
+        }
 
         if overwrite:
-            need_generate_masks = True
-            need_generate_seg = True
+            need_generate_masks = bool(configured_roles)
+            need_generate_seg = generate_seg
         else:
-            missing_any_mask = not (has_full and has_trab and has_cort)
+            missing_any_mask = any(not has_by_role[role] for role in configured_roles)
 
             if seg_method == "global":
                 need_generate_masks = missing_any_mask
-                need_generate_seg = (not has_seg) or need_generate_masks
+                need_generate_seg = generate_seg and ((not has_seg) or need_generate_masks)
             elif seg_method == "adaptive":
                 need_generate_masks = missing_any_mask
-                need_generate_seg = not has_seg
+                need_generate_seg = generate_seg and (not has_seg)
             else:
                 raise ValueError(f"Unsupported segmentation method: {seg_method}")
 
@@ -156,36 +169,47 @@ def run_mask_generation(dataset_root: str | Path, config: AppConfig) -> None:
                 params=params,
             )
 
-            if overwrite or not has_full:
+            if "full" in configured_roles and (overwrite or not has_full):
                 sitk.WriteImage(result.full, str(paths["full"]))
                 wrote.append("full")
 
-            if overwrite or not has_trab:
+            if "trab" in configured_roles and (overwrite or not has_trab):
                 sitk.WriteImage(result.trab, str(paths["trab"]))
                 wrote.append("trab")
 
-            if overwrite or not has_cort:
+            if "cort" in configured_roles and (overwrite or not has_cort):
                 sitk.WriteImage(result.cort, str(paths["cort"]))
                 wrote.append("cort")
 
-            if overwrite or not has_seg:
+            if generate_seg and (overwrite or not has_seg):
                 sitk.WriteImage(result.seg, str(paths["seg"]))
                 wrote.append("seg")
 
-            meta["resolved_masks"] = ["cort", "full", "trab"]
+            meta["resolved_masks"] = sorted(configured_roles)
             meta["mask_source"] = "generated"
-            meta["mask_provenance"] = dict(result.mask_provenance)
+            meta["mask_provenance"] = {
+                role: source
+                for role, source in dict(result.mask_provenance).items()
+                if role in configured_roles
+            }
             meta["mask_generation"] = {
                 "generated": True,
                 "overwrite": overwrite,
                 "segmentation_method": seg_method,
                 "generated_masks_this_run": True,
-                "generated_seg_this_run": True,
+                "generated_seg_this_run": bool(generate_seg and (overwrite or not has_seg)),
+                "configured_mask_roles": sorted(configured_roles),
+                "generate_segmentation": generate_seg,
                 **result.metadata,
             }
 
         # Case 2: only seg missing, masks already exist -> generate seg only
         elif need_generate_seg:
+            if not all(paths[role].exists() for role in ("full", "trab", "cort")):
+                raise ValueError(
+                    "Segmentation generation from existing masks requires full, trab, and cort masks."
+                )
+
             full_mask = sitk.ReadImage(str(paths["full"]))
             trab_mask = sitk.ReadImage(str(paths["trab"]))
             cort_mask = sitk.ReadImage(str(paths["cort"]))

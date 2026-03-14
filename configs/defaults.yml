@@ -39,6 +39,8 @@ discovery:
 masks:
   generate: true
   overwrite: false
+  roles: [full, trab, cort]
+  generate_segmentation: true
   derive_full_from_cort_trab: true
 
   outer:

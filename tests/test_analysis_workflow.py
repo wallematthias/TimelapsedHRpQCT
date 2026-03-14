@@ -54,32 +54,40 @@ def _write_analysis_session(
     subject_id: str,
     session_id: str,
     image: np.ndarray,
-    seg: np.ndarray,
+    seg: np.ndarray | None,
     mask_full: np.ndarray,
-    mask_trab: np.ndarray,
-    mask_cort: np.ndarray,
+    mask_trab: np.ndarray | None,
+    mask_cort: np.ndarray | None,
 ) -> None:
     session_dir = _analysis_session_dir(dataset_root, subject_id, session_id)
     stem = f"sub-{subject_id}_ses-{session_id}"
     image_path = session_dir / f"{stem}_image_fused.mha"
-    seg_path = session_dir / f"{stem}_seg_fused.mha"
     full_path = session_dir / f"{stem}_mask-full_fused.mha"
-    trab_path = session_dir / f"{stem}_mask-trab_fused.mha"
-    cort_path = session_dir / f"{stem}_mask-cort_fused.mha"
+    seg_path = session_dir / f"{stem}_seg_fused.mha" if seg is not None else None
+    trab_path = session_dir / f"{stem}_mask-trab_fused.mha" if mask_trab is not None else None
+    cort_path = session_dir / f"{stem}_mask-cort_fused.mha" if mask_cort is not None else None
     meta_path = session_dir / f"{stem}_fused.json"
     write_image(image_path, image.astype(np.float32))
-    write_image(seg_path, seg.astype(np.uint8))
     write_image(full_path, mask_full.astype(np.uint8))
-    write_image(trab_path, mask_trab.astype(np.uint8))
-    write_image(cort_path, mask_cort.astype(np.uint8))
+    if seg_path is not None:
+        write_image(seg_path, seg.astype(np.uint8))
+    if trab_path is not None:
+        write_image(trab_path, mask_trab.astype(np.uint8))
+    if cort_path is not None:
+        write_image(cort_path, mask_cort.astype(np.uint8))
     meta_path.write_text("{}", encoding="utf-8")
+    mask_paths = {"full": full_path}
+    if trab_path is not None:
+        mask_paths["trab"] = trab_path
+    if cort_path is not None:
+        mask_paths["cort"] = cort_path
     upsert_fused_session_record(
         dataset_root,
         FusedSessionRecord(
             subject_id=subject_id,
             session_id=session_id,
             image_path=image_path,
-            mask_paths={"full": full_path, "trab": trab_path, "cort": cort_path},
+            mask_paths=mask_paths,
             seg_path=seg_path,
             metadata_path=meta_path,
         ),
@@ -259,6 +267,7 @@ def test_discover_analysis_sessions_and_summary_metadata(tmp_path: Path) -> None
         dataset_root=dataset_root,
         subject_id="001",
         use_filled_images=False,
+        require_seg=True,
     )
 
     assert subject_ids == ["001"]
@@ -269,6 +278,7 @@ def test_discover_analysis_sessions_and_summary_metadata(tmp_path: Path) -> None
         subject_id="001",
         use_filled_images=True,
         compartments=["trab", "full"],
+        method="grayscale_and_binary",
         thresholds=[225.0],
         cluster_sizes=[1],
         pair_mode="adjacent",
@@ -333,6 +343,70 @@ def test_run_analysis_detects_known_events_at_explicit_threshold(tmp_path: Path)
     assert analysis_meta["thresholds"] == [225.0]
     assert analysis_meta["cluster_sizes"] == [1]
     assert analysis_meta["pair_mode"] == "adjacent"
+
+
+def test_run_analysis_supports_full_mask_delta_only_without_seg(tmp_path: Path) -> None:
+    dataset_root = tmp_path / "dataset"
+    shape = (5, 5, 5)
+    mask_full = np.zeros(shape, dtype=bool)
+    mask_full[1:4, 1:4, 1:4] = True
+
+    baseline_img = np.zeros(shape, dtype=np.float32)
+    followup_img = np.zeros(shape, dtype=np.float32)
+    baseline_img[mask_full] = 100.0
+    followup_img[mask_full] = 100.0
+    followup_img[2, 2, 2] = 400.0
+    followup_img[2, 2, 3] = -200.0
+
+    _write_analysis_session(
+        dataset_root,
+        "001",
+        "C1",
+        baseline_img,
+        None,
+        mask_full,
+        None,
+        None,
+    )
+    _write_analysis_session(
+        dataset_root,
+        "001",
+        "C2",
+        followup_img,
+        None,
+        mask_full,
+        None,
+        None,
+    )
+
+    config = AppConfig()
+    config.analysis = SimpleNamespace(
+        method="grayscale_delta_only",
+        compartments=["full"],
+        use_filled_images=False,
+        valid_region=SimpleNamespace(erosion_voxels=0),
+    )
+
+    run_analysis(
+        dataset_root=dataset_root,
+        config=config,
+        thresholds=[225.0],
+        clusters=[1],
+    )
+
+    pairwise_df = pd.read_csv(
+        get_derivatives_root(dataset_root)
+        / "sub-001"
+        / "analysis"
+        / "sub-001_pairwise_remodelling.csv"
+    )
+    row = pairwise_df.iloc[0]
+    assert row["compartment"] == "full"
+    assert int(row["formation_vox"]) == 1
+    assert int(row["resorption_vox"]) == 1
+    assert int(row["mineralisation_vox"]) == 0
+    assert int(row["demineralisation_vox"]) == 0
+    assert pd.isna(row["binary_source_t0"])
 
 
 def test_run_analysis_respects_threshold_and_cluster_filters(tmp_path: Path) -> None:

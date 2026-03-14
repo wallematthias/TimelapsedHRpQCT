@@ -517,6 +517,9 @@ def _requested_analysis_settings(
     )
 
     return {
+        "method": str(getattr(analysis_cfg, "method", "grayscale_and_binary"))
+        if analysis_cfg is not None
+        else "grayscale_and_binary",
         "use_filled_images": use_filled_images,
         "compartments": compartments,
         "thresholds": thresholds,

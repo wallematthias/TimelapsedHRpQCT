@@ -42,6 +42,7 @@ def _free_memory() -> None:
 def _get_analysis_params(config: AppConfig) -> AnalysisParams:
     cfg = getattr(config, "analysis", None)
 
+    method = "grayscale_and_binary"
     compartments = ["trab", "cort", "full"]
     remodeling_thresholds = [225.0]
     cluster_sizes = [12]
@@ -50,6 +51,7 @@ def _get_analysis_params(config: AppConfig) -> AnalysisParams:
     use_filled_images = False
 
     if cfg is not None:
+        method = str(getattr(cfg, "method", method))
         compartments = list(getattr(cfg, "compartments", compartments))
         remodeling_thresholds = [float(x) for x in getattr(cfg, "thresholds", remodeling_thresholds)]
         cluster_sizes = [int(x) for x in getattr(cfg, "cluster_sizes", cluster_sizes)]
@@ -93,6 +95,7 @@ def _get_analysis_params(config: AppConfig) -> AnalysisParams:
             }
 
     return AnalysisParams(
+        method=method,
         compartments=compartments,
         remodeling_thresholds=remodeling_thresholds,
         cluster_sizes=cluster_sizes,
@@ -144,10 +147,12 @@ def run_analysis(
         return
 
     for subject_id in subject_ids:
+        require_seg = params.method == "grayscale_and_binary"
         sessions = discover_analysis_sessions(
             dataset_root=dataset_root,
             subject_id=subject_id,
             use_filled_images=params.use_filled_images,
+            require_seg=require_seg,
         )
         if len(sessions) < 2:
             print(f"[analysis] Skipping sub-{subject_id}: need at least 2 sessions.")
@@ -160,7 +165,7 @@ def run_analysis(
 
         ref_img = load_image(sessions[0].image_path)
         session_ids = [s.session_id for s in sessions]
-        session_seg_paths = [str(s.seg_path) for s in sessions]
+        session_seg_paths = [str(s.seg_path) if s.seg_path is not None else "" for s in sessions]
 
         image_arrs: list[np.ndarray] = []
         seg_arrs: list[np.ndarray] = []
@@ -172,11 +177,26 @@ def run_analysis(
             image_arrs.append(
                 image_to_array(load_image(s.image_path)).astype(np.float32, copy=False)
             )
-            seg_arrs.append(
-                (image_to_array(load_image(s.seg_path)) > 0).astype(bool, copy=False)
-            )
+            if require_seg:
+                seg_arrs.append(
+                    (image_to_array(load_image(s.seg_path)) > 0).astype(bool, copy=False)
+                )
+            else:
+                seg_arrs.append(
+                    np.zeros_like(image_arrs[-1], dtype=bool)
+                )
+
+            missing_compartments = [
+                role for role in params.compartments
+                if role not in s.mask_paths or not s.mask_paths[role].exists()
+            ]
+            if missing_compartments:
+                raise ValueError(
+                    f"Missing required analysis mask(s) for sub-{subject_id} ses-{s.session_id}: "
+                    + ", ".join(sorted(missing_compartments))
+                )
             for role in ("trab", "cort", "full"):
-                if role in s.mask_paths and s.mask_paths[role].exists():
+                if role in params.compartments:
                     mask_arrs_by_role[role].append(
                         image_to_array(load_image(s.mask_paths[role])) > 0
                     )
@@ -247,6 +267,7 @@ def run_analysis(
             subject_id=subject_id,
             use_filled_images=params.use_filled_images,
             compartments=params.compartments,
+            method=params.method,
             thresholds=params.remodeling_thresholds,
             cluster_sizes=params.cluster_sizes,
             pair_mode=params.pair_mode,

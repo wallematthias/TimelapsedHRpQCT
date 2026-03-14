@@ -137,6 +137,7 @@ def derive_cort_mask(
 def resolve_masks(
     image: sitk.Image,
     provided_masks: dict[str, sitk.Image],
+    desired_roles: list[str] | None = None,
 ) -> tuple[dict[str, sitk.Image], dict[str, str]]:
     """
     Resolve available masks into a consistent dictionary.
@@ -174,6 +175,9 @@ def resolve_masks(
         - "derived_from_full_cort"
         - "derived_from_full_trab"
     """
+    desired = set(desired_roles or ["cort", "trab", "full"])
+    desired &= VALID_MASK_ROLES
+
     resolved: dict[str, sitk.Image] = {}
     provenance: dict[str, str] = {}
 
@@ -182,15 +186,16 @@ def resolve_masks(
     # Validate and binarize provided masks
     for role, mask in aligned_masks.items():
         assert_same_geometry(image, mask)
-        resolved[role] = to_binary_mask(mask)
-        provenance[role] = "provided"
+        if role in desired:
+            resolved[role] = to_binary_mask(mask)
+            provenance[role] = "provided"
 
     has_cort = "cort" in resolved
     has_trab = "trab" in resolved
     has_full = "full" in resolved
 
     # trab + cort -> full
-    if not has_full and has_cort and has_trab:
+    if "full" in desired and not has_full and has_cort and has_trab:
         full_mask = derive_full_mask(
             cort_mask=resolved["cort"],
             trab_mask=resolved["trab"],
@@ -202,7 +207,7 @@ def resolve_masks(
             has_full = True
 
     # cort + full -> trab
-    if not has_trab and has_cort and has_full:
+    if "trab" in desired and not has_trab and has_cort and has_full:
         trab_mask = derive_trab_mask(
             full_mask=resolved["full"],
             cort_mask=resolved["cort"],
@@ -214,7 +219,7 @@ def resolve_masks(
             has_trab = True
 
     # trab + full -> cort
-    if not has_cort and has_trab and has_full:
+    if "cort" in desired and not has_cort and has_trab and has_full:
         cort_mask = derive_cort_mask(
             full_mask=resolved["full"],
             trab_mask=resolved["trab"],
