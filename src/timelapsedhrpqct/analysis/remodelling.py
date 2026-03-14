@@ -206,6 +206,7 @@ def compute_remodelling_outputs(
                         resorption_raw = b0 & (~b1) & (delta < -thr) & valid
                         mineralisation_raw = b0 & b1 & (delta > thr) & valid
                         demineralisation_raw = b0 & b1 & (delta < -thr) & valid
+                        quiescent_support = b0 & b1
                     elif params.method == "grayscale_delta_only":
                         b0 = valid
                         b1 = valid
@@ -213,6 +214,7 @@ def compute_remodelling_outputs(
                         resorption_raw = (delta < -thr) & valid
                         mineralisation_raw = np.zeros_like(valid, dtype=bool)
                         demineralisation_raw = np.zeros_like(valid, dtype=bool)
+                        quiescent_support = valid
                     else:
                         raise ValueError(f"Unsupported analysis method: {params.method}")
 
@@ -221,7 +223,7 @@ def compute_remodelling_outputs(
                     mineralisation = remove_small(mineralisation_raw, cluster_size)
                     demineralisation = remove_small(demineralisation_raw, cluster_size)
 
-                    quiescent = valid & ~(
+                    quiescent = quiescent_support & ~(
                         formation | resorption | mineralisation | demineralisation
                     )
 

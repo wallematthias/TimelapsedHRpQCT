@@ -539,6 +539,17 @@ def _needs_analysis(
     config: AppConfig,
     args: argparse.Namespace,
 ) -> bool:
+    def _matches_requested_setting(payload: dict, key: str, value: object) -> bool:
+        if key not in payload:
+            return True
+        return payload.get(key) == value
+
+    def _analysis_output_exists(path_str: str) -> bool:
+        path = Path(path_str)
+        if not path.is_absolute():
+            path = dataset_root / path
+        return path.exists()
+
     if args.thr is not None or args.clusters is not None or args.visualize is not None:
         return True
     requested = _requested_analysis_settings(config, args)
@@ -556,11 +567,11 @@ def _needs_analysis(
         except Exception:
             return True
         for key, value in requested.items():
-            if payload.get(key) != value:
+            if not _matches_requested_setting(payload, key, value):
                 return True
         for key in ("pairwise_csv", "trajectory_csv"):
             out = payload.get(key)
-            if not out or not Path(out).exists():
+            if not out or not _analysis_output_exists(out):
                 return True
         if requested["visualization_enabled"]:
             visualize_dir = analysis_visualize_dir(dataset_root, subject_id)
