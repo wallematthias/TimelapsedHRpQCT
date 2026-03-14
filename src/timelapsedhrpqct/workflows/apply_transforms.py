@@ -267,7 +267,7 @@ def _resolve_transform_for_record(
     if final_path.exists():
         return _load_transform(final_path), str(final_path), "final"
 
-    baseline_path = _timelapse_baseline_transform_path(
+    baseline_path = timelapse_baseline_transform_path(
         dataset_root=dataset_root,
         subject_id=subject_id,
         stack_index=stack_index,
