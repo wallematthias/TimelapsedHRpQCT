@@ -56,11 +56,11 @@ Or install the package in an existing conda environment:
 
 ```bash
 conda install -c numerics88 -c conda-forge vtk vtkbone simpleitk numpy pandas pyyaml scipy scikit-image pytest
-pip install -e . --no-deps
+pip install -e .
 ```
 
 The installable package name is `timelapsed-hrpqct`, and the Python import package is `timelapsedhrpqct`.
-In a conda environment, use `pip install -e . --no-deps` so `pip` does not try to reinstall or resolve conda-managed packages such as `vtkbone`.
+The registration backend also depends on `itk-elastix`, which is installed automatically by `pip install -e .`.
 
 The CLI uses `configs/defaults.yml` automatically if you do not pass `--config`.
 

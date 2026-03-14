@@ -13,6 +13,7 @@ license = "AGPL-3.0-only"
 dependencies = [
   "numpy",
   "pandas",
+  "itk-elastix",
   "PyYAML",
   "scikit-image",
   "scipy",

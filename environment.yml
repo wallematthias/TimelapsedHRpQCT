@@ -15,4 +15,5 @@ dependencies:
   - pytest
   - pip
   - pip:
+      - itk-elastix
       - -e .
