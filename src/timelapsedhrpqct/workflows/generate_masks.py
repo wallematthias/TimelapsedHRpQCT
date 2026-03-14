@@ -7,7 +7,11 @@ from pathlib import Path
 import SimpleITK as sitk
 
 from timelapsedhrpqct.config.models import AppConfig
-from timelapsedhrpqct.dataset.artifacts import iter_imported_stack_records
+from timelapsedhrpqct.dataset.artifacts import (
+    ImportedStackRecord,
+    iter_imported_stack_records,
+    upsert_imported_stack_records,
+)
 from timelapsedhrpqct.processing.contour_generation import (
     ContourGenerationParams,
     generate_masks_from_image,
@@ -29,8 +33,8 @@ class StackImageInput:
 def discover_stack_images(dataset_root: Path) -> list[StackImageInput]:
     return [
         StackImageInput(
-            subject_id=f"sub-{record.subject_id}",
-            session_id=f"ses-{record.session_id}",
+            subject_id=record.subject_id,
+            session_id=record.session_id,
             stack_id=f"stack-{record.stack_index:02d}",
             stack_index=record.stack_index,
             image_path=record.image_path,
@@ -98,6 +102,41 @@ def _configured_mask_roles(config: AppConfig) -> list[str]:
     return [role for role in roles if role in {"full", "trab", "cort"}]
 
 
+def _existing_generated_paths(item: StackImageInput, generate_seg: bool) -> tuple[dict[str, Path], Path | None]:
+    paths = _stack_paths(item)
+    mask_paths = {
+        role: paths[role]
+        for role in ("full", "trab", "cort")
+        if paths[role].exists()
+    }
+    seg_path = paths["seg"] if generate_seg and paths["seg"].exists() else None
+    return mask_paths, seg_path
+
+
+def _upsert_generated_outputs(
+    dataset_root: Path,
+    item: StackImageInput,
+    *,
+    generate_seg: bool,
+    metadata_path: Path,
+) -> None:
+    mask_paths, seg_path = _existing_generated_paths(item, generate_seg)
+    upsert_imported_stack_records(
+        dataset_root,
+        [
+            ImportedStackRecord(
+                subject_id=item.subject_id,
+                session_id=item.session_id,
+                stack_index=item.stack_index,
+                image_path=item.image_path,
+                mask_paths=mask_paths,
+                seg_path=seg_path,
+                metadata_path=metadata_path,
+            )
+        ],
+    )
+
+
 def run_mask_generation(dataset_root: str | Path, config: AppConfig) -> None:
     """
     Generate missing stack-level masks and/or seg after import, before
@@ -154,6 +193,12 @@ def run_mask_generation(dataset_root: str | Path, config: AppConfig) -> None:
                 raise ValueError(f"Unsupported segmentation method: {seg_method}")
 
         if not need_generate_masks and not need_generate_seg:
+            _upsert_generated_outputs(
+                dataset_root,
+                item,
+                generate_seg=generate_seg,
+                metadata_path=paths["metadata"],
+            )
             print(f"[timelapse] {item.stem} already complete -> skip")
             continue
 
@@ -234,4 +279,10 @@ def run_mask_generation(dataset_root: str | Path, config: AppConfig) -> None:
             }
 
         _write_metadata(paths["metadata"], meta)
+        _upsert_generated_outputs(
+            dataset_root,
+            item,
+            generate_seg=generate_seg,
+            metadata_path=paths["metadata"],
+        )
         print(f"[timelapse] wrote: {', '.join(wrote)}")

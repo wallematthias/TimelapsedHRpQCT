@@ -25,7 +25,7 @@ import:
 # Discovery
 # -----------------------------------------------------------------------------
 discovery:
-  session_regex: '(?P<subject>INSR_\d+)_DT_(?P<session>C\d+)(?:_(?P<role>.*))?\.AIM$'
+  session_regex: '(?i)(?P<subject>SAMPLE\d+)_(?P<session>T\d+)(?:_(?P<role>.*))?\.aim$'
 
   role_aliases:
     cort: ["CORT_MASK", "_CORT", "CORTICAL"]
