@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import SimpleITK as sitk
 
-from multistack_registration.processing.transform_chain import (
+from timelapsedhrpqct.processing.transform_chain import (
     PairwiseTransform,
     compose_sequential_to_baseline,
     compose_with_stackshift_correction,

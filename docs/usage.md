@@ -146,7 +146,7 @@ INSR_269_DT_C1_FULL_MASK.AIM
 INSR_269_DT_C1_SEG.AIM
 ```
 
-The default discovery regex is defined in [configs/defaults.yml](/Users/matthias.walle/Documents/GitHub/TimelapsedMultistack/configs/defaults.yml).
+The default discovery regex is defined in [configs/defaults.yml](/Users/matthias.walle/Documents/GitHub/TimelapsedHRpQCT/configs/defaults.yml).
 
 ## Output Layout
 

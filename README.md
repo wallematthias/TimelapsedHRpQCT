@@ -1,4 +1,4 @@
-# TimelapsedMultistack
+# TimelapsedHRpQCT
 
 Quantifying remodelling activity from time-lapsed HR-pQCT images of the distal radius or tibia. Changes from v1: 
 
@@ -53,6 +53,8 @@ conda install -c numerics88 -c conda-forge vtk vtkbone simpleitk numpy pandas py
 pip install -e .
 ```
 
+The installable package name is `timelapsed-hrpqct`, and the Python import package is `timelapsedhrpqct`.
+
 ## Quick Start
 
 Preview discovery:
@@ -101,10 +103,10 @@ This makes it practical to rerun the pipeline after fixing one stage or adding n
 
 ## Repository Layout
 
-- `src/multistack_registration/workflows/`: orchestration for each pipeline stage
-- `src/multistack_registration/processing/`: reusable algorithmic and I/O helpers
-- `src/multistack_registration/dataset/`: discovery, layout, artifact records, derivative paths
-- `src/multistack_registration/analysis/`: remodelling analysis logic
+- `src/timelapsedhrpqct/workflows/`: orchestration for each pipeline stage
+- `src/timelapsedhrpqct/processing/`: reusable algorithmic and I/O helpers
+- `src/timelapsedhrpqct/dataset/`: discovery, layout, artifact records, derivative paths
+- `src/timelapsedhrpqct/analysis/`: remodelling analysis logic
 - `configs/`: default and example YAML configurations
 - `tests/`: unit, characterization, and end-to-end workflow tests
 
@@ -112,14 +114,14 @@ This makes it practical to rerun the pipeline after fixing one stage or adding n
 
 Detailed documentation lives in `docs/`:
 
-- [Documentation Index](/Users/matthias.walle/Documents/GitHub/TimelapsedMultistack/docs/index.md)
-- [Installation](/Users/matthias.walle/Documents/GitHub/TimelapsedMultistack/docs/installation.md)
-- [Usage](/Users/matthias.walle/Documents/GitHub/TimelapsedMultistack/docs/usage.md)
-- [Usage Examples](/Users/matthias.walle/Documents/GitHub/TimelapsedMultistack/docs/usage_examples.md)
-- [Annotated Defaults](/Users/matthias.walle/Documents/GitHub/TimelapsedMultistack/docs/defaults_annotated.md)
-- [Multistack Algorithm](/Users/matthias.walle/Documents/GitHub/TimelapsedMultistack/docs/multistack_algorithm.md)
-- [Timelapsed Analysis](/Users/matthias.walle/Documents/GitHub/TimelapsedMultistack/docs/analysis.md)
-- [Settings Reference](/Users/matthias.walle/Documents/GitHub/TimelapsedMultistack/docs/settings.md)
+- [Documentation Index](/Users/matthias.walle/Documents/GitHub/TimelapsedHRpQCT/docs/index.md)
+- [Installation](/Users/matthias.walle/Documents/GitHub/TimelapsedHRpQCT/docs/installation.md)
+- [Usage](/Users/matthias.walle/Documents/GitHub/TimelapsedHRpQCT/docs/usage.md)
+- [Usage Examples](/Users/matthias.walle/Documents/GitHub/TimelapsedHRpQCT/docs/usage_examples.md)
+- [Annotated Defaults](/Users/matthias.walle/Documents/GitHub/TimelapsedHRpQCT/docs/defaults_annotated.md)
+- [Multistack Algorithm](/Users/matthias.walle/Documents/GitHub/TimelapsedHRpQCT/docs/multistack_algorithm.md)
+- [Timelapsed Analysis](/Users/matthias.walle/Documents/GitHub/TimelapsedHRpQCT/docs/analysis.md)
+- [Settings Reference](/Users/matthias.walle/Documents/GitHub/TimelapsedHRpQCT/docs/settings.md)
 
 ## Testing
 
@@ -131,7 +133,7 @@ pytest -q
 
 ## License
 
-This repository is licensed under the GNU Affero General Public License v3.0 only. See [LICENSE](/Users/matthias.walle/Documents/GitHub/TimelapsedMultistack/LICENSE).
+This repository is licensed under the GNU Affero General Public License v3.0 only. See [LICENSE](/Users/matthias.walle/Documents/GitHub/TimelapsedHRpQCT/LICENSE).
 
 ## Packaging
 

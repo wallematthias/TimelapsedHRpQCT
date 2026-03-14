@@ -3,13 +3,13 @@ from __future__ import annotations
 import numpy as np
 import SimpleITK as sitk
 
-from multistack_registration.processing.stack_correction import (
+from timelapsedhrpqct.processing.stack_correction import (
     compose_corrections_to_stack01,
     identity_registration_result,
     make_multi_union_reference_image,
     prepare_pairwise_registration_inputs,
 )
-from multistack_registration.processing.registration import RegistrationSettings
+from timelapsedhrpqct.processing.registration import RegistrationSettings
 
 
 def _float_image_with_size(size_xyz: tuple[int, int, int]) -> sitk.Image:

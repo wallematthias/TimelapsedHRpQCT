@@ -1,6 +1,6 @@
 # Annotated Defaults
 
-This page walks through [configs/defaults.yml](/Users/matthias.walle/Documents/GitHub/TimelapsedMultistack/configs/defaults.yml#L1) section by section and explains what each line does.
+This page walks through [configs/defaults.yml](/Users/matthias.walle/Documents/GitHub/TimelapsedHRpQCT/configs/defaults.yml#L1) section by section and explains what each line does.
 
 ## Full File
 

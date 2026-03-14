@@ -7,7 +7,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from multistack_registration.cli import (
+from timelapsedhrpqct.cli import (
     _cmd_run,
     _filling_enabled,
     _needs_analysis,
@@ -16,7 +16,7 @@ from multistack_registration.cli import (
     _needs_timelapse_registration,
     _sessions_needing_import,
 )
-from multistack_registration.dataset.artifacts import (
+from timelapsedhrpqct.dataset.artifacts import (
     FilledSessionRecord,
     FusedSessionRecord,
     ImportedStackRecord,
@@ -24,7 +24,7 @@ from multistack_registration.dataset.artifacts import (
     upsert_fused_session_record,
     upsert_imported_stack_records,
 )
-from multistack_registration.dataset.derivative_paths import (
+from timelapsedhrpqct.dataset.derivative_paths import (
     analysis_metadata_path,
     filled_full_mask_path,
     filled_image_path,
@@ -32,7 +32,7 @@ from multistack_registration.dataset.derivative_paths import (
     final_transform_path,
     timelapse_baseline_transform_path,
 )
-from multistack_registration.dataset.models import RawSession, StackSliceRange
+from timelapsedhrpqct.dataset.models import RawSession, StackSliceRange
 
 
 def _touch(path: Path) -> None:
@@ -48,7 +48,7 @@ def test_sessions_needing_import_skips_already_imported_complete_sessions(tmp_pa
     ]
 
     monkeypatch.setattr(
-        "multistack_registration.cli._expected_stack_count_for_session",
+        "timelapsedhrpqct.cli._expected_stack_count_for_session",
         lambda session, config: 2,
     )
 
@@ -262,23 +262,23 @@ def test_cmd_run_skips_fill_when_disabled_and_analysis_does_not_require_filled(m
         analysis=SimpleNamespace(use_filled_images=False),
     )
 
-    monkeypatch.setattr("multistack_registration.cli._load_config_or_die", lambda path: config)
+    monkeypatch.setattr("timelapsedhrpqct.cli._load_config_or_die", lambda path: config)
     monkeypatch.setattr(
-        "multistack_registration.cli.discover_raw_sessions",
+        "timelapsedhrpqct.cli.discover_raw_sessions",
         lambda root, discovery_config: [RawSession("001", "C1", Path("/tmp/C1.AIM"))],
     )
-    monkeypatch.setattr("multistack_registration.cli._cmd_import", lambda args: 0)
-    monkeypatch.setattr("multistack_registration.cli._needs_mask_generation", lambda dataset_root: False)
-    monkeypatch.setattr("multistack_registration.cli._needs_timelapse_registration", lambda dataset_root: False)
-    monkeypatch.setattr("multistack_registration.cli._needs_stack_correction", lambda dataset_root: False)
-    monkeypatch.setattr("multistack_registration.cli._needs_apply_transforms", lambda dataset_root: False)
+    monkeypatch.setattr("timelapsedhrpqct.cli._cmd_import", lambda args: 0)
+    monkeypatch.setattr("timelapsedhrpqct.cli._needs_mask_generation", lambda dataset_root: False)
+    monkeypatch.setattr("timelapsedhrpqct.cli._needs_timelapse_registration", lambda dataset_root: False)
+    monkeypatch.setattr("timelapsedhrpqct.cli._needs_stack_correction", lambda dataset_root: False)
+    monkeypatch.setattr("timelapsedhrpqct.cli._needs_apply_transforms", lambda dataset_root: False)
     monkeypatch.setattr(
-        "multistack_registration.cli._needs_analysis",
+        "timelapsedhrpqct.cli._needs_analysis",
         lambda dataset_root, config, args: False,
     )
 
     fill_calls: list[object] = []
-    monkeypatch.setattr("multistack_registration.cli._cmd_fill", lambda args: fill_calls.append(args) or 0)
+    monkeypatch.setattr("timelapsedhrpqct.cli._cmd_fill", lambda args: fill_calls.append(args) or 0)
 
     rc = _cmd_run(
         argparse.Namespace(
@@ -309,16 +309,16 @@ def test_cmd_run_errors_if_fill_disabled_but_analysis_uses_filled(monkeypatch, t
         analysis=SimpleNamespace(use_filled_images=True),
     )
 
-    monkeypatch.setattr("multistack_registration.cli._load_config_or_die", lambda path: config)
+    monkeypatch.setattr("timelapsedhrpqct.cli._load_config_or_die", lambda path: config)
     monkeypatch.setattr(
-        "multistack_registration.cli.discover_raw_sessions",
+        "timelapsedhrpqct.cli.discover_raw_sessions",
         lambda root, discovery_config: [RawSession("001", "C1", Path("/tmp/C1.AIM"))],
     )
-    monkeypatch.setattr("multistack_registration.cli._cmd_import", lambda args: 0)
-    monkeypatch.setattr("multistack_registration.cli._needs_mask_generation", lambda dataset_root: False)
-    monkeypatch.setattr("multistack_registration.cli._needs_timelapse_registration", lambda dataset_root: False)
-    monkeypatch.setattr("multistack_registration.cli._needs_stack_correction", lambda dataset_root: False)
-    monkeypatch.setattr("multistack_registration.cli._needs_apply_transforms", lambda dataset_root: False)
+    monkeypatch.setattr("timelapsedhrpqct.cli._cmd_import", lambda args: 0)
+    monkeypatch.setattr("timelapsedhrpqct.cli._needs_mask_generation", lambda dataset_root: False)
+    monkeypatch.setattr("timelapsedhrpqct.cli._needs_timelapse_registration", lambda dataset_root: False)
+    monkeypatch.setattr("timelapsedhrpqct.cli._needs_stack_correction", lambda dataset_root: False)
+    monkeypatch.setattr("timelapsedhrpqct.cli._needs_apply_transforms", lambda dataset_root: False)
 
     with pytest.raises(ValueError, match="analysis.use_filled_images=true requires fusion.enable_filling=true"):
         _cmd_run(

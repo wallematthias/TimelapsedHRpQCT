@@ -2,9 +2,9 @@
 
 This page describes the main configuration sections used by the pipeline. Example files live in:
 
-- [configs/defaults.yml](/Users/matthias.walle/Documents/GitHub/TimelapsedMultistack/configs/defaults.yml)
-- [configs/example_multistack.yml](/Users/matthias.walle/Documents/GitHub/TimelapsedMultistack/configs/example_multistack.yml)
-- [configs/example_single_stack.yml](/Users/matthias.walle/Documents/GitHub/TimelapsedMultistack/configs/example_single_stack.yml)
+- [configs/defaults.yml](/Users/matthias.walle/Documents/GitHub/TimelapsedHRpQCT/configs/defaults.yml)
+- [configs/example_multistack.yml](/Users/matthias.walle/Documents/GitHub/TimelapsedHRpQCT/configs/example_multistack.yml)
+- [configs/example_single_stack.yml](/Users/matthias.walle/Documents/GitHub/TimelapsedHRpQCT/configs/example_single_stack.yml)
 
 For a line-by-line walkthrough of the default config, see [Annotated Defaults](./defaults_annotated.md).
 

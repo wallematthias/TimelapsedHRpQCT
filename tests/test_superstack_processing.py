@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 import SimpleITK as sitk
 
-from multistack_registration.processing.superstack import build_superstack_from_aligned_contributors
+from timelapsedhrpqct.processing.superstack import build_superstack_from_aligned_contributors
 
 
 def _image_from_array(array_zyx: np.ndarray) -> sitk.Image:

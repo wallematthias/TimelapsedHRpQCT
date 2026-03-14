@@ -16,7 +16,7 @@ This documentation is split into overview material and deeper operational detail
 
 If you are new to the project:
 
-1. Read the repository [README](/Users/matthias.walle/Documents/GitHub/TimelapsedMultistack/README.md).
+1. Read the repository [README](/Users/matthias.walle/Documents/GitHub/TimelapsedHRpQCT/README.md).
 2. Follow [Installation](./installation.md).
 3. Read [Usage](./usage.md) and run a dry import.
 4. Read [Multistack Algorithm](./multistack_algorithm.md) if you want to understand the transform logic.

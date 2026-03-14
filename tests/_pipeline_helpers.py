@@ -5,11 +5,11 @@ from pathlib import Path
 import numpy as np
 import SimpleITK as sitk
 
-from multistack_registration.config.models import AppConfig
-from multistack_registration.dataset.artifacts import upsert_imported_stack_records
-from multistack_registration.dataset.layout import get_derivatives_root
-from multistack_registration.dataset.models import StackArtifact
-from multistack_registration.processing.registration import (
+from timelapsedhrpqct.config.models import AppConfig
+from timelapsedhrpqct.dataset.artifacts import upsert_imported_stack_records
+from timelapsedhrpqct.dataset.layout import get_derivatives_root
+from timelapsedhrpqct.dataset.models import StackArtifact
+from timelapsedhrpqct.processing.registration import (
     RegistrationResult,
     RegistrationSettings,
 )

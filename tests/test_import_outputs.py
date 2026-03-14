@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from multistack_registration.dataset.models import RawSession, StackSliceRange
-from multistack_registration.processing.import_outputs import (
+from timelapsedhrpqct.dataset.models import RawSession, StackSliceRange
+from timelapsedhrpqct.processing.import_outputs import (
     CropDetection,
     SubjectCropSpec,
     build_crop_metadata,

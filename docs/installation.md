@@ -60,8 +60,10 @@ pytest -q
 
 ## Packaging Notes
 
-- Main package metadata lives in [pyproject.toml](/Users/matthias.walle/Documents/GitHub/TimelapsedMultistack/pyproject.toml).
-- The conda recipe lives in [conda-recipe/meta.yaml](/Users/matthias.walle/Documents/GitHub/TimelapsedMultistack/conda-recipe/meta.yaml).
+- Main package metadata lives in [pyproject.toml](/Users/matthias.walle/Documents/GitHub/TimelapsedHRpQCT/pyproject.toml).
+- The conda recipe lives in [conda-recipe/meta.yaml](/Users/matthias.walle/Documents/GitHub/TimelapsedHRpQCT/conda-recipe/meta.yaml).
+
+The conda package name is `timelapsed-hrpqct`. The Python import package is `timelapsedhrpqct`.
 - GitHub Actions uses the same dependency model and includes the `numerics88` channel for `vtkbone`.
 
 ## Common Installation Problems

@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 import SimpleITK as sitk
 
-from multistack_registration.processing.qc import (
+from timelapsedhrpqct.processing.qc import (
     build_registration_overlay_rgb,
     build_registration_checkerboard,
 )

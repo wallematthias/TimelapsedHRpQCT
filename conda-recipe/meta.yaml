@@ -3,7 +3,7 @@
 {% set version = project["version"] %}
 
 package:
-  name: multistack-registration
+  name: timelapsed-hrpqct
   version: {{ version }}
 
 source:
@@ -13,7 +13,7 @@ build:
   noarch: python
   script: "{{ PYTHON }} -m pip install . --no-deps --no-build-isolation -vv"
   entry_points:
-    - timelapse = multistack_registration.cli:main
+    - timelapse = timelapsedhrpqct.cli:main
 
 requirements:
   host:
@@ -34,12 +34,12 @@ requirements:
 
 test:
   imports:
-    - multistack_registration
+    - timelapsedhrpqct
   commands:
     - timelapse --help
 
 about:
-  home: https://github.com/matthiaswalle/TimelapsedMultistack
+  home: https://github.com/matthiaswalle/TimelapsedHRpQCT
   summary: {{ project["description"] }}
   license: AGPL-3.0-only
 

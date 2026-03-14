@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from multistack_registration.processing.fused_outputs import (
+from timelapsedhrpqct.processing.fused_outputs import (
     build_fused_session_metadata,
     build_fused_session_record,
 )

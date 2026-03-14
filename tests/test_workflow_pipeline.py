@@ -5,19 +5,19 @@ from pathlib import Path
 
 import SimpleITK as sitk
 
-from multistack_registration.dataset.layout import get_derivatives_root
-from multistack_registration.workflows.apply_transforms import (
+from timelapsedhrpqct.dataset.layout import get_derivatives_root
+from timelapsedhrpqct.workflows.apply_transforms import (
     _fused_image_path,
     _fused_mask_path,
     _fused_metadata_path,
     _fused_seg_path,
     run_apply_transforms,
 )
-from multistack_registration.workflows.multistack_correction import (
+from timelapsedhrpqct.workflows.multistack_correction import (
     _final_transform_path,
     run_stack_correction,
 )
-from multistack_registration.workflows.timelapse_registration import (
+from timelapsedhrpqct.workflows.timelapse_registration import (
     _baseline_metadata_path,
     _baseline_transform_path,
     _pairwise_metadata_path,
@@ -52,7 +52,7 @@ def test_timelapse_registration_writes_pairwise_and_baseline_transforms(
         ]
     )
     monkeypatch.setattr(
-        "multistack_registration.workflows.timelapse_registration.register_images",
+        "timelapsedhrpqct.workflows.timelapse_registration.register_images",
         fake_register,
     )
 
@@ -121,11 +121,11 @@ def test_pipeline_runs_end_to_end_with_deterministic_registration_backend(
     )
 
     monkeypatch.setattr(
-        "multistack_registration.workflows.timelapse_registration.register_images",
+        "timelapsedhrpqct.workflows.timelapse_registration.register_images",
         timelapse_register,
     )
     monkeypatch.setattr(
-        "multistack_registration.workflows.multistack_correction.register_images",
+        "timelapsedhrpqct.workflows.multistack_correction.register_images",
         stack_register,
     )
 

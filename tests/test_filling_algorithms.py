@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from multistack_registration.processing.filling import (
+from timelapsedhrpqct.processing.filling import (
     FillingParams,
     build_allowed_support,
     build_fill_region,

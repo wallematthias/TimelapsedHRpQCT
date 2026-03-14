@@ -3,9 +3,9 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "multistack-registration"
+name = "timelapsed-hrpqct"
 version = "0.1.0"
-description = "Refactored scaffold for longitudinal HR-pQCT multistack registration"
+description = "Longitudinal HR-pQCT timelapse analysis workflow with multistack support"
 readme = "README.md"
 requires-python = ">=3.10"
 authors = [{name = "Matthias Walle"}]
@@ -25,7 +25,7 @@ dependencies = [
 test = ["pytest"]
 
 [project.scripts]
-timelapse = "multistack_registration.cli:main"
+timelapse = "timelapsedhrpqct.cli:main"
 
 [tool.setuptools]
 package-dir = {"" = "src"}

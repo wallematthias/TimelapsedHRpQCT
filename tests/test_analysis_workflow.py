@@ -8,7 +8,7 @@ import numpy as np
 import pandas as pd
 import SimpleITK as sitk
 
-from multistack_registration.analysis.remodelling import (
+from timelapsedhrpqct.analysis.remodelling import (
     build_label_image,
     build_series_common_masks,
     component_stats,
@@ -20,22 +20,22 @@ from multistack_registration.analysis.remodelling import (
     safe_rmse,
     safe_sd,
 )
-from multistack_registration.config.models import AppConfig
-from multistack_registration.dataset.derivative_paths import (
+from timelapsedhrpqct.config.models import AppConfig
+from timelapsedhrpqct.dataset.derivative_paths import (
     analysis_metadata_path,
     common_region_path,
     pairwise_remodelling_csv_path,
     trajectory_metrics_csv_path,
 )
-from multistack_registration.dataset.artifacts import FusedSessionRecord, upsert_fused_session_record
-from multistack_registration.dataset.layout import get_derivatives_root
-from multistack_registration.processing.analysis_io import (
+from timelapsedhrpqct.dataset.artifacts import FusedSessionRecord, upsert_fused_session_record
+from timelapsedhrpqct.dataset.layout import get_derivatives_root
+from timelapsedhrpqct.processing.analysis_io import (
     build_analysis_summary_metadata,
     discover_analysis_sessions,
     discover_analysis_subject_ids,
 )
-from multistack_registration.processing.segmentation import generate_bone_segmentation
-from multistack_registration.workflows.analysis import run_analysis
+from timelapsedhrpqct.processing.segmentation import generate_bone_segmentation
+from timelapsedhrpqct.workflows.analysis import run_analysis
 
 from tests._pipeline_helpers import write_image
 

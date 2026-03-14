@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from multistack_registration.config.models import DiscoveryConfig
-from multistack_registration.dataset.discovery import discover_raw_sessions
+from timelapsedhrpqct.config.models import DiscoveryConfig
+from timelapsedhrpqct.dataset.discovery import discover_raw_sessions
 
 
 def _touch(path: Path) -> None:

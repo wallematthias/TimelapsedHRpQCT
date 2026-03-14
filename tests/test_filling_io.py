@@ -2,8 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from multistack_registration.dataset.artifacts import FusedSessionRecord, upsert_fused_session_record
-from multistack_registration.processing.filling_io import (
+from timelapsedhrpqct.dataset.artifacts import FusedSessionRecord, upsert_fused_session_record
+from timelapsedhrpqct.processing.filling_io import (
     build_filled_session_record,
     build_filling_metadata,
     discover_filling_sessions,

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from multistack_registration.dataset.derivative_paths import (
+from timelapsedhrpqct.dataset.derivative_paths import (
     common_reference_path,
     final_transform_metadata_path,
     final_transform_path,

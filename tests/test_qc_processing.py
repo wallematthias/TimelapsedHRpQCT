@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 import SimpleITK as sitk
 
-from multistack_registration.processing.qc import build_corrected_superstack_qc_outputs
+from timelapsedhrpqct.processing.qc import build_corrected_superstack_qc_outputs
 
 
 def _float_image(array_zyx: np.ndarray) -> sitk.Image:

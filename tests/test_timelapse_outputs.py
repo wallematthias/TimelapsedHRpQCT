@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from multistack_registration.processing.timelapse_outputs import (
+from timelapsedhrpqct.processing.timelapse_outputs import (
     build_baseline_registration_metadata,
     build_pairwise_registration_metadata,
 )

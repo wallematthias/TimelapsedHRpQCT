@@ -29,7 +29,7 @@ jobs:
           environment-file: environment.yml
           environment-name: multistack-ci
           cache-environment: true
-          post-cleanup: all
+          post-cleanup: none
 
       - name: Run test suite
         shell: bash -l {0}
@@ -55,7 +55,7 @@ jobs:
             conda-build
           environment-name: conda-build-env
           cache-environment: true
-          post-cleanup: all
+          post-cleanup: none
 
       - name: Build conda package
         shell: bash -l {0}
