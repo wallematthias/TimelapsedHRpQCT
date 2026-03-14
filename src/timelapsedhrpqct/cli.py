@@ -45,6 +45,8 @@ from timelapsedhrpqct.workflows.timelapse_registration import (
 )
 from timelapsedhrpqct.workflows.filling import run_filling
 
+DEFAULT_CONFIG_PATH = Path(__file__).resolve().parents[2] / "configs" / "defaults.yml"
+
 
 def _print_citation_notice() -> None:
     print("[timelapse] Please cite when using this pipeline:")
@@ -58,6 +60,18 @@ def _print_citation_notice() -> None:
         "[timelapse]   See README.md for the full citation list."
     )
     print()
+
+
+def _add_config_argument(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--config",
+        type=Path,
+        default=DEFAULT_CONFIG_PATH,
+        help=(
+            "Path to YAML configuration file. "
+            f"Defaults to {DEFAULT_CONFIG_PATH}."
+        ),
+    )
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -93,12 +107,7 @@ def _build_parser() -> argparse.ArgumentParser:
             "if not provided."
         ),
     )
-    import_parser.add_argument(
-        "--config",
-        type=Path,
-        required=True,
-        help="Path to YAML configuration file.",
-    )
+    _add_config_argument(import_parser)
     import_parser.add_argument(
         "--dry-run",
         action="store_true",
@@ -120,12 +129,7 @@ def _build_parser() -> argparse.ArgumentParser:
         type=Path,
         help="Dataset root containing imported stack artifacts.",
     )
-    gm_parser.add_argument(
-        "--config",
-        type=Path,
-        required=True,
-        help="Path to YAML configuration file.",
-    )
+    _add_config_argument(gm_parser)
 
     # ------------------------------------------------------------------
     # register
@@ -142,12 +146,7 @@ def _build_parser() -> argparse.ArgumentParser:
         type=Path,
         help="Dataset root containing imported stack artifacts.",
     )
-    tl_parser.add_argument(
-        "--config",
-        type=Path,
-        required=True,
-        help="Path to YAML configuration file.",
-    )
+    _add_config_argument(tl_parser)
 
     # ------------------------------------------------------------------
     # stackcorrect
@@ -164,12 +163,7 @@ def _build_parser() -> argparse.ArgumentParser:
         type=Path,
         help="Dataset root containing imported stack artifacts and timelapse transforms.",
     )
-    sc_parser.add_argument(
-        "--config",
-        type=Path,
-        required=True,
-        help="Path to YAML configuration file.",
-    )
+    _add_config_argument(sc_parser)
 
     # ------------------------------------------------------------------
     # transform
@@ -186,12 +180,7 @@ def _build_parser() -> argparse.ArgumentParser:
         type=Path,
         help="Dataset root containing imported stack artifacts and final transforms.",
     )
-    at_parser.add_argument(
-        "--config",
-        type=Path,
-        required=True,
-        help="Path to YAML configuration file.",
-    )
+    _add_config_argument(at_parser)
 
     # ------------------------------------------------------------------
     # fill
@@ -205,12 +194,7 @@ def _build_parser() -> argparse.ArgumentParser:
         type=Path,
         help="Dataset root containing transformed fused images.",
     )
-    fill_parser.add_argument(
-        "--config",
-        type=Path,
-        required=True,
-        help="Path to YAML configuration file.",
-    )
+    _add_config_argument(fill_parser)
 
     # ------------------------------------------------------------------
     # analyse
@@ -224,12 +208,7 @@ def _build_parser() -> argparse.ArgumentParser:
         type=Path,
         help="Dataset root containing transformed / filled outputs.",
     )
-    analyse_parser.add_argument(
-        "--config",
-        type=Path,
-        required=True,
-        help="Path to YAML configuration file.",
-    )
+    _add_config_argument(analyse_parser)
     analyse_parser.add_argument(
         "--thr",
         type=float,
@@ -283,12 +262,7 @@ def _build_parser() -> argparse.ArgumentParser:
             "if not provided."
         ),
     )
-    run_parser.add_argument(
-        "--config",
-        type=Path,
-        required=True,
-        help="Path to YAML configuration file.",
-    )
+    _add_config_argument(run_parser)
     run_parser.add_argument(
         "--mode",
         choices=("regular", "multistack"),

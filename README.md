@@ -55,37 +55,41 @@ pip install -e .
 
 The installable package name is `timelapsed-hrpqct`, and the Python import package is `timelapsedhrpqct`.
 
+The CLI uses `configs/defaults.yml` automatically if you do not pass `--config`.
+
 ## Quick Start
 
 Preview discovery:
 
 ```bash
-timelapse import /path/to/raw_data --config configs/defaults.yml --dry-run
+timelapse import /path/to/raw_data --dry-run
 ```
 
 Run the full multistack workflow:
 
 ```bash
-timelapse run /path/to/raw_data --config configs/defaults.yml --mode multistack
+timelapse run /path/to/raw_data --mode multistack
 ```
 
 Run the regular single-stack style workflow:
 
 ```bash
-timelapse run /path/to/raw_data --config configs/defaults.yml --mode regular
+timelapse run /path/to/raw_data --mode regular
 ```
 
 Run stages manually:
 
 ```bash
-timelapse import /path/to/raw_data --config configs/defaults.yml
-timelapse generate-masks /path/to/raw_data/imported_dataset --config configs/defaults.yml
-timelapse register /path/to/raw_data/imported_dataset --config configs/defaults.yml
-timelapse stackcorrect /path/to/raw_data/imported_dataset --config configs/defaults.yml
-timelapse transform /path/to/raw_data/imported_dataset --config configs/defaults.yml
-timelapse fill /path/to/raw_data/imported_dataset --config configs/defaults.yml
-timelapse analyse /path/to/raw_data/imported_dataset --config configs/defaults.yml
+timelapse import /path/to/raw_data
+timelapse generate-masks /path/to/raw_data/imported_dataset
+timelapse register /path/to/raw_data/imported_dataset
+timelapse stackcorrect /path/to/raw_data/imported_dataset
+timelapse transform /path/to/raw_data/imported_dataset
+timelapse fill /path/to/raw_data/imported_dataset
+timelapse analyse /path/to/raw_data/imported_dataset
 ```
+
+Pass `--config /path/to/other.yml` only when you want to override the built-in default.
 
 ## Incremental Reruns
 

@@ -8,6 +8,8 @@ from types import SimpleNamespace
 import pytest
 
 from timelapsedhrpqct.cli import (
+    DEFAULT_CONFIG_PATH,
+    _build_parser,
     _cmd_run,
     _filling_enabled,
     _needs_analysis,
@@ -38,6 +40,16 @@ from timelapsedhrpqct.dataset.models import RawSession, StackSliceRange
 def _touch(path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("", encoding="utf-8")
+
+
+def test_parser_uses_repo_default_config_for_commands() -> None:
+    parser = _build_parser()
+
+    import_args = parser.parse_args(["import", "/tmp/raw"])
+    run_args = parser.parse_args(["run", "/tmp/raw"])
+
+    assert import_args.config == DEFAULT_CONFIG_PATH
+    assert run_args.config == DEFAULT_CONFIG_PATH
 
 
 def test_sessions_needing_import_skips_already_imported_complete_sessions(tmp_path: Path, monkeypatch) -> None:

@@ -3,7 +3,7 @@
 ## Example 1: Dry-run a new dataset
 
 ```bash
-timelapse import /data/hrpqct --config configs/defaults.yml --dry-run
+timelapse import /data/hrpqct --dry-run
 ```
 
 Use this first to verify:
@@ -15,7 +15,7 @@ Use this first to verify:
 ## Example 2: Full multistack run
 
 ```bash
-timelapse run /data/hrpqct --config configs/defaults.yml --mode multistack
+timelapse run /data/hrpqct --mode multistack
 ```
 
 This executes:
@@ -31,7 +31,7 @@ This executes:
 ## Example 3: Resume after a previous run
 
 ```bash
-timelapse run /data/hrpqct --config configs/defaults.yml --mode multistack
+timelapse run /data/hrpqct --mode multistack
 ```
 
 Rerunning the same command should now skip completed stages based on existing artifacts and output files.
@@ -40,7 +40,6 @@ Rerunning the same command should now skip completed stages based on existing ar
 
 ```bash
 timelapse analyse /data/hrpqct/imported_dataset \
-  --config configs/defaults.yml \
   --thr 225 250 275 \
   --clusters 12 18
 ```
@@ -49,7 +48,6 @@ Or using `run` with analysis overrides:
 
 ```bash
 timelapse run /data/hrpqct \
-  --config configs/defaults.yml \
   --mode multistack \
   --thr 225 250 \
   --clusters 12
@@ -64,3 +62,5 @@ timelapse run /data/hrpqct --config configs/example_single_stack.yml --mode regu
 ```
 
 Use this when each session already contains one complete stack and you do not need multistack correction or filling.
+
+Pass `--config /path/to/other.yml` when you want to use a non-default configuration file.

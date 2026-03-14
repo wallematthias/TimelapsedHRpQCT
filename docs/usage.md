@@ -15,24 +15,26 @@ Available subcommands:
 - `analyse`
 - `run`
 
+If `--config` is omitted, the CLI uses [configs/defaults.yml](/Users/matthias.walle/Documents/GitHub/TimelapsedHRpQCT/configs/defaults.yml).
+
 ## Typical Workflows
 
 ### Full multistack run
 
 ```bash
-timelapse run /path/to/raw_data --config configs/defaults.yml --mode multistack
+timelapse run /path/to/raw_data --mode multistack
 ```
 
 ### Regular run without stack correction and filling
 
 ```bash
-timelapse run /path/to/raw_data --config configs/defaults.yml --mode regular
+timelapse run /path/to/raw_data --mode regular
 ```
 
 ### Dry-run import preview
 
 ```bash
-timelapse import /path/to/raw_data --config configs/defaults.yml --dry-run
+timelapse import /path/to/raw_data --dry-run
 ```
 
 ## Stage-By-Stage Use
@@ -40,7 +42,7 @@ timelapse import /path/to/raw_data --config configs/defaults.yml --dry-run
 ### 1. Import raw AIM sessions
 
 ```bash
-timelapse import /path/to/raw_data --config configs/defaults.yml
+timelapse import /path/to/raw_data
 ```
 
 This creates:
@@ -52,13 +54,13 @@ This creates:
 ### 2. Generate missing masks and segmentation
 
 ```bash
-timelapse generate-masks /path/to/raw_data/imported_dataset --config configs/defaults.yml
+timelapse generate-masks /path/to/raw_data/imported_dataset
 ```
 
 ### 3. Timelapsed registration
 
 ```bash
-timelapse register /path/to/raw_data/imported_dataset --config configs/defaults.yml
+timelapse register /path/to/raw_data/imported_dataset
 ```
 
 This writes:
@@ -70,7 +72,7 @@ This writes:
 ### 4. Multistack correction
 
 ```bash
-timelapse stackcorrect /path/to/raw_data/imported_dataset --config configs/defaults.yml
+timelapse stackcorrect /path/to/raw_data/imported_dataset
 ```
 
 This stage is only relevant when a session contains multiple stacks.
@@ -78,7 +80,7 @@ This stage is only relevant when a session contains multiple stacks.
 ### 5. Apply transforms and fuse sessions
 
 ```bash
-timelapse transform /path/to/raw_data/imported_dataset --config configs/defaults.yml
+timelapse transform /path/to/raw_data/imported_dataset
 ```
 
 This writes:
@@ -91,7 +93,7 @@ This writes:
 ### 6. Fill missing support
 
 ```bash
-timelapse fill /path/to/raw_data/imported_dataset --config configs/defaults.yml
+timelapse fill /path/to/raw_data/imported_dataset
 ```
 
 This writes:
@@ -105,18 +107,19 @@ This writes:
 ### 7. Run analysis
 
 ```bash
-timelapse analyse /path/to/raw_data/imported_dataset --config configs/defaults.yml
+timelapse analyse /path/to/raw_data/imported_dataset
 ```
 
 Optional overrides:
 
 ```bash
 timelapse analyse /path/to/raw_data/imported_dataset \
-  --config configs/defaults.yml \
   --thr 225 250 \
   --clusters 12 18 \
   --visualize 225 12
 ```
+
+Use `--config /path/to/other.yml` only when you want to override the default configuration file.
 
 ## Incremental Reruns
 
