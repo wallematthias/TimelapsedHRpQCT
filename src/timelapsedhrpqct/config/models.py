@@ -169,6 +169,8 @@ class AnalysisConfig:
     cluster_sizes: list[int] = field(default_factory=lambda: [12])
     pair_mode: str = "adjacent"
     use_filled_images: bool = True
+    gaussian_filter: bool = True
+    gaussian_sigma: float = 1.2
     valid_region: AnalysisValidRegionConfig = field(default_factory=AnalysisValidRegionConfig)
 
 

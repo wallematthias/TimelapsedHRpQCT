@@ -127,6 +127,8 @@ analysis:
     - 12
   pair_mode: adjacent
   use_filled_images: false
+  gaussian_filter: true
+  gaussian_sigma: 1.2
 
   valid_region:
     erosion_voxels: 1
@@ -373,6 +375,10 @@ These values matter only when `fusion.enable_filling` is true or when you run th
   Compares consecutive timepoints by default.
 - `use_filled_images: false`
   Analysis uses transformed fused images by default, not filled grayscale images.
+- `gaussian_filter: true`
+  Smooths baseline and follow-up grayscale images before density-delta analysis by default.
+- `gaussian_sigma: 1.2`
+  Gaussian smoothing sigma in voxels when `gaussian_filter` is enabled.
 - `valid_region:`
   Controls the common valid region across timepoints.
 - `erosion_voxels: 1`

@@ -162,6 +162,40 @@ def _build_known_remodelling_dataset(dataset_root: Path, subject_id: str = "001"
     return dataset_root
 
 
+def _build_delta_smoothing_dataset(dataset_root: Path, subject_id: str = "001") -> Path:
+    shape = (7, 7, 7)
+    mask_full = np.ones(shape, dtype=bool)
+    mask_trab = mask_full.copy()
+    mask_cort = np.zeros(shape, dtype=bool)
+
+    baseline_img = np.zeros(shape, dtype=np.float32)
+    followup_img = np.zeros(shape, dtype=np.float32)
+    followup_img[3, 3, 3] = 400.0
+
+    _write_analysis_session(
+        dataset_root,
+        subject_id,
+        "C1",
+        baseline_img,
+        None,
+        mask_full,
+        mask_trab,
+        mask_cort,
+    )
+    _write_analysis_session(
+        dataset_root,
+        subject_id,
+        "C2",
+        followup_img,
+        None,
+        mask_full,
+        mask_trab,
+        mask_cort,
+    )
+
+    return dataset_root
+
+
 def test_pair_indices_supports_all_modes() -> None:
     assert pair_indices(3, "adjacent") == [(0, 1), (1, 2)]
     assert pair_indices(3, "baseline") == [(0, 1), (0, 2)]
@@ -298,7 +332,11 @@ def test_discover_analysis_sessions_and_summary_metadata(tmp_path: Path) -> None
 def test_run_analysis_detects_known_events_at_explicit_threshold(tmp_path: Path) -> None:
     dataset_root = _build_known_remodelling_dataset(tmp_path / "dataset")
     config = AppConfig()
-    config.analysis = SimpleNamespace(use_filled_images=False, valid_region=SimpleNamespace(erosion_voxels=0))
+    config.analysis = SimpleNamespace(
+        use_filled_images=False,
+        gaussian_filter=False,
+        valid_region=SimpleNamespace(erosion_voxels=0),
+    )
 
     run_analysis(
         dataset_root=dataset_root,
@@ -384,6 +422,7 @@ def test_run_analysis_supports_full_mask_delta_only_without_seg(tmp_path: Path) 
         method="grayscale_delta_only",
         compartments=["full"],
         use_filled_images=False,
+        gaussian_filter=False,
         valid_region=SimpleNamespace(erosion_voxels=0),
     )
 
@@ -407,6 +446,63 @@ def test_run_analysis_supports_full_mask_delta_only_without_seg(tmp_path: Path) 
     assert int(row["mineralisation_vox"]) == 0
     assert int(row["demineralisation_vox"]) == 0
     assert pd.isna(row["binary_source_t0"])
+
+
+def test_run_analysis_optional_gaussian_filter_smooths_density_delta(tmp_path: Path) -> None:
+    dataset_root = _build_delta_smoothing_dataset(tmp_path / "dataset")
+
+    config = AppConfig()
+    config.analysis = SimpleNamespace(
+        method="grayscale_delta_only",
+        compartments=["full"],
+        thresholds=[225.0],
+        cluster_sizes=[1],
+        pair_mode="adjacent",
+        use_filled_images=False,
+        gaussian_filter=False,
+        gaussian_sigma=1.2,
+        valid_region=SimpleNamespace(erosion_voxels=0),
+    )
+
+    run_analysis(
+        dataset_root=dataset_root,
+        config=config,
+        thresholds=[225.0],
+        clusters=[1],
+    )
+
+    pairwise_path = (
+        get_derivatives_root(dataset_root)
+        / "sub-001"
+        / "analysis"
+        / "sub-001_pairwise_remodelling.csv"
+    )
+    unsmoothed_df = pd.read_csv(pairwise_path)
+    unsmoothed_row = unsmoothed_df.iloc[0]
+    assert int(unsmoothed_row["formation_vox"]) == 1
+
+    config.analysis.gaussian_filter = True
+    run_analysis(
+        dataset_root=dataset_root,
+        config=config,
+        thresholds=[225.0],
+        clusters=[1],
+    )
+
+    smoothed_df = pd.read_csv(pairwise_path)
+    smoothed_row = smoothed_df.iloc[0]
+    meta = json.loads(
+        (
+            get_derivatives_root(dataset_root)
+            / "sub-001"
+            / "analysis"
+            / "sub-001_analysis.json"
+        ).read_text()
+    )
+
+    assert int(smoothed_row["formation_vox"]) == 0
+    assert meta["gaussian_filter"] is True
+    assert meta["gaussian_sigma"] == 1.2
 
 
 def test_run_analysis_respects_threshold_and_cluster_filters(tmp_path: Path) -> None:

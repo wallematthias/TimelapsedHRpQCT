@@ -177,6 +177,8 @@ Controls remodelling analysis.
 - `cluster_sizes`
 - `pair_mode`
 - `use_filled_images`
+- `gaussian_filter`
+- `gaussian_sigma`
 - `valid_region.erosion_voxels`
 
 Use `pair_mode=adjacent` for typical longitudinal progression, and `pair_mode=baseline` when all follow-up timepoints should be compared back to baseline.

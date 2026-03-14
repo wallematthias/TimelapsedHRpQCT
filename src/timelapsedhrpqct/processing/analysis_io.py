@@ -90,6 +90,8 @@ def build_analysis_summary_metadata(
     visualization_cluster_size: int | None,
     pairwise_csv: Path,
     trajectory_csv: Path,
+    gaussian_filter: bool = False,
+    gaussian_sigma: float = 1.2,
 ) -> dict:
     return {
         "subject_id": subject_id,
@@ -104,6 +106,8 @@ def build_analysis_summary_metadata(
         "cluster_sizes": cluster_sizes,
         "pair_mode": pair_mode,
         "erosion_voxels": erosion_voxels,
+        "gaussian_filter": gaussian_filter,
+        "gaussian_sigma": gaussian_sigma,
         "visualization_enabled": visualization_enabled,
         "visualization_threshold": visualization_threshold,
         "visualization_cluster_size": visualization_cluster_size,

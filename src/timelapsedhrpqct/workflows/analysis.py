@@ -7,6 +7,7 @@ from typing import Iterable
 import numpy as np
 import pandas as pd
 import SimpleITK as sitk
+from skimage.filters import gaussian
 
 from timelapsedhrpqct.analysis.remodelling import (
     AnalysisParams,
@@ -49,6 +50,8 @@ def _get_analysis_params(config: AppConfig) -> AnalysisParams:
     pair_mode = "adjacent"
     erosion_voxels = 1
     use_filled_images = False
+    gaussian_filter = True
+    gaussian_sigma = 1.2
 
     if cfg is not None:
         method = str(getattr(cfg, "method", method))
@@ -60,6 +63,8 @@ def _get_analysis_params(config: AppConfig) -> AnalysisParams:
             getattr(getattr(cfg, "valid_region", None), "erosion_voxels", erosion_voxels)
         )
         use_filled_images = bool(getattr(cfg, "use_filled_images", use_filled_images))
+        gaussian_filter = bool(getattr(cfg, "gaussian_filter", gaussian_filter))
+        gaussian_sigma = float(getattr(cfg, "gaussian_sigma", gaussian_sigma))
 
     vis_cfg = getattr(config, "visualization", None)
     visualize_enabled = False
@@ -102,6 +107,8 @@ def _get_analysis_params(config: AppConfig) -> AnalysisParams:
         pair_mode=pair_mode,
         erosion_voxels=erosion_voxels,
         use_filled_images=use_filled_images,
+        gaussian_filter=gaussian_filter,
+        gaussian_sigma=gaussian_sigma,
         visualize_enabled=visualize_enabled,
         visualize_threshold=visualize_threshold,
         visualize_cluster_size=visualize_cluster_size,
@@ -174,9 +181,14 @@ def run_analysis(
         }
 
         for s in sessions:
-            image_arrs.append(
-                image_to_array(load_image(s.image_path)).astype(np.float32, copy=False)
-            )
+            image_arr = image_to_array(load_image(s.image_path)).astype(np.float32, copy=False)
+            if params.gaussian_filter:
+                image_arr = gaussian(
+                    image_arr,
+                    sigma=params.gaussian_sigma,
+                    preserve_range=True,
+                ).astype(np.float32, copy=False)
+            image_arrs.append(image_arr)
             if require_seg:
                 seg_arrs.append(
                     (image_to_array(load_image(s.seg_path)) > 0).astype(bool, copy=False)
@@ -272,6 +284,8 @@ def run_analysis(
             cluster_sizes=params.cluster_sizes,
             pair_mode=params.pair_mode,
             erosion_voxels=params.erosion_voxels,
+            gaussian_filter=params.gaussian_filter,
+            gaussian_sigma=params.gaussian_sigma,
             visualization_enabled=params.visualize_enabled,
             visualization_threshold=params.visualize_threshold,
             visualization_cluster_size=params.visualize_cluster_size,

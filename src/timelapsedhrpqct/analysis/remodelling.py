@@ -18,6 +18,8 @@ class AnalysisParams:
     pair_mode: str
     erosion_voxels: int
     use_filled_images: bool
+    gaussian_filter: bool
+    gaussian_sigma: float
     visualize_enabled: bool
     visualize_threshold: float | None
     visualize_cluster_size: int | None

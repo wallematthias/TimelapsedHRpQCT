@@ -478,6 +478,8 @@ def _requested_analysis_settings(
     erosion_voxels = 1
     use_filled_images = False
     compartments = ["trab", "cort", "full"]
+    gaussian_filter = True
+    gaussian_sigma = 1.2
 
     if analysis_cfg is not None:
         thresholds = [float(x) for x in getattr(analysis_cfg, "thresholds", thresholds)]
@@ -485,6 +487,8 @@ def _requested_analysis_settings(
         pair_mode = str(getattr(analysis_cfg, "pair_mode", pair_mode))
         use_filled_images = bool(getattr(analysis_cfg, "use_filled_images", use_filled_images))
         compartments = list(getattr(analysis_cfg, "compartments", compartments))
+        gaussian_filter = bool(getattr(analysis_cfg, "gaussian_filter", gaussian_filter))
+        gaussian_sigma = float(getattr(analysis_cfg, "gaussian_sigma", gaussian_sigma))
         valid_region_cfg = getattr(analysis_cfg, "valid_region", None)
         if valid_region_cfg is not None:
             erosion_voxels = int(getattr(valid_region_cfg, "erosion_voxels", erosion_voxels))
@@ -526,6 +530,8 @@ def _requested_analysis_settings(
         "cluster_sizes": cluster_sizes,
         "pair_mode": pair_mode,
         "erosion_voxels": erosion_voxels,
+        "gaussian_filter": gaussian_filter,
+        "gaussian_sigma": gaussian_sigma,
         "visualization_enabled": visualization_requested,
         "visualization_threshold": visualization_threshold if visualization_requested else None,
         "visualization_cluster_size": (
