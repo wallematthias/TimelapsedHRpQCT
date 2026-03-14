@@ -65,7 +65,7 @@ masks:
   segmentation:
     method: global
     enabled: true
-    gaussian_sigma: 1.0
+    gaussian_sigma: 1.2
     trab_threshold: 320
     cort_threshold: 450
     adaptive_low_threshold: 190

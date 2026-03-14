@@ -80,7 +80,7 @@ class InnerContourConfig:
 class MaskSegmentationConfig:
     enabled: bool = True
     method: str = "global"  # "global" | "adaptive"
-    gaussian_sigma: float = 1.0
+    gaussian_sigma: float = 1.2
     trab_threshold: float = 320.0
     cort_threshold: float = 450.0
     adaptive_low_threshold: float = 190.0

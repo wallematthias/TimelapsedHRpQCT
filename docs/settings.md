@@ -74,6 +74,7 @@ Key options:
 Controls segmentation from stack images and masks.
 
 - `method`: `global` or `adaptive`
+- `gaussian_sigma`: Gaussian smoothing sigma before `global` thresholding, in voxels
 - `trab_threshold`
 - `cort_threshold`
 - `adaptive_low_threshold`

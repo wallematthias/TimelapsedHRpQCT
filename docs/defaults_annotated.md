@@ -59,7 +59,7 @@ masks:
   segmentation:
     method: global
     enabled: true
-    gaussian_sigma: 1.0
+    gaussian_sigma: 1.2
     trab_threshold: 320
     cort_threshold: 450
     adaptive_low_threshold: 190
@@ -241,7 +241,7 @@ visualization:
   Segmentation strategy. `global` thresholds within masks; `adaptive` uses density-adaptive logic.
 - `enabled: true`
   Enables segmentation output generation alongside masks.
-- `gaussian_sigma: 1.0`
+- `gaussian_sigma: 1.2`
   Pre-segmentation smoothing.
 - `trab_threshold: 320`
   Global segmentation threshold for trabecular bone.
