@@ -110,6 +110,7 @@ If registration becomes unstable:
 Controls adjacent stack-to-stack correction.
 
 - `enabled`
+- `method`: `superstack` or `boundary_2d`
 - `transform_type`
 - `metric`
 - `sampling_percentage`
@@ -124,6 +125,10 @@ Controls adjacent stack-to-stack correction.
 This stage is only meaningful for multi-stack acquisitions.
 
 The default multistack metric is `mattes`. The registration backend now sets the common Mattes/elastix histogram and kernel parameters explicitly, which reduces warning noise in the logs while keeping the same intended behavior.
+
+`method=superstack` uses the existing baseline-superstack workflow.
+
+`method=boundary_2d` is a lighter-weight alternative that estimates adjacent stack corrections from the last slice of one baseline stack and the first slice of the next, then embeds that 2D correction into a 3D in-plane transform.
 
 ## `transform`
 

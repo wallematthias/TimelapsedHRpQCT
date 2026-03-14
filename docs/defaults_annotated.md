@@ -84,6 +84,7 @@ timelapsed_registration:
 
 multistack_correction:
   enabled: true
+  method: superstack
   transform_type: euler
   metric: mattes
   sampling_percentage: 0.01
@@ -288,6 +289,8 @@ visualization:
 
 - `enabled: true`
   Keeps the multistack correction stage active for multistack runs.
+- `method: superstack`
+  Uses baseline superstacks as the default correction backend. Set this to `boundary_2d` to estimate a lower-effort in-plane correction from adjacent stack boundary slices instead.
 - `transform_type: euler`
   Transform model used for adjacent stack correction.
 - `metric: mattes`

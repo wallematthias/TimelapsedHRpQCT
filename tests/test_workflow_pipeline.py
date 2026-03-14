@@ -164,3 +164,77 @@ def test_pipeline_runs_end_to_end_with_deterministic_registration_backend(
         assert metadata["num_stacks"] == 3
         assert len(metadata["contributors"]) == 3
         assert metadata["baseline_session"] == "baseline"
+
+
+def test_stack_correction_supports_boundary_2d_method(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    dataset_root = build_imported_dataset(tmp_path / "dataset")
+    config = make_test_config()
+    config.multistack_correction.method = "boundary_2d"
+
+    timelapse_register = make_fake_registration(
+        [
+            (1.0, 0.0, 0.0),
+            (0.0, 2.0, 0.0),
+            (3.0, 0.0, 0.0),
+            (0.0, 0.0, 1.0),
+            (5.0, 0.0, 0.0),
+            (0.0, 1.0, 0.0),
+        ]
+    )
+    boundary_calls: list[dict[str, object]] = []
+
+    def fake_2d_register(
+        fixed_image: sitk.Image,
+        moving_image: sitk.Image,
+        settings,
+        fixed_mask: sitk.Image | None = None,
+        moving_mask: sitk.Image | None = None,
+    ):
+        offset = [(0.0, 4.0), (1.0, 0.0)][len(boundary_calls)]
+        transform = sitk.TranslationTransform(2, offset)
+        boundary_calls.append(
+            {
+                "fixed_dim": fixed_image.GetDimension(),
+                "moving_dim": moving_image.GetDimension(),
+                "used_masks": fixed_mask is not None and moving_mask is not None,
+            }
+        )
+        from timelapsedhrpqct.processing.registration import RegistrationResult
+
+        return RegistrationResult(
+            transform=transform,
+            metric_value=float(len(boundary_calls)),
+            optimizer_stop_condition="fake_boundary_2d",
+            iterations=5,
+            metadata={"offset": list(offset)},
+        )
+
+    monkeypatch.setattr(
+        "timelapsedhrpqct.workflows.timelapse_registration.register_images",
+        timelapse_register,
+    )
+    monkeypatch.setattr(
+        "timelapsedhrpqct.workflows.multistack_correction.register_images",
+        fake_2d_register,
+    )
+
+    run_timelapse_registration(dataset_root=dataset_root, config=config)
+    run_stack_correction(dataset_root=dataset_root, config=config)
+
+    final_tfm = sitk.ReadTransform(
+        str(
+            _final_transform_path(
+                dataset_root=dataset_root,
+                subject_id="001",
+                stack_index=3,
+                moving_session="followup2",
+                baseline_session="baseline",
+            )
+        )
+    )
+    assert transform_offset(final_tfm) == (6.0, 5.0, 0.0)
+    assert [call["fixed_dim"] for call in boundary_calls] == [2, 2]
+    assert all(bool(call["used_masks"]) for call in boundary_calls)

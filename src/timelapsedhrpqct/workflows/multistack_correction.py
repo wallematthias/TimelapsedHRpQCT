@@ -30,9 +30,11 @@ from timelapsedhrpqct.processing.registration import (
 )
 from timelapsedhrpqct.processing.stack_correction import (
     compose_corrections_to_stack01,
+    embed_2d_transform_in_3d,
     identity_registration_result,
     image_physical_corners,
     make_multi_union_reference_image,
+    prepare_boundary_slice_registration_inputs,
     prepare_pairwise_registration_inputs,
 )
 from timelapsedhrpqct.processing.superstack import (
@@ -216,6 +218,10 @@ def _default_stack_correction_settings(config: AppConfig) -> RegistrationSetting
         use_masks=getattr(cfg, "use_masks", True),
         debug=cfg.debug,
     )
+
+
+def _stack_correction_method(config: AppConfig) -> str:
+    return str(getattr(config.multistack_correction, "method", "superstack"))
 
 
 def _baseline_record_for_stack(records: list, baseline_session: str):
@@ -602,6 +608,166 @@ def _estimate_stack_corrections_from_superstacks(
     return compose_corrections_to_stack01(adjacent_corrections)
 
 
+def _estimate_stack_corrections_from_boundary_slices(
+    dataset_root: Path,
+    subject_id: str,
+    stacks_by_index: dict[int, list],
+    baseline_session: str,
+    settings: RegistrationSettings,
+) -> dict[int, sitk.Transform]:
+    adjacent_corrections: dict[int, sitk.Transform] = {
+        1: sitk.Transform(3, sitk.sitkIdentity)
+    }
+
+    for stack_index in sorted(stacks_by_index):
+        if stack_index == 1:
+            continue
+
+        fixed_record = _baseline_record_for_stack(
+            stacks_by_index[stack_index - 1],
+            baseline_session,
+        )
+        moving_record = _baseline_record_for_stack(
+            stacks_by_index[stack_index],
+            baseline_session,
+        )
+
+        fixed_image_full = load_image(fixed_record.image_path)
+        moving_image_full = load_image(moving_record.image_path)
+        fixed_mask_full = (
+            load_image(fixed_record.mask_paths["full"])
+            if settings.use_masks
+            and "full" in fixed_record.mask_paths
+            and fixed_record.mask_paths["full"].exists()
+            else None
+        )
+        moving_mask_full = (
+            load_image(moving_record.mask_paths["full"])
+            if settings.use_masks
+            and "full" in moving_record.mask_paths
+            and moving_record.mask_paths["full"].exists()
+            else None
+        )
+
+        (
+            fixed_slice,
+            moving_slice,
+            fixed_mask_slice,
+            moving_mask_slice,
+            slice_meta,
+        ) = prepare_boundary_slice_registration_inputs(
+            fixed_image=fixed_image_full,
+            moving_image=moving_image_full,
+            fixed_mask=fixed_mask_full,
+            moving_mask=moving_mask_full,
+        )
+
+        if settings.debug:
+            print(
+                f"[timelapse]     boundary 2D fixed stack-{stack_index - 1:02d} "
+                f"z={slice_meta['fixed_z_index']}"
+            )
+            print(
+                f"[timelapse]     boundary 2D moving stack-{stack_index:02d} "
+                f"z={slice_meta['moving_z_index']}"
+            )
+
+        if (
+            sitk.GetArrayViewFromImage(fixed_slice).any()
+            or sitk.GetArrayViewFromImage(moving_slice).any()
+        ):
+            result_2d = register_images(
+                fixed_image=fixed_slice,
+                moving_image=moving_slice,
+                settings=settings,
+                fixed_mask=fixed_mask_slice,
+                moving_mask=moving_mask_slice,
+            )
+            correction_3d = embed_2d_transform_in_3d(
+                result_2d.transform,
+                fixed_z_physical=float(slice_meta["fixed_z_physical"]),
+            )
+            result = result_2d
+            method = "adjacent_boundary_slice_registration_2d"
+        else:
+            correction_3d = sitk.Transform(3, sitk.sitkIdentity)
+            result = identity_registration_result(settings)
+            method = "identity_empty_boundary_slice_fallback"
+
+        adjacent_corrections[stack_index] = correction_3d
+        _write_transform(
+            correction_3d,
+            _stack_correction_transform_path(
+                dataset_root=dataset_root,
+                subject_id=subject_id,
+                stack_index=stack_index,
+            ),
+        )
+        write_json(
+            {
+                "subject_id": subject_id,
+                "stack_index": stack_index,
+                "kind": "stackshift_correction_adjacent",
+                "space_from": f"sub-{subject_id}_stack-{stack_index:02d}_boundary_slice",
+                "space_to": f"sub-{subject_id}_stack-{stack_index - 1:02d}_boundary_slice",
+                "baseline_session": baseline_session,
+                "metric_value": result.metric_value,
+                "optimizer_stop_condition": result.optimizer_stop_condition,
+                "iterations": result.iterations,
+                "registration_metadata": result.metadata,
+                "reference_stack_index": stack_index - 1,
+                "method": method,
+                "fixed_mask_used": fixed_mask_slice is not None,
+                "moving_mask_used": moving_mask_slice is not None,
+                "boundary_slice_registration": slice_meta,
+            },
+            _stack_correction_metadata_path(
+                dataset_root=dataset_root,
+                subject_id=subject_id,
+                stack_index=stack_index,
+            ),
+        )
+
+        del fixed_image_full, moving_image_full, fixed_slice, moving_slice
+        if fixed_mask_full is not None:
+            del fixed_mask_full
+        if moving_mask_full is not None:
+            del moving_mask_full
+        if fixed_mask_slice is not None:
+            del fixed_mask_slice
+        if moving_mask_slice is not None:
+            del moving_mask_slice
+        _free_memory()
+
+    _write_transform(
+        adjacent_corrections[1],
+        _stack_correction_transform_path(
+            dataset_root=dataset_root,
+            subject_id=subject_id,
+            stack_index=1,
+        ),
+    )
+    write_json(
+        {
+            "subject_id": subject_id,
+            "stack_index": 1,
+            "kind": "stackshift_correction_adjacent",
+            "space_from": f"sub-{subject_id}_stack-01_boundary_slice",
+            "space_to": f"sub-{subject_id}_stack-01_boundary_slice",
+            "baseline_session": baseline_session,
+            "source": "identity_reference_stack",
+            "method": "identity",
+        },
+        _stack_correction_metadata_path(
+            dataset_root=dataset_root,
+            subject_id=subject_id,
+            stack_index=1,
+        ),
+    )
+
+    return compose_corrections_to_stack01(adjacent_corrections)
+
+
 def _write_identity_stack_correction_for_single_stack(
     dataset_root: Path,
     subject_id: str,
@@ -670,9 +836,11 @@ def run_stack_correction(
     grouped = group_imported_stacks_by_subject_and_stack(records)
     settings = _default_stack_correction_settings(config)
     cfg = config.multistack_correction
+    method = _stack_correction_method(config)
 
     print(
         "[timelapse] stack correction settings: "
+        f"method={method}, "
         f"metric={settings.metric}, "
         f"optimizer={settings.optimizer}, "
         f"interpolator={settings.interpolator}, "
@@ -703,15 +871,17 @@ def run_stack_correction(
             del baseline_img
             _free_memory()
 
-        common_reference = _make_subject_common_reference(
-            stacks_by_index=stacks_by_index,
-            baseline_session=baseline_session,
-            padding_voxels=4,
-        )
+        common_reference: sitk.Image | None = None
+        if method == "superstack":
+            common_reference = _make_subject_common_reference(
+                stacks_by_index=stacks_by_index,
+                baseline_session=baseline_session,
+                padding_voxels=4,
+            )
 
-        if cfg.debug:
-            write_image(common_reference, _common_reference_path(dataset_root, subject_id))
-            _print_image_info("subject common reference", common_reference)
+            if cfg.debug:
+                write_image(common_reference, _common_reference_path(dataset_root, subject_id))
+                _print_image_info("subject common reference", common_reference)
 
         if len(stack_indices) == 1:
             stack_index = stack_indices[0]
@@ -725,39 +895,51 @@ def run_stack_correction(
                 stack_index: sitk.Transform(3, sitk.sitkIdentity)
             }
         else:
-            superstacks = _build_all_superstacks(
-                dataset_root=dataset_root,
-                subject_id=subject_id,
-                stacks_by_index=stacks_by_index,
-                baseline_session=baseline_session,
-                common_reference=common_reference,
-                debug_save=cfg.debug,
-            )
+            if method == "superstack":
+                assert common_reference is not None
+                superstacks = _build_all_superstacks(
+                    dataset_root=dataset_root,
+                    subject_id=subject_id,
+                    stacks_by_index=stacks_by_index,
+                    baseline_session=baseline_session,
+                    common_reference=common_reference,
+                    debug_save=cfg.debug,
+                )
 
-            cumulative_corrections = _estimate_stack_corrections_from_superstacks(
-                dataset_root=dataset_root,
-                subject_id=subject_id,
-                superstacks=superstacks,
-                baseline_session=baseline_session,
-                settings=settings,
-            )
-
-            if cfg.debug:
-                _write_corrected_superstack_qc(
+                cumulative_corrections = _estimate_stack_corrections_from_superstacks(
                     dataset_root=dataset_root,
                     subject_id=subject_id,
                     superstacks=superstacks,
-                    common_reference=common_reference,
-                    cumulative_corrections=cumulative_corrections,
+                    baseline_session=baseline_session,
+                    settings=settings,
                 )
 
-            for stack_index in list(superstacks):
-                if "image" in superstacks[stack_index]:
-                    del superstacks[stack_index]["image"]
-                if "mask" in superstacks[stack_index]:
-                    del superstacks[stack_index]["mask"]
-            del superstacks
-            _free_memory()
+                if cfg.debug:
+                    _write_corrected_superstack_qc(
+                        dataset_root=dataset_root,
+                        subject_id=subject_id,
+                        superstacks=superstacks,
+                        common_reference=common_reference,
+                        cumulative_corrections=cumulative_corrections,
+                    )
+
+                for stack_index in list(superstacks):
+                    if "image" in superstacks[stack_index]:
+                        del superstacks[stack_index]["image"]
+                    if "mask" in superstacks[stack_index]:
+                        del superstacks[stack_index]["mask"]
+                del superstacks
+                _free_memory()
+            elif method == "boundary_2d":
+                cumulative_corrections = _estimate_stack_corrections_from_boundary_slices(
+                    dataset_root=dataset_root,
+                    subject_id=subject_id,
+                    stacks_by_index=stacks_by_index,
+                    baseline_session=baseline_session,
+                    settings=settings,
+                )
+            else:
+                raise ValueError(f"Unsupported multistack correction method: {method}")
 
         for stack_index, stack_records in sorted(stacks_by_index.items()):
             stack_correction = cumulative_corrections[stack_index]
@@ -832,5 +1014,7 @@ def run_stack_correction(
                 f"[timelapse]   stack-{stack_index:02d}: wrote {len(stack_records)} final transform(s)"
             )
 
-        del cumulative_corrections, common_reference
+        del cumulative_corrections
+        if common_reference is not None:
+            del common_reference
         _free_memory()

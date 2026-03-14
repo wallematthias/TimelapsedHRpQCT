@@ -127,6 +127,7 @@ class TimelapsedRegistrationConfig:
 @dataclass(slots=True)
 class MultistackCorrectionConfig:
     enabled: bool = True
+    method: str = "superstack"
 
     transform_type: str = "euler"
     metric: str = "correlation"

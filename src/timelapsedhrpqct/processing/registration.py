@@ -97,6 +97,13 @@ def _build_elastix_parameter_object(
     elif settings.metric == "mattes":
         parameter_map["Metric"] = ("AdvancedMattesMutualInformation",)
         parameter_map["NumberOfHistogramBins"] = ("32",)
+        parameter_map["NumberOfFixedHistogramBins"] = ("32",)
+        parameter_map["NumberOfMovingHistogramBins"] = ("32",)
+        parameter_map["FixedLimitRangeRatio"] = ("0.01",)
+        parameter_map["MovingLimitRangeRatio"] = ("0.01",)
+        parameter_map["FixedKernelBSplineOrder"] = ("0",)
+        parameter_map["MovingKernelBSplineOrder"] = ("3",)
+        parameter_map["UseFastAndLowMemoryVersion"] = ("true",)
     else:
         raise ValueError(f"Unsupported elastix metric: {settings.metric}")
 
@@ -170,6 +177,8 @@ def _build_elastix_parameter_object(
     parameter_map["NumberOfJacobianMeasurements"] = ("1000",)
     parameter_map["SigmoidScaleFactor"] = ("0.1",)
     parameter_map["ASGDParameterEstimationMethod"] = ("Original",)
+    parameter_map["UseJacobianPreconditioning"] = ("false",)
+    parameter_map["FiniteDifferenceDerivative"] = ("false",)
 
     parameter_object.SetParameterMap(parameter_map)
     return parameter_object

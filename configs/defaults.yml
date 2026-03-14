@@ -83,7 +83,7 @@ timelapsed_registration:
   reference_session: baseline
   transform_type: euler
   metric: correlation
-  sampling_percentage: 0.002
+  sampling_percentage: 0.1
   interpolator: linear
   optimizer: adaptive_stochastic_gradient_descent
   number_of_iterations: 250
@@ -96,13 +96,14 @@ timelapsed_registration:
 # -----------------------------------------------------------------------------
 multistack_correction:
   enabled: true
+  method: boundary_2d # superstack or boundary_2d
   transform_type: euler
   # Mattes is the recommended default for multistack superstack registration.
   metric: mattes
-  sampling_percentage: 0.01
+  sampling_percentage: 0.5
   interpolator: linear
   optimizer: adaptive_stochastic_gradient_descent
-  number_of_iterations: 250
+  number_of_iterations: 1000
   initializer: geometry
   number_of_resolutions: 1
   use_masks: true

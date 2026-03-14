@@ -197,3 +197,111 @@ def identity_registration_result(settings: RegistrationSettings) -> Registration
             "reason": "no_mask_overlap",
         },
     )
+
+
+def boundary_slice_index(mask: sitk.Image | None, which: str) -> int:
+    if which not in {"first", "last"}:
+        raise ValueError("which must be 'first' or 'last'")
+
+    if mask is not None:
+        bbox = binary_mask_bbox(mask)
+        if bbox is not None:
+            _, _, z0, _, _, sz = bbox
+            return int(z0 if which == "first" else z0 + sz - 1)
+
+    return 0 if which == "first" else -1
+
+
+def extract_2d_slice(image: sitk.Image, z_index: int) -> sitk.Image:
+    size = list(image.GetSize())
+    if z_index < 0:
+        z_index = size[2] + z_index
+    if z_index < 0 or z_index >= size[2]:
+        raise IndexError(f"z_index {z_index} out of bounds for size {size[2]}")
+
+    return sitk.Extract(
+        image,
+        size=[int(size[0]), int(size[1]), 0],
+        index=[0, 0, int(z_index)],
+    )
+
+
+def prepare_boundary_slice_registration_inputs(
+    fixed_image: sitk.Image,
+    moving_image: sitk.Image,
+    fixed_mask: sitk.Image | None,
+    moving_mask: sitk.Image | None,
+) -> tuple[sitk.Image, sitk.Image, sitk.Image | None, sitk.Image | None, dict]:
+    fixed_z = boundary_slice_index(fixed_mask, "last")
+    moving_z = boundary_slice_index(moving_mask, "first")
+
+    if fixed_z == -1:
+        fixed_z = fixed_image.GetSize()[2] - 1
+    if moving_z == -1:
+        moving_z = moving_image.GetSize()[2] - 1
+
+    fixed_slice = extract_2d_slice(fixed_image, fixed_z)
+    moving_slice = extract_2d_slice(moving_image, moving_z)
+    fixed_mask_slice = extract_2d_slice(fixed_mask, fixed_z) if fixed_mask is not None else None
+    moving_mask_slice = extract_2d_slice(moving_mask, moving_z) if moving_mask is not None else None
+
+    fixed_z_physical = float(fixed_image.TransformIndexToPhysicalPoint((0, 0, int(fixed_z)))[2])
+    moving_z_physical = float(moving_image.TransformIndexToPhysicalPoint((0, 0, int(moving_z)))[2])
+
+    return (
+        fixed_slice,
+        moving_slice,
+        fixed_mask_slice,
+        moving_mask_slice,
+        {
+            "fixed_boundary": "last_slice",
+            "moving_boundary": "first_slice",
+            "fixed_z_index": int(fixed_z),
+            "moving_z_index": int(moving_z),
+            "fixed_z_physical": fixed_z_physical,
+            "moving_z_physical": moving_z_physical,
+            "fixed_size": list(fixed_slice.GetSize()),
+            "moving_size": list(moving_slice.GetSize()),
+        },
+    )
+
+
+def embed_2d_transform_in_3d(
+    transform_2d: sitk.Transform,
+    fixed_z_physical: float,
+) -> sitk.Transform:
+    if isinstance(transform_2d, sitk.Euler2DTransform):
+        center_xy = transform_2d.GetCenter()
+        translation_xy = transform_2d.GetTranslation()
+        tx = sitk.Euler3DTransform()
+        tx.SetCenter((float(center_xy[0]), float(center_xy[1]), float(fixed_z_physical)))
+        tx.SetRotation(0.0, 0.0, float(transform_2d.GetAngle()))
+        tx.SetTranslation((float(translation_xy[0]), float(translation_xy[1]), 0.0))
+        return tx
+
+    if isinstance(transform_2d, sitk.TranslationTransform):
+        offset = list(transform_2d.GetOffset())
+        if len(offset) == 2:
+            return sitk.TranslationTransform(3, (float(offset[0]), float(offset[1]), 0.0))
+
+    if transform_2d.GetDimension() == 2:
+        point0 = transform_2d.TransformPoint((0.0, 0.0))
+        point1 = transform_2d.TransformPoint((1.0, 0.0))
+        point2 = transform_2d.TransformPoint((0.0, 1.0))
+        origin = np.array(point0, dtype=float)
+        basis_x = np.array(point1, dtype=float) - origin
+        basis_y = np.array(point2, dtype=float) - origin
+        matrix = np.array(
+            [
+                [basis_x[0], basis_y[0], 0.0],
+                [basis_x[1], basis_y[1], 0.0],
+                [0.0, 0.0, 1.0],
+            ],
+            dtype=float,
+        )
+        affine = sitk.AffineTransform(3)
+        affine.SetMatrix(tuple(matrix.ravel()))
+        affine.SetTranslation((float(origin[0]), float(origin[1]), 0.0))
+        return affine
+
+    raise ValueError(f"Unsupported transform dimension for 2D embedding: {transform_2d.GetDimension()}")
