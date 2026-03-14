@@ -123,6 +123,8 @@ Controls adjacent stack-to-stack correction.
 
 This stage is only meaningful for multi-stack acquisitions.
 
+The default multistack metric is `mattes`. The registration backend now sets the common Mattes/elastix histogram and kernel parameters explicitly, which reduces warning noise in the logs while keeping the same intended behavior.
+
 ## `transform`
 
 Controls resampling behavior during final transform application.

@@ -39,8 +39,6 @@ discovery:
 masks:
   generate: true
   overwrite: false
-  roles: [full, trab, cort]
-  generate_segmentation: true
   derive_full_from_cort_trab: true
 
   outer:
@@ -99,6 +97,7 @@ timelapsed_registration:
 multistack_correction:
   enabled: true
   transform_type: euler
+  # Mattes is the recommended default for multistack superstack registration.
   metric: mattes
   sampling_percentage: 0.01
   interpolator: linear

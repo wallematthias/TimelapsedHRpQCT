@@ -291,7 +291,7 @@ visualization:
 - `transform_type: euler`
   Transform model used for adjacent stack correction.
 - `metric: mattes`
-  Similarity metric for stack-to-stack superstack registration.
+  Similarity metric for stack-to-stack superstack registration. The backend explicitly sets the usual Mattes/elastix histogram and kernel parameters so runs are less noisy and easier to interpret.
 - `sampling_percentage: 0.01`
   Sampling fraction for the stack-correction metric.
 - `interpolator: linear`
