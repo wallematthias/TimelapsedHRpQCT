@@ -2,11 +2,16 @@
   <img src="assets/TimelapsedHRpQCT-logo.png" alt="TimelapsedHRpQCT logo" width="320">
 </p>
 
-# TimelapsedHRpQCT
+# TimelapsedHRpQCT v2
 
 [![CI](https://github.com/wallematthias/TimelapsedHRpQCT/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/wallematthias/TimelapsedHRpQCT/actions/workflows/ci.yml)
 
-Quantifying remodelling activity from time-lapsed HR-pQCT images of the distal radius or tibia. Changes from v1: 
+Quantifying remodelling activity from time-lapsed HR-pQCT images of the distal radius or tibia.
+
+This repository is the `v2` codebase. The original `v1` repository is here:
+https://github.com/wallematthias/TimelapsedHRpQCTv1/tree/main
+
+Changes from v1:
 
 - Added functionality for multistack images
 - Elastix Backend for registration

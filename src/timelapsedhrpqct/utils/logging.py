@@ -23,7 +23,7 @@ def ensure_pipeline_dataset_description(dataset_root: str | Path) -> None:
         "BIDSVersion": "1.9.0",
         "PipelineDescription": {
             "Name": PIPELINE_NAME,
-            "Version": "0.1.0",
+            "Version": "2.0.0",
         },
     }
     with path.open("w", encoding="utf-8") as f:
