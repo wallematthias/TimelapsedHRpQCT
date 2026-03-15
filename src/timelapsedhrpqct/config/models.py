@@ -163,6 +163,7 @@ class AnalysisValidRegionConfig:
 
 @dataclass(slots=True)
 class AnalysisConfig:
+    space: str = "pairwise_fixed_t0"
     method: str = "grayscale_and_binary"
     compartments: list[str] = field(default_factory=lambda: ["trab", "cort", "full"])
     thresholds: list[float] = field(default_factory=lambda: [225.0])

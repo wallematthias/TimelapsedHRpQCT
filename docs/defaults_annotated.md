@@ -116,6 +116,7 @@ filling:
   roi_margin_z_extra: 2
 
 analysis:
+  space: pairwise_fixed_t0
   method: grayscale_and_binary
   compartments:
     - trab
@@ -355,6 +356,8 @@ These values matter only when `fusion.enable_filling` is true or when you run th
 
 - `method: grayscale_and_binary`
   The current downstream analysis method.
+- `space: pairwise_fixed_t0`
+  Uses pairwise `t0`-fixed analysis for single-stack datasets and falls back to baseline-common analysis when pairwise `t0` space is not available.
 - `compartments:`
   Compartments evaluated in the remodelling outputs.
 - `- trab`

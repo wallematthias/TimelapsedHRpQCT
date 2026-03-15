@@ -11,6 +11,7 @@ from skimage.morphology import remove_small_objects
 
 @dataclass(slots=True)
 class AnalysisParams:
+    space: str
     method: str
     compartments: list[str]
     remodeling_thresholds: list[float]

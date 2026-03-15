@@ -478,10 +478,12 @@ def _requested_analysis_settings(
     erosion_voxels = 1
     use_filled_images = False
     compartments = ["trab", "cort", "full"]
+    space = "pairwise_fixed_t0"
     gaussian_filter = True
     gaussian_sigma = 1.2
 
     if analysis_cfg is not None:
+        space = str(getattr(analysis_cfg, "space", space))
         thresholds = [float(x) for x in getattr(analysis_cfg, "thresholds", thresholds)]
         cluster_sizes = [int(x) for x in getattr(analysis_cfg, "cluster_sizes", cluster_sizes)]
         pair_mode = str(getattr(analysis_cfg, "pair_mode", pair_mode))
@@ -524,6 +526,7 @@ def _requested_analysis_settings(
         "method": str(getattr(analysis_cfg, "method", "grayscale_and_binary"))
         if analysis_cfg is not None
         else "grayscale_and_binary",
+        "space": space,
         "use_filled_images": use_filled_images,
         "compartments": compartments,
         "thresholds": thresholds,

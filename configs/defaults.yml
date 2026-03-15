@@ -141,6 +141,7 @@ filling:
 # Analysis
 # -----------------------------------------------------------------------------
 analysis:
+  space: pairwise_fixed_t0
   method: grayscale_and_binary
   compartments:
     - trab

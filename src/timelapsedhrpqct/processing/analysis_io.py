@@ -78,6 +78,7 @@ def build_analysis_summary_metadata(
     *,
     dataset_root: Path,
     subject_id: str,
+    space: str = "baseline_common",
     use_filled_images: bool,
     compartments: list[str],
     method: str,
@@ -96,6 +97,7 @@ def build_analysis_summary_metadata(
     return {
         "subject_id": subject_id,
         "kind": "analysis_summary",
+        "space": space,
         "method": method,
         "use_filled_images": use_filled_images,
         "binary_state_source": (

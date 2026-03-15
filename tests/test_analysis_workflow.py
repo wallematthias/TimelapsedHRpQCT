@@ -25,9 +25,15 @@ from timelapsedhrpqct.dataset.derivative_paths import (
     analysis_metadata_path,
     common_region_path,
     pairwise_remodelling_csv_path,
+    timelapse_baseline_transform_path,
     trajectory_metrics_csv_path,
 )
-from timelapsedhrpqct.dataset.artifacts import FusedSessionRecord, upsert_fused_session_record
+from timelapsedhrpqct.dataset.artifacts import (
+    FusedSessionRecord,
+    ImportedStackRecord,
+    upsert_fused_session_record,
+    upsert_imported_stack_records,
+)
 from timelapsedhrpqct.dataset.layout import get_derivatives_root
 from timelapsedhrpqct.processing.analysis_io import (
     build_analysis_summary_metadata,
@@ -192,6 +198,76 @@ def _build_delta_smoothing_dataset(dataset_root: Path, subject_id: str = "001") 
         mask_trab,
         mask_cort,
     )
+
+    return dataset_root
+
+
+def _build_pairwise_t0_single_stack_dataset(dataset_root: Path, subject_id: str = "001") -> Path:
+    shape = (5, 5, 5)
+    mask_full = np.zeros(shape, dtype=bool)
+    mask_full[1:4, 1:4, 1:4] = True
+
+    baseline_img = np.zeros(shape, dtype=np.float32)
+    followup_img = np.zeros(shape, dtype=np.float32)
+    baseline_img[mask_full] = 100.0
+    followup_img[mask_full] = 100.0
+    followup_img[2, 2, 2] = 400.0
+
+    _write_analysis_session(
+        dataset_root,
+        subject_id,
+        "C1",
+        baseline_img,
+        None,
+        mask_full,
+        None,
+        None,
+    )
+    _write_analysis_session(
+        dataset_root,
+        subject_id,
+        "C2",
+        followup_img,
+        None,
+        mask_full,
+        None,
+        None,
+    )
+
+    session_dir = get_derivatives_root(dataset_root) / f"sub-{subject_id}"
+    stack_dir_c1 = session_dir / "ses-C1" / "stacks"
+    stack_dir_c2 = session_dir / "ses-C2" / "stacks"
+    stack_dir_c1.mkdir(parents=True, exist_ok=True)
+    stack_dir_c2.mkdir(parents=True, exist_ok=True)
+
+    c1_image = stack_dir_c1 / f"sub-{subject_id}_ses-C1_stack-01_image.mha"
+    c1_full = stack_dir_c1 / f"sub-{subject_id}_ses-C1_stack-01_mask-full.mha"
+    c2_image = stack_dir_c2 / f"sub-{subject_id}_ses-C2_stack-01_image.mha"
+    c2_full = stack_dir_c2 / f"sub-{subject_id}_ses-C2_stack-01_mask-full.mha"
+    c1_meta = stack_dir_c1 / f"sub-{subject_id}_ses-C1_stack-01.json"
+    c2_meta = stack_dir_c2 / f"sub-{subject_id}_ses-C2_stack-01.json"
+    for path in (c1_meta, c2_meta):
+        path.write_text("{}", encoding="utf-8")
+
+    write_image(c1_image, baseline_img.astype(np.float32))
+    write_image(c1_full, mask_full.astype(np.uint8))
+    write_image(c2_image, followup_img.astype(np.float32))
+    write_image(c2_full, mask_full.astype(np.uint8))
+
+    upsert_imported_stack_records(
+        dataset_root,
+        [
+            ImportedStackRecord(subject_id, "C1", 1, c1_image, {"full": c1_full}, None, c1_meta),
+            ImportedStackRecord(subject_id, "C2", 1, c2_image, {"full": c2_full}, None, c2_meta),
+        ],
+    )
+
+    c1_tfm = timelapse_baseline_transform_path(dataset_root, subject_id, 1, "C1", "C1")
+    c2_tfm = timelapse_baseline_transform_path(dataset_root, subject_id, 1, "C2", "C1")
+    c1_tfm.parent.mkdir(parents=True, exist_ok=True)
+    c2_tfm.parent.mkdir(parents=True, exist_ok=True)
+    sitk.WriteTransform(sitk.Transform(3, sitk.sitkIdentity), str(c1_tfm))
+    sitk.WriteTransform(sitk.Transform(3, sitk.sitkIdentity), str(c2_tfm))
 
     return dataset_root
 
@@ -503,6 +579,32 @@ def test_run_analysis_optional_gaussian_filter_smooths_density_delta(tmp_path: P
     assert int(smoothed_row["formation_vox"]) == 0
     assert meta["gaussian_filter"] is True
     assert meta["gaussian_sigma"] == 1.2
+
+
+def test_run_analysis_pairwise_fixed_t0_records_space_in_metadata(tmp_path: Path) -> None:
+    dataset_root = _build_pairwise_t0_single_stack_dataset(tmp_path / "dataset")
+    config = AppConfig()
+    config.analysis = SimpleNamespace(
+        space="pairwise_fixed_t0",
+        method="grayscale_delta_only",
+        compartments=["full"],
+        use_filled_images=False,
+        gaussian_filter=False,
+        valid_region=SimpleNamespace(erosion_voxels=0),
+    )
+
+    run_analysis(
+        dataset_root=dataset_root,
+        config=config,
+        thresholds=[225.0],
+        clusters=[1],
+    )
+
+    meta = json.loads(analysis_metadata_path(dataset_root, "001").read_text())
+    pairwise_df = pd.read_csv(pairwise_remodelling_csv_path(dataset_root, "001"))
+
+    assert meta["space"] == "pairwise_fixed_t0"
+    assert int(pairwise_df.iloc[0]["formation_vox"]) == 1
 
 
 def test_run_analysis_respects_threshold_and_cluster_filters(tmp_path: Path) -> None:
