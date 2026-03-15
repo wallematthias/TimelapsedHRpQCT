@@ -7,7 +7,7 @@
 # -----------------------------------------------------------------------------
 import:
   stack_depth: 168
-  on_incomplete_stack: error
+  on_incomplete_stack: error # error | drop_last | keep_last
 
   image_role_patterns:
     image: [".AIM"]
@@ -39,7 +39,10 @@ discovery:
 masks:
   generate: true
   overwrite: false
+  # Typical values: [full, trab, cort] or [full]
+  roles: [full, trab, cort]
   derive_full_from_cort_trab: true
+  generate_segmentation: true
 
   outer:
     periosteal_threshold: 300
@@ -63,9 +66,9 @@ masks:
     use_adaptive_threshold: false
 
   segmentation:
-    method: global
+    method: global # global | adaptive
     enabled: true
-    gaussian_sigma: 1.2
+    gaussian_sigma: 1.2 # voxels
     trab_threshold: 320
     cort_threshold: 450
     adaptive_low_threshold: 190
@@ -79,15 +82,15 @@ masks:
 # -----------------------------------------------------------------------------
 timelapsed_registration:
   debug: true
-  strategy: sequential_to_baseline
+  strategy: sequential_to_baseline # currently the only supported strategy
   reference_session: baseline
-  transform_type: euler
-  metric: correlation
+  transform_type: euler # euler | translation
+  metric: correlation # correlation | mattes
   sampling_percentage: 0.1
-  interpolator: linear
-  optimizer: adaptive_stochastic_gradient_descent
+  interpolator: linear # linear | nearest
+  optimizer: adaptive_stochastic_gradient_descent # current supported default
   number_of_iterations: 250
-  initializer: geometry
+  initializer: geometry # geometry
   number_of_resolutions: 4
   use_masks: true
 
@@ -96,15 +99,15 @@ timelapsed_registration:
 # -----------------------------------------------------------------------------
 multistack_correction:
   enabled: true
-  method: boundary_2d # superstack or boundary_2d
-  transform_type: euler
+  method: boundary_2d # superstack | boundary_2d
+  transform_type: euler # euler | translation
   # Mattes is the recommended default for multistack superstack registration.
-  metric: mattes
+  metric: mattes # correlation | mattes
   sampling_percentage: 0.5
-  interpolator: linear
-  optimizer: adaptive_stochastic_gradient_descent
+  interpolator: linear # linear | nearest
+  optimizer: adaptive_stochastic_gradient_descent # current supported default
   number_of_iterations: 1000
-  initializer: geometry
+  initializer: geometry # geometry
   number_of_resolutions: 1
   use_masks: true
   debug: true
@@ -113,8 +116,8 @@ multistack_correction:
 # Transform application
 # -----------------------------------------------------------------------------
 transform:
-  image_interpolator: linear
-  mask_interpolator: nearest
+  image_interpolator: linear # linear | nearest
+  mask_interpolator: nearest # nearest recommended for masks/seg
 
 # -----------------------------------------------------------------------------
 # Fusion and optional filling
@@ -141,8 +144,8 @@ filling:
 # Analysis
 # -----------------------------------------------------------------------------
 analysis:
-  space: pairwise_fixed_t0
-  method: grayscale_and_binary
+  space: pairwise_fixed_t0 # pairwise_fixed_t0 | baseline_common
+  method: grayscale_and_binary # grayscale_and_binary | grayscale_delta_only
   compartments:
     - trab
     - cort
@@ -151,10 +154,10 @@ analysis:
     - 225
   cluster_sizes:
     - 12
-  pair_mode: adjacent
+  pair_mode: adjacent # adjacent | baseline | all_pairs
   use_filled_images: false
   gaussian_filter: true
-  gaussian_sigma: 1.2
+  gaussian_sigma: 1.2 # voxels
 
   valid_region:
     erosion_voxels: 1
@@ -168,6 +171,7 @@ visualization:
   cluster_size: 12
 
   label_map:
+    # Output labels in the exported visualization volume.
     resorption: 1
     demineralisation: 2
     quiescent: 3
