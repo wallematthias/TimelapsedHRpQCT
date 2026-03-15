@@ -103,6 +103,8 @@ timelapse analyse /path/to/raw_data/imported_dataset
 
 Pass `--config /path/to/other.yml` only when you want to override the built-in default.
 
+The default analysis space is `baseline_common`, which is also the fastest option. `pairwise_fixed_t0` is available for single-stack datasets, but it is slower because each timepoint pair is resampled during analysis.
+
 ## Incremental Reruns
 
 The `run` command is incremental:

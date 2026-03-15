@@ -272,6 +272,85 @@ def _build_pairwise_t0_single_stack_dataset(dataset_root: Path, subject_id: str 
     return dataset_root
 
 
+def _build_pairwise_t0_shifted_followup_dataset(
+    dataset_root: Path,
+    subject_id: str = "001",
+) -> Path:
+    shape = (7, 7, 7)
+    mask_full = np.zeros(shape, dtype=bool)
+    mask_full[1:6, 1:6, 1:6] = True
+
+    baseline_img = np.zeros(shape, dtype=np.float32)
+    followup_native = np.zeros(shape, dtype=np.float32)
+
+    baseline_img[2:5, 2:5, 2:5] = 100.0
+    baseline_img[3, 3, 3] = 400.0
+
+    # Same signal, shifted by +1 voxel in x in the native follow-up stack.
+    followup_native[2:5, 2:5, 3:6] = 100.0
+    followup_native[3, 3, 4] = 400.0
+
+    _write_analysis_session(
+        dataset_root,
+        subject_id,
+        "C1",
+        baseline_img,
+        None,
+        mask_full,
+        None,
+        None,
+    )
+    # Baseline-common fused output is already aligned.
+    _write_analysis_session(
+        dataset_root,
+        subject_id,
+        "C2",
+        baseline_img,
+        None,
+        mask_full,
+        None,
+        None,
+    )
+
+    session_dir = get_derivatives_root(dataset_root) / f"sub-{subject_id}"
+    stack_dir_c1 = session_dir / "ses-C1" / "stacks"
+    stack_dir_c2 = session_dir / "ses-C2" / "stacks"
+    stack_dir_c1.mkdir(parents=True, exist_ok=True)
+    stack_dir_c2.mkdir(parents=True, exist_ok=True)
+
+    c1_image = stack_dir_c1 / f"sub-{subject_id}_ses-C1_stack-01_image.mha"
+    c1_full = stack_dir_c1 / f"sub-{subject_id}_ses-C1_stack-01_mask-full.mha"
+    c2_image = stack_dir_c2 / f"sub-{subject_id}_ses-C2_stack-01_image.mha"
+    c2_full = stack_dir_c2 / f"sub-{subject_id}_ses-C2_stack-01_mask-full.mha"
+    c1_meta = stack_dir_c1 / f"sub-{subject_id}_ses-C1_stack-01.json"
+    c2_meta = stack_dir_c2 / f"sub-{subject_id}_ses-C2_stack-01.json"
+    for path in (c1_meta, c2_meta):
+        path.write_text("{}", encoding="utf-8")
+
+    write_image(c1_image, baseline_img.astype(np.float32))
+    write_image(c1_full, mask_full.astype(np.uint8))
+    write_image(c2_image, followup_native.astype(np.float32))
+    write_image(c2_full, np.roll(mask_full.astype(np.uint8), shift=1, axis=2))
+
+    upsert_imported_stack_records(
+        dataset_root,
+        [
+            ImportedStackRecord(subject_id, "C1", 1, c1_image, {"full": c1_full}, None, c1_meta),
+            ImportedStackRecord(subject_id, "C2", 1, c2_image, {"full": c2_full}, None, c2_meta),
+        ],
+    )
+
+    c1_tfm = timelapse_baseline_transform_path(dataset_root, subject_id, 1, "C1", "C1")
+    c2_tfm = timelapse_baseline_transform_path(dataset_root, subject_id, 1, "C2", "C1")
+    c1_tfm.parent.mkdir(parents=True, exist_ok=True)
+    sitk.WriteTransform(sitk.Transform(3, sitk.sitkIdentity), str(c1_tfm))
+
+    shift_back_to_native = sitk.TranslationTransform(3, (1.0, 0.0, 0.0))
+    sitk.WriteTransform(shift_back_to_native, str(c2_tfm))
+
+    return dataset_root
+
+
 def test_pair_indices_supports_all_modes() -> None:
     assert pair_indices(3, "adjacent") == [(0, 1), (1, 2)]
     assert pair_indices(3, "baseline") == [(0, 1), (0, 2)]
@@ -605,6 +684,38 @@ def test_run_analysis_pairwise_fixed_t0_records_space_in_metadata(tmp_path: Path
 
     assert meta["space"] == "pairwise_fixed_t0"
     assert int(pairwise_df.iloc[0]["formation_vox"]) == 1
+
+
+def test_run_analysis_pairwise_fixed_t0_uses_baseline_resample_direction(
+    tmp_path: Path,
+) -> None:
+    dataset_root = _build_pairwise_t0_shifted_followup_dataset(tmp_path / "dataset")
+    config = AppConfig()
+    config.analysis = SimpleNamespace(
+        space="pairwise_fixed_t0",
+        method="grayscale_delta_only",
+        compartments=["full"],
+        thresholds=[225.0],
+        cluster_sizes=[1],
+        pair_mode="adjacent",
+        use_filled_images=False,
+        gaussian_filter=False,
+        valid_region=SimpleNamespace(erosion_voxels=0),
+    )
+    config.visualization = SimpleNamespace(enabled=False, threshold=None, cluster_size=None)
+
+    run_analysis(
+        dataset_root=dataset_root,
+        config=config,
+        thresholds=[225.0],
+        clusters=[1],
+    )
+
+    pairwise_df = pd.read_csv(pairwise_remodelling_csv_path(dataset_root, "001"))
+    row = pairwise_df.iloc[0]
+
+    assert int(row["formation_vox"]) == 0
+    assert int(row["resorption_vox"]) == 0
 
 
 def test_run_analysis_respects_threshold_and_cluster_filters(tmp_path: Path) -> None:

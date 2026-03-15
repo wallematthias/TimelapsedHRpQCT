@@ -184,7 +184,7 @@ Controls remodelling analysis.
 
 Use `pair_mode=adjacent` for typical longitudinal progression, and `pair_mode=baseline` when all follow-up timepoints should be compared back to baseline.
 
-Use `space=pairwise_fixed_t0` for pairwise comparisons in the earlier timepoint's native stack space when single-stack data are available. When that geometry is not available, the workflow falls back to `baseline_common`. Visualisation outputs remain in baseline/common space for easier inspection across the full series.
+Use `space=baseline_common` for the standard fastest analysis path in one shared reference space across the series. Use `space=pairwise_fixed_t0` for pairwise comparisons in the earlier timepoint's native stack space when single-stack data are available; it is slower because each pair is resampled during analysis. Visualisation outputs remain in baseline/common space for easier inspection across the full series.
 
 Use `method=grayscale_and_binary` when you have segmentation images and want the full formation, resorption, mineralisation, and demineralisation logic.
 

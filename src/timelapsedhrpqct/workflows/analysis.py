@@ -81,6 +81,33 @@ def _resample_image(
     return out
 
 
+def _compose_resample_transform_between_sessions(
+    source_from_baseline: sitk.Transform,
+    target_from_baseline: sitk.Transform,
+) -> sitk.Transform:
+    """
+    Compose a resampling transform from target-session reference space to
+    source-session input space using stored baseline-space resampling transforms.
+
+    Stored timelapse/final transforms are written in the direction expected by
+    SimpleITK.Resample:
+
+        baseline/output space -> session/input space
+
+    To resample source session data into the target session reference, we need:
+
+        target_space -> baseline_space -> source_space
+
+    which is:
+
+        source_from_baseline o inverse(target_from_baseline)
+    """
+    composite = sitk.CompositeTransform(source_from_baseline.GetDimension())
+    composite.AddTransform(source_from_baseline)
+    composite.AddTransform(target_from_baseline.GetInverse())
+    return composite
+
+
 def _maybe_smooth_density(image_arr: np.ndarray, params: AnalysisParams) -> np.ndarray:
     if not params.gaussian_filter:
         return image_arr.astype(np.float32, copy=False)
@@ -126,7 +153,7 @@ def _load_session_to_baseline_transform(
 def _get_analysis_params(config: AppConfig) -> AnalysisParams:
     cfg = getattr(config, "analysis", None)
 
-    space = "pairwise_fixed_t0"
+    space = "baseline_common"
     method = "grayscale_and_binary"
     compartments = ["trab", "cort", "full"]
     remodeling_thresholds = [225.0]
@@ -393,91 +420,143 @@ def _pairwise_fixed_t0_outputs_single_stack(
 
     for compartment in params.compartments:
         trajectory_event_maps: dict[tuple[float, int], list[dict[str, np.ndarray]]] = {}
+        for thr in params.remodeling_thresholds:
+            for cluster_size in params.cluster_sizes:
+                trajectory_event_maps[(float(thr), int(cluster_size))] = []
+
+        pair_cache: list[dict[str, object]] = []
+        for i0, i1 in pairs:
+            rec0 = stack_records[i0]
+            rec1 = stack_records[i1]
+            t0 = rec0.session_id
+            t1 = rec1.session_id
+            print(f"[analysis]   preparing {compartment}: {t0} -> {t1} (pairwise_fixed_t0)")
+
+            ref_img = load_image(rec0.image_path)
+            t0_to_t1 = _compose_resample_transform_between_sessions(
+                source_from_baseline=transforms_to_baseline[t1],
+                target_from_baseline=transforms_to_baseline[t0],
+            )
+
+            dens0 = _maybe_smooth_density(
+                image_to_array(ref_img).astype(np.float32, copy=False),
+                params,
+            )
+            moving_img = load_image(rec1.image_path)
+            dens1_img = _resample_image(moving_img, ref_img, t0_to_t1, is_mask=False)
+            dens1 = _maybe_smooth_density(
+                image_to_array(dens1_img).astype(np.float32, copy=False),
+                params,
+            )
+
+            if require_seg:
+                seg0 = (image_to_array(load_image(rec0.seg_path)) > 0).astype(bool, copy=False)
+                seg1_img = _resample_image(
+                    sitk.Cast(load_image(rec1.seg_path) > 0, sitk.sitkUInt8),
+                    ref_img,
+                    t0_to_t1,
+                    is_mask=True,
+                )
+                seg1 = (image_to_array(seg1_img) > 0).astype(bool, copy=False)
+            else:
+                seg0 = np.zeros_like(dens0, dtype=bool)
+                seg1 = np.zeros_like(dens1, dtype=bool)
+
+            full0 = (image_to_array(load_image(rec0.mask_paths["full"])) > 0).astype(bool, copy=False)
+            full1_img = _resample_image(
+                sitk.Cast(load_image(rec1.mask_paths["full"]) > 0, sitk.sitkUInt8),
+                ref_img,
+                t0_to_t1,
+                is_mask=True,
+            )
+            full1 = (image_to_array(full1_img) > 0).astype(bool, copy=False)
+
+            comp0 = (image_to_array(load_image(rec0.mask_paths[compartment])) > 0).astype(bool, copy=False)
+            comp1_img = _resample_image(
+                sitk.Cast(load_image(rec1.mask_paths[compartment]) > 0, sitk.sitkUInt8),
+                ref_img,
+                t0_to_t1,
+                is_mask=True,
+            )
+            comp1 = (image_to_array(comp1_img) > 0).astype(bool, copy=False)
+
+            common_t0_img = _resample_image(
+                array_to_image(
+                    common_masks_baseline[compartment].astype(np.uint8),
+                    baseline_ref,
+                    pixel_id=sitk.sitkUInt8,
+                ),
+                ref_img,
+                transforms_to_baseline[t0].GetInverse(),
+                is_mask=True,
+            )
+            common_t0 = (image_to_array(common_t0_img) > 0).astype(bool, copy=False)
+
+            support_t0_img = _resample_image(
+                array_to_image(
+                    support_union_baseline.astype(np.uint8),
+                    baseline_ref,
+                    pixel_id=sitk.sitkUInt8,
+                ),
+                ref_img,
+                transforms_to_baseline[t0].GetInverse(),
+                is_mask=True,
+            )
+            support_t0 = (image_to_array(support_t0_img) > 0).astype(bool, copy=False)
+
+            pair_cache.append(
+                {
+                    "i0": i0,
+                    "i1": i1,
+                    "t0": t0,
+                    "t1": t1,
+                    "rec0": rec0,
+                    "rec1": rec1,
+                    "ref_img": ref_img,
+                    "dens0": dens0,
+                    "dens1": dens1,
+                    "seg0": seg0,
+                    "seg1": seg1,
+                    "full0": full0,
+                    "full1": full1,
+                    "comp0": comp0,
+                    "comp1": comp1,
+                    "valid": common_t0,
+                    "support_t0": support_t0,
+                    "delta": dens1 - dens0,
+                }
+            )
 
         for thr in params.remodeling_thresholds:
             thr = float(thr)
             for cluster_size in params.cluster_sizes:
                 cluster_size = int(cluster_size)
-                trajectory_event_maps[(thr, cluster_size)] = []
 
-                for i0, i1 in pairs:
-                    rec0 = stack_records[i0]
-                    rec1 = stack_records[i1]
-                    t0 = rec0.session_id
-                    t1 = rec1.session_id
+                for cached in pair_cache:
+                    i0 = int(cached["i0"])
+                    i1 = int(cached["i1"])
+                    t0 = str(cached["t0"])
+                    t1 = str(cached["t1"])
+                    rec0 = cached["rec0"]
+                    rec1 = cached["rec1"]
+                    ref_img = cached["ref_img"]
+                    dens0 = cached["dens0"]
+                    dens1 = cached["dens1"]
+                    seg0 = cached["seg0"]
+                    seg1 = cached["seg1"]
+                    full0 = cached["full0"]
+                    full1 = cached["full1"]
+                    comp0 = cached["comp0"]
+                    comp1 = cached["comp1"]
+                    valid = cached["valid"]
+                    support_t0 = cached["support_t0"]
+                    delta = cached["delta"]
 
-                    ref_img = load_image(rec0.image_path)
-                    inv_t0 = transforms_to_baseline[t0].GetInverse()
-                    rel_t1_to_t0 = compose_transforms(inv_t0, transforms_to_baseline[t1])
-
-                    dens0 = _maybe_smooth_density(
-                        image_to_array(ref_img).astype(np.float32, copy=False),
-                        params,
+                    print(
+                        f"[analysis]   {compartment} thr={thr:g} cluster={cluster_size}: "
+                        f"{t0} -> {t1} (pairwise_fixed_t0)"
                     )
-                    moving_img = load_image(rec1.image_path)
-                    dens1_img = _resample_image(moving_img, ref_img, rel_t1_to_t0, is_mask=False)
-                    dens1 = _maybe_smooth_density(
-                        image_to_array(dens1_img).astype(np.float32, copy=False),
-                        params,
-                    )
 
-                    if require_seg:
-                        seg0 = (image_to_array(load_image(rec0.seg_path)) > 0).astype(bool, copy=False)
-                        seg1_img = _resample_image(
-                            sitk.Cast(load_image(rec1.seg_path) > 0, sitk.sitkUInt8),
-                            ref_img,
-                            rel_t1_to_t0,
-                            is_mask=True,
-                        )
-                        seg1 = (image_to_array(seg1_img) > 0).astype(bool, copy=False)
-                    else:
-                        seg0 = np.zeros_like(dens0, dtype=bool)
-                        seg1 = np.zeros_like(dens1, dtype=bool)
-
-                    full0 = (image_to_array(load_image(rec0.mask_paths["full"])) > 0).astype(bool, copy=False)
-                    full1_img = _resample_image(
-                        sitk.Cast(load_image(rec1.mask_paths["full"]) > 0, sitk.sitkUInt8),
-                        ref_img,
-                        rel_t1_to_t0,
-                        is_mask=True,
-                    )
-                    full1 = (image_to_array(full1_img) > 0).astype(bool, copy=False)
-
-                    comp0 = (image_to_array(load_image(rec0.mask_paths[compartment])) > 0).astype(bool, copy=False)
-                    comp1_img = _resample_image(
-                        sitk.Cast(load_image(rec1.mask_paths[compartment]) > 0, sitk.sitkUInt8),
-                        ref_img,
-                        rel_t1_to_t0,
-                        is_mask=True,
-                    )
-                    comp1 = (image_to_array(comp1_img) > 0).astype(bool, copy=False)
-
-                    common_t0_img = _resample_image(
-                        array_to_image(
-                            common_masks_baseline[compartment].astype(np.uint8),
-                            baseline_ref,
-                            pixel_id=sitk.sitkUInt8,
-                        ),
-                        ref_img,
-                        inv_t0,
-                        is_mask=True,
-                    )
-                    common_t0 = (image_to_array(common_t0_img) > 0).astype(bool, copy=False)
-
-                    support_t0_img = _resample_image(
-                        array_to_image(
-                            support_union_baseline.astype(np.uint8),
-                            baseline_ref,
-                            pixel_id=sitk.sitkUInt8,
-                        ),
-                        ref_img,
-                        inv_t0,
-                        is_mask=True,
-                    )
-                    support_t0 = (image_to_array(support_t0_img) > 0).astype(bool, copy=False)
-
-                    delta = dens1 - dens0
-                    valid = common_t0
                     if params.method == "grayscale_and_binary":
                         b0 = seg0 & valid
                         b1 = seg1 & valid
@@ -535,9 +614,7 @@ def _pairwise_fixed_t0_outputs_single_stack(
                             "t1": t1,
                             "threshold": thr,
                             "cluster_min_size": cluster_size,
-                            "common_region_path": str(
-                                common_region_path(dataset_root, subject_id, compartment)
-                            ),
+                            "common_region_path": str(common_region_path(dataset_root, subject_id, compartment)),
                             "binary_source_t0": str(rec0.seg_path) if require_seg and rec0.seg_path is not None else None,
                             "binary_source_t1": str(rec1.seg_path) if require_seg and rec1.seg_path is not None else None,
                             "BV0_vox": bv0,

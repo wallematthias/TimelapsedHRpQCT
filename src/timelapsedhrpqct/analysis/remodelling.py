@@ -193,6 +193,10 @@ def compute_remodelling_outputs(
                 for i0, i1 in pairs:
                     t0 = session_ids[i0]
                     t1 = session_ids[i1]
+                    print(
+                        f"[analysis]   {compartment} thr={thr:g} cluster={cluster_size}: "
+                        f"{t0} -> {t1}"
+                    )
 
                     dens0 = image_arrs[i0]
                     dens1 = image_arrs[i1]

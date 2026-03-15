@@ -478,7 +478,7 @@ def _requested_analysis_settings(
     erosion_voxels = 1
     use_filled_images = False
     compartments = ["trab", "cort", "full"]
-    space = "pairwise_fixed_t0"
+    space = "baseline_common"
     gaussian_filter = True
     gaussian_sigma = 1.2
 
