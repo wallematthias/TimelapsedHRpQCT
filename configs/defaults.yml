@@ -25,7 +25,9 @@ import:
 # Discovery
 # -----------------------------------------------------------------------------
 discovery:
-  session_regex: '(?i)(?P<subject>SAMPLE\d+)_(?P<site>DR|DT|KN)(?:_STACK(?P<stack>\d+))?_(?P<session>T\d+)(?:_(?P<role>.*))?\.aim$'
+  #session_regex: '(?i)(?P<subject>SAMPLE\d+)_(?P<site>DR|DT|KN)(?:_STACK(?P<stack>\d+))?_(?P<session>T\d+)(?:_(?P<role>.*))?\.aim$'
+  session_regex: '(?i)(?P<subject>INSR_\d+)_(?P<site>DR|DT|KN)_(?P<session>C\d+)(?:_(?P<role>.*))?\.aim$'
+
   default_site: radius
   site_aliases:
     radius: [DR, RADIUS, RAD]
@@ -49,7 +51,7 @@ masks:
   derive_full_from_cort_trab: true
   generate_segmentation: true
   site_selection:
-    default_site: radius
+    default_site: tibia
     patterns:
       radius: [radius, rad]
       tibia: [tibia, tib]
@@ -130,10 +132,11 @@ timelapsed_registration:
   reference_session: baseline
   transform_type: euler # euler | translation
   metric: correlation # correlation | mattes
-  sampling_percentage: 0.1
+  sampling_percentage: 0.001
   interpolator: linear # linear | nearest
   optimizer: adaptive_stochastic_gradient_descent # current supported default
   number_of_iterations: 250
+  automatic_parameter_estimation: true
   initializer: geometry # geometry
   number_of_resolutions: 4
   use_masks: true
@@ -147,10 +150,11 @@ multistack_correction:
   transform_type: euler # euler | translation
   # Mattes is the recommended default for multistack superstack registration.
   metric: mattes # correlation | mattes
-  sampling_percentage: 0.5
+  sampling_percentage: 0.2
   interpolator: linear # linear | nearest
   optimizer: adaptive_stochastic_gradient_descent # current supported default
   number_of_iterations: 1000
+  automatic_parameter_estimation: true
   initializer: geometry # geometry
   number_of_resolutions: 1
   use_masks: true
@@ -169,7 +173,7 @@ transform:
 fusion:
   save_fused: true
   save_fusedfilled: true
-  enable_filling: true
+  enable_filling: false
 
 # -----------------------------------------------------------------------------
 # Filling

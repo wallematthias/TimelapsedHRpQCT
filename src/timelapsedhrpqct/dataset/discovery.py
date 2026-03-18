@@ -9,12 +9,12 @@ from timelapsedhrpqct.dataset.layout import PIPELINE_NAME
 from timelapsedhrpqct.dataset.models import RawSession
 
 
-AIM_SUFFIXES = {".aim", ".AIM"}
 VALID_ROLES = {"image", "cort", "trab", "full", "seg"}
+_AIM_WITH_OPTIONAL_VERSION_RE = re.compile(r"(?i)\.aim(?:;\d+)?$")
 
 
 def _is_aim_file(path: Path) -> bool:
-    return path.is_file() and path.suffix in AIM_SUFFIXES
+    return path.is_file() and _AIM_WITH_OPTIONAL_VERSION_RE.search(path.name) is not None
 
 
 def _is_pipeline_managed_copy(path: Path, root: Path) -> bool:
@@ -36,9 +36,7 @@ def _is_pipeline_managed_copy(path: Path, root: Path) -> bool:
 
 
 def _strip_aim_suffix(name: str) -> str:
-    if name.lower().endswith(".aim"):
-        return name[:-4]
-    return name
+    return _AIM_WITH_OPTIONAL_VERSION_RE.sub("", name)
 
 
 def _normalize_role(role: str) -> str:
@@ -131,7 +129,8 @@ def _extract_subject_session_with_regex(
     path: Path,
     session_regex: str,
 ) -> tuple[str, str, str | None, str | None, int | None]:
-    match = re.search(session_regex, path.name)
+    sanitized_name = f"{_strip_aim_suffix(path.name)}.aim"
+    match = re.search(session_regex, sanitized_name)
     if match is None:
         raise ValueError(
             f"Filename did not match configured discovery.session_regex: {path.name}"

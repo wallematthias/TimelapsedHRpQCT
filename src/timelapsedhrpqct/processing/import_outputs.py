@@ -56,6 +56,7 @@ def build_crop_metadata(
     session_id: str,
     geometry_dict: dict,
     roi_index_xyz: tuple[int, int, int] | None = None,
+    session_key: str | None = None,
 ) -> dict:
     if subject_crop_spec is None:
         return {
@@ -63,7 +64,19 @@ def build_crop_metadata(
             "geometry_before_stack_split": geometry_dict,
         }
 
-    detection = subject_crop_spec.per_session_detection[session_id]
+    detection_key = session_key if session_key is not None else session_id
+    detection = subject_crop_spec.per_session_detection.get(detection_key)
+    if detection is None and detection_key != session_id:
+        detection = subject_crop_spec.per_session_detection.get(session_id)
+    if detection is None:
+        raise KeyError(
+            f"Missing crop detection for session '{session_id}'"
+            + (
+                f" (resolved key '{detection_key}')"
+                if detection_key != session_id
+                else ""
+            )
+        )
     return {
         "applied": True,
         "detection": {

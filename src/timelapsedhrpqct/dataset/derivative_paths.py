@@ -614,7 +614,21 @@ def analysis_visualize_path(
     t1_or_thr: str | float | None = None,
     thr_or_cluster: float | int | None = None,
     cluster_size: int | None = None,
+    *,
+    compartment: str | None = None,
+    t0: str | None = None,
+    t1: str | None = None,
+    thr: float | int | None = None,
 ) -> Path:
+    if compartment is not None:
+        compartment_or_t0 = compartment
+    if t0 is not None:
+        t0_or_t1 = t0
+    if t1 is not None:
+        t1_or_thr = t1
+    if thr is not None:
+        thr_or_cluster = thr
+
     if compartment_or_t0 is None or t0_or_t1 is None or t1_or_thr is None or thr_or_cluster is None:
         raise ValueError("compartment, t0, t1, threshold, and cluster_size are required")
     site, compartment, t0, t1, thr, cluster_size, legacy = _parse_site_compartment_time_args(

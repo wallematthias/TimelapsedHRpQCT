@@ -170,6 +170,12 @@ class TimelapsedRegistrationConfig:
     interpolator: str = "linear"
     optimizer: str = "adaptive_stochastic_gradient_descent"
     number_of_iterations: int = 250
+    automatic_parameter_estimation: bool = True
+    sp_a: float = 20.0
+    maximum_step_length: float | None = None
+    sigmoid_scale_factor: float = 0.1
+    number_of_gradient_measurements: int = 0
+    number_of_jacobian_measurements: int = 1000
 
     initializer: str = "geometry"
     number_of_resolutions: int = 4
@@ -189,6 +195,12 @@ class MultistackCorrectionConfig:
     interpolator: str = "linear"
     optimizer: str = "adaptive_stochastic_gradient_descent"
     number_of_iterations: int = 250
+    automatic_parameter_estimation: bool = True
+    sp_a: float = 20.0
+    maximum_step_length: float | None = None
+    sigmoid_scale_factor: float = 0.1
+    number_of_gradient_measurements: int = 0
+    number_of_jacobian_measurements: int = 1000
 
     initializer: str = "geometry"
     number_of_resolutions: int = 4

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 import shutil
 from collections import defaultdict
 from pathlib import Path
@@ -100,21 +101,25 @@ def _copy_raw_session_files(raw_session: RawSession, output_root: Path) -> dict[
     sourcedata_dir = get_sourcedata_session_dir(output_root, raw_session)
     copied: dict[str, str] = {}
 
-    image_dst = sourcedata_dir / raw_session.raw_image_path.name
+    image_dst = sourcedata_dir / _sanitized_raw_filename(raw_session.raw_image_path)
     _copy_file(raw_session.raw_image_path, image_dst)
     copied["image"] = str(image_dst)
 
     for role, src in raw_session.raw_mask_paths.items():
-        dst = sourcedata_dir / src.name
+        dst = sourcedata_dir / _sanitized_raw_filename(src)
         _copy_file(src, dst)
         copied[f"mask_{role}"] = str(dst)
 
     if raw_session.raw_seg_path is not None:
-        seg_dst = sourcedata_dir / raw_session.raw_seg_path.name
+        seg_dst = sourcedata_dir / _sanitized_raw_filename(raw_session.raw_seg_path)
         _copy_file(raw_session.raw_seg_path, seg_dst)
         copied["seg"] = str(seg_dst)
 
     return copied
+
+
+def _sanitized_raw_filename(path: Path) -> str:
+    return re.sub(r"(?i)(\.aim)(;\d+)$", r"\1", path.name)
 
 
 def _image_geometry_dict(image: sitk.Image) -> dict:
@@ -404,12 +409,12 @@ def import_raw_session(
         if seg_image is not None:
             seg_image = _reset_origin_to_zero(seg_image)
 
-        detection = subject_crop_spec.per_session_detection[session_key]
         crop_info = build_crop_metadata(
             subject_crop_spec=subject_crop_spec,
             session_id=raw_session.session_id,
             geometry_dict=_image_geometry_dict(image),
             roi_index_xyz=roi_index_xyz,
+            session_key=session_key,
         )
 
         print(

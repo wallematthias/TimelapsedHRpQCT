@@ -620,6 +620,13 @@ def _filling_enabled(config: AppConfig) -> bool:
     return bool(getattr(fusion_cfg, "enable_filling", True))
 
 
+def _multistack_correction_enabled(config: AppConfig) -> bool:
+    cfg = getattr(config, "multistack_correction", None)
+    if cfg is None:
+        return True
+    return bool(getattr(cfg, "enabled", True))
+
+
 def _cmd_import(args: argparse.Namespace) -> int:
     config = _load_config_or_die(args.config)
 
@@ -843,7 +850,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
     else:
         print("[timelapse] register: baseline transforms already exist -> skip")
 
-    if args.mode == "multistack":
+    if args.mode == "multistack" and _multistack_correction_enabled(config):
         # 4. stackcorrect
         if _needs_stack_correction(dataset_root):
             sc_args = argparse.Namespace(
@@ -855,6 +862,8 @@ def _cmd_run(args: argparse.Namespace) -> int:
                 return rc
         else:
             print("[timelapse] stackcorrect: final transforms already exist -> skip")
+    elif args.mode == "multistack":
+        print("[timelapse] stackcorrect: disabled by config.multistack_correction.enabled -> skip")
 
     # 5. transform
     if _needs_apply_transforms(dataset_root):

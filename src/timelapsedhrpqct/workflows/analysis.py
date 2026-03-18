@@ -284,10 +284,13 @@ def _baseline_common_outputs(
         require_seg=require_seg,
     )
     if len(sessions) < 2:
-        raise ValueError(f"Skipping sub-{subject_id}: need at least 2 sessions.")
+        raise ValueError(
+            f"Skipping sub-{subject_id} site-{site}: need at least 2 sessions."
+        )
 
     print(
-        f"[analysis] Subject sub-{subject_id}: {len(sessions)} session(s), "
+        f"[analysis] sub-{subject_id} site-{site}: {len(sessions)} session(s) "
+        f"({', '.join(session.session_id for session in sessions)}), "
         f"pair_mode={params.pair_mode}, use_filled_images={params.use_filled_images}, "
         f"space=baseline_common"
     )
@@ -318,7 +321,8 @@ def _baseline_common_outputs(
         ]
         if missing_compartments:
             raise ValueError(
-                f"Missing required analysis mask(s) for sub-{subject_id} ses-{s.session_id}: "
+                f"Missing required analysis mask(s) for sub-{subject_id} "
+                f"site-{site} ses-{s.session_id}: "
                 + ", ".join(sorted(missing_compartments))
             )
         for role in ("trab", "cort", "full"):
@@ -369,13 +373,16 @@ def _pairwise_fixed_t0_outputs_single_stack(
     stack_index = next(iter(stacks_by_index))
     stack_records = sorted(stacks_by_index[stack_index], key=lambda r: session_sort_key(r.session_id))
     if len(stack_records) < 2:
-        raise ValueError(f"Skipping sub-{subject_id}: need at least 2 sessions.")
+        raise ValueError(
+            f"Skipping sub-{subject_id} site-{site}: need at least 2 sessions."
+        )
 
     require_seg = params.method == "grayscale_and_binary"
     for record in stack_records:
         if require_seg and (record.seg_path is None or not record.seg_path.exists()):
             raise ValueError(
-                f"Missing required segmentation for sub-{subject_id} ses-{record.session_id}"
+                f"Missing required segmentation for sub-{subject_id} "
+                f"site-{site} ses-{record.session_id}"
             )
         missing = [
             role
@@ -384,7 +391,8 @@ def _pairwise_fixed_t0_outputs_single_stack(
         ]
         if missing:
             raise ValueError(
-                f"Missing required analysis mask(s) for sub-{subject_id} ses-{record.session_id}: "
+                f"Missing required analysis mask(s) for sub-{subject_id} "
+                f"site-{site} ses-{record.session_id}: "
                 + ", ".join(sorted(missing))
             )
 
@@ -441,7 +449,9 @@ def _pairwise_fixed_t0_outputs_single_stack(
     adjacent_pairs = pair_indices(len(stack_records), "adjacent")
 
     print(
-        f"[analysis] Subject sub-{subject_id}: {len(stack_records)} session(s), "
+        f"[analysis] sub-{subject_id} site-{site} stack-{stack_index:02d}: "
+        f"{len(stack_records)} session(s) "
+        f"({', '.join(record.session_id for record in stack_records)}), "
         f"pair_mode={params.pair_mode}, use_filled_images={params.use_filled_images}, "
         f"space=pairwise_fixed_t0"
     )
@@ -458,7 +468,11 @@ def _pairwise_fixed_t0_outputs_single_stack(
             rec1 = stack_records[i1]
             t0 = rec0.session_id
             t1 = rec1.session_id
-            print(f"[analysis]   preparing {compartment}: {t0} -> {t1} (pairwise_fixed_t0)")
+            print(
+                f"[analysis] sub-{subject_id} site-{site} stack-{stack_index:02d}: "
+                f"preparing comp-{compartment} t0-{t0} -> t1-{t1} "
+                f"(space=pairwise_fixed_t0)"
+            )
 
             ref_img = load_image(rec0.image_path)
             t0_to_t1 = _compose_resample_transform_between_sessions(
@@ -581,8 +595,9 @@ def _pairwise_fixed_t0_outputs_single_stack(
                     delta = cached["delta"]
 
                     print(
-                        f"[analysis]   {compartment} thr={thr:g} cluster={cluster_size}: "
-                        f"{t0} -> {t1} (pairwise_fixed_t0)"
+                        f"[analysis] sub-{subject_id} site-{site} stack-{stack_index:02d}: "
+                        f"comp-{compartment} thr-{thr:g} cluster-{cluster_size} "
+                        f"t0-{t0} -> t1-{t1} (space=pairwise_fixed_t0)"
                     )
 
                     if params.method == "grayscale_and_binary":
@@ -821,7 +836,7 @@ def run_analysis(
             ):
                 effective_space = "baseline_common"
                 print(
-                    f"[analysis] sub-{subject_id}: pairwise_fixed_t0 unavailable "
+                    f"[analysis] sub-{subject_id} site-{site}: pairwise_fixed_t0 unavailable "
                     f"({exc}); falling back to baseline_common"
                 )
                 outputs, ref_img = _baseline_common_outputs(
@@ -831,7 +846,10 @@ def run_analysis(
                     params=params,
                 )
             elif "need at least 2 sessions" in str(exc):
-                print(f"[analysis] Skipping sub-{subject_id}: need at least 2 sessions.")
+                print(
+                    f"[analysis] Skipping sub-{subject_id} site-{site}: "
+                    f"need at least 2 sessions."
+                )
                 continue
             else:
                 raise
@@ -851,15 +869,6 @@ def run_analysis(
                     compartment=compartment,
                 ),
             )
-            if site == "radius":
-                write_image(
-                    common_img,
-                    common_region_path(
-                        dataset_root=dataset_root,
-                        subject_id=subject_id,
-                        compartment=compartment,
-                    ),
-                )
             del common_img
 
         for (compartment, t0, t1, thr, cluster_size), label_arr in outputs.label_images.items():
@@ -877,19 +886,6 @@ def run_analysis(
                     cluster_size=cluster_size,
                 ),
             )
-            if site == "radius":
-                write_image(
-                    label_img,
-                    analysis_visualize_path(
-                        dataset_root=dataset_root,
-                        subject_id=subject_id,
-                        compartment=compartment,
-                        t0=t0,
-                        t1=t1,
-                        thr=thr,
-                        cluster_size=cluster_size,
-                    ),
-                )
             del label_img
 
         pairwise_df = pd.DataFrame(outputs.pairwise_rows)
@@ -899,12 +895,6 @@ def run_analysis(
         pairwise_path.parent.mkdir(parents=True, exist_ok=True)
         pairwise_df.to_csv(pairwise_path, index=False)
         trajectory_df.to_csv(trajectory_path, index=False)
-        if site == "radius":
-            legacy_pairwise_path = pairwise_remodelling_csv_path(dataset_root, subject_id)
-            legacy_trajectory_path = trajectory_metrics_csv_path(dataset_root, subject_id)
-            legacy_pairwise_path.parent.mkdir(parents=True, exist_ok=True)
-            pairwise_df.to_csv(legacy_pairwise_path, index=False)
-            trajectory_df.to_csv(legacy_trajectory_path, index=False)
 
         analysis_meta = build_analysis_summary_metadata(
             dataset_root=dataset_root,
@@ -928,17 +918,6 @@ def run_analysis(
         )
         meta_path = analysis_metadata_path(dataset_root, subject_id, site)
         write_json(analysis_meta, meta_path)
-        if site == "radius":
-            legacy_meta = dict(analysis_meta)
-            legacy_meta["common_regions"] = {
-                comp: str(common_region_path(dataset_root, subject_id, comp))
-                for comp in params.compartments
-            }
-            legacy_meta["analysis_dir"] = str(analysis_dir(dataset_root, subject_id))
-            legacy_meta["analysis_metadata"] = str(analysis_metadata_path(dataset_root, subject_id))
-            legacy_meta["pairwise_csv"] = str(pairwise_remodelling_csv_path(dataset_root, subject_id))
-            legacy_meta["trajectory_csv"] = str(trajectory_metrics_csv_path(dataset_root, subject_id))
-            write_json(legacy_meta, analysis_metadata_path(dataset_root, subject_id))
 
         print(
             f"[analysis] sub-{subject_id} site-{site}: wrote "

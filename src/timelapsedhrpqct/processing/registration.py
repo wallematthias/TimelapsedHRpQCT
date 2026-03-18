@@ -20,6 +20,12 @@ class RegistrationSettings:
     interpolator: str = "linear"
     optimizer: str = "adaptive_stochastic_gradient_descent"
     number_of_iterations: int = 250
+    automatic_parameter_estimation: bool = True
+    sp_a: float = 20.0
+    maximum_step_length: float | None = None
+    sigmoid_scale_factor: float = 0.1
+    number_of_gradient_measurements: int = 0
+    number_of_jacobian_measurements: int = 1000
     initializer: str = "geometry"
     number_of_resolutions: int = 4
     use_masks: bool = True
@@ -70,27 +76,52 @@ def _build_elastix_parameter_object(
     settings: RegistrationSettings,
     use_masks: bool,
 ):
-    if settings.transform_type != "euler":
+    transform_type = str(settings.transform_type).lower()
+    if transform_type not in {"euler", "translation"}:
         raise ValueError(
             f"Unsupported transform_type for elastix backend: {settings.transform_type}"
         )
 
+    optimizer = str(settings.optimizer).lower()
+    if optimizer not in {"adaptive_stochastic_gradient_descent", "adaptive_stochastic"}:
+        raise ValueError(
+            f"Unsupported optimizer for elastix backend: {settings.optimizer}"
+        )
+
+    interpolator = str(settings.interpolator).lower()
+    if interpolator not in {"linear", "nearest"}:
+        raise ValueError(
+            f"Unsupported interpolator for elastix backend: {settings.interpolator}"
+        )
+
     parameter_object = itk.ParameterObject.New()
-    parameter_map = parameter_object.GetDefaultParameterMap("rigid")
+    if transform_type == "euler":
+        parameter_map = parameter_object.GetDefaultParameterMap("rigid")
+        parameter_map["Transform"] = ("EulerTransform",)
+    else:
+        parameter_map = parameter_object.GetDefaultParameterMap("translation")
+        parameter_map["Transform"] = ("TranslationTransform",)
 
     parameter_map["FixedInternalImagePixelType"] = ("float",)
     parameter_map["MovingInternalImagePixelType"] = ("float",)
 
     parameter_map["Registration"] = ("MultiResolutionRegistration",)
-    parameter_map["Interpolator"] = ("BSplineInterpolator",)
-    parameter_map["ResampleInterpolator"] = ("FinalBSplineInterpolator",)
+    if interpolator == "nearest":
+        parameter_map["Interpolator"] = ("NearestNeighborInterpolator",)
+        parameter_map["ResampleInterpolator"] = ("FinalNearestNeighborInterpolator",)
+        parameter_map["BSplineInterpolationOrder"] = ("0",)
+        parameter_map["FinalBSplineInterpolationOrder"] = ("0",)
+    else:
+        parameter_map["Interpolator"] = ("BSplineInterpolator",)
+        parameter_map["ResampleInterpolator"] = ("FinalBSplineInterpolator",)
+        parameter_map["BSplineInterpolationOrder"] = ("1",)
+        parameter_map["FinalBSplineInterpolationOrder"] = ("3",)
     parameter_map["Resampler"] = ("DefaultResampler",)
 
     parameter_map["FixedImagePyramid"] = ("FixedRecursiveImagePyramid",)
     parameter_map["MovingImagePyramid"] = ("MovingRecursiveImagePyramid",)
 
     parameter_map["Optimizer"] = ("AdaptiveStochasticGradientDescent",)
-    parameter_map["Transform"] = ("EulerTransform",)
 
     if settings.metric == "correlation":
         parameter_map["Metric"] = ("AdvancedNormalizedCorrelation",)
@@ -140,8 +171,15 @@ def _build_elastix_parameter_object(
         str(int(settings.number_of_iterations)),
     )
 
-    # Match preset exactly
-    parameter_map["NumberOfSpatialSamples"] = ("2048",)
+    total_voxels = int(np.prod(fixed_image.GetSize(), dtype=np.int64))
+    sampling_fraction = float(settings.sampling_percentage)
+    if sampling_fraction <= 0:
+        raise ValueError(
+            f"sampling_percentage must be > 0, got {settings.sampling_percentage}"
+        )
+    spatial_samples = max(1, min(total_voxels, int(round(total_voxels * sampling_fraction))))
+
+    parameter_map["NumberOfSpatialSamples"] = (str(spatial_samples),)
     parameter_map["NewSamplesEveryIteration"] = ("true",)
 
     if use_masks:
@@ -151,9 +189,6 @@ def _build_elastix_parameter_object(
         
     else:
         parameter_map["ImageSampler"] = ("Random",)
-
-    parameter_map["BSplineInterpolationOrder"] = ("1",)
-    parameter_map["FinalBSplineInterpolationOrder"] = ("3",)
 
     parameter_map["DefaultPixelValue"] = ("0",)
     parameter_map["WriteResultImage"] = ("false",)
@@ -165,20 +200,33 @@ def _build_elastix_parameter_object(
     parameter_map["ShowExactMetricValue"] = ("false",)
     parameter_map["UseMultiThreadingForMetrics"] = ("true",)
     parameter_map["UseRandomSampleRegion"] = ("false",)
-    parameter_map["SP_A"] = ("20",)
-    parameter_map["SigmoidInitialTime"] = ("0",)
-    parameter_map["MaxBandCovSize"] = ("192",)
-    parameter_map["NumberOfBandStructureSamples"] = ("10",)
-    parameter_map["UseAdaptiveStepSizes"] = ("true",)
-    parameter_map["UseConstantStep"] = ("false",)
-    parameter_map["MaximumStepLengthRatio"] = ("1",)
-    parameter_map["MaximumStepLength"] = (str(float(min(fixed_image.GetSpacing()))),)
-    parameter_map["NumberOfGradientMeasurements"] = ("0",)
-    parameter_map["NumberOfJacobianMeasurements"] = ("1000",)
-    parameter_map["SigmoidScaleFactor"] = ("0.1",)
-    parameter_map["ASGDParameterEstimationMethod"] = ("Original",)
-    parameter_map["UseJacobianPreconditioning"] = ("false",)
-    parameter_map["FiniteDifferenceDerivative"] = ("false",)
+    if settings.automatic_parameter_estimation:
+        parameter_map["AutomaticParameterEstimation"] = ("true",)
+    else:
+        parameter_map["AutomaticParameterEstimation"] = ("false",)
+        parameter_map["SP_A"] = (str(float(settings.sp_a)),)
+        parameter_map["SigmoidInitialTime"] = ("0",)
+        parameter_map["MaxBandCovSize"] = ("192",)
+        parameter_map["NumberOfBandStructureSamples"] = ("10",)
+        parameter_map["UseAdaptiveStepSizes"] = ("true",)
+        parameter_map["UseConstantStep"] = ("false",)
+        parameter_map["MaximumStepLengthRatio"] = ("1",)
+        max_step_length = (
+            float(settings.maximum_step_length)
+            if settings.maximum_step_length is not None
+            else float(min(fixed_image.GetSpacing()))
+        )
+        parameter_map["MaximumStepLength"] = (str(max_step_length),)
+        parameter_map["NumberOfGradientMeasurements"] = (
+            str(int(settings.number_of_gradient_measurements)),
+        )
+        parameter_map["NumberOfJacobianMeasurements"] = (
+            str(int(settings.number_of_jacobian_measurements)),
+        )
+        parameter_map["SigmoidScaleFactor"] = (str(float(settings.sigmoid_scale_factor)),)
+        parameter_map["ASGDParameterEstimationMethod"] = ("Original",)
+        parameter_map["UseJacobianPreconditioning"] = ("false",)
+        parameter_map["FiniteDifferenceDerivative"] = ("false",)
 
     parameter_object.SetParameterMap(parameter_map)
     return parameter_object
@@ -195,6 +243,11 @@ def _parameter_object_to_sitk_transform(parameter_object, dim: int) -> sitk.Tran
         if "CenterOfRotationPoint" in parameter_map:
             center = [float(v) for v in parameter_map["CenterOfRotationPoint"][:3]]
 
+        if transform_name == "TranslationTransform":
+            tx = sitk.TranslationTransform(3)
+            tx.SetParameters(params)
+            return tx
+
         if transform_name != "EulerTransform":
             raise ValueError(
                 f"Unsupported elastix rigid transform for 3D conversion: {transform_name}"
@@ -209,6 +262,11 @@ def _parameter_object_to_sitk_transform(parameter_object, dim: int) -> sitk.Tran
         center = [0.0, 0.0]
         if "CenterOfRotationPoint" in parameter_map:
             center = [float(v) for v in parameter_map["CenterOfRotationPoint"][:2]]
+
+        if transform_name == "TranslationTransform":
+            tx = sitk.TranslationTransform(2)
+            tx.SetParameters(params)
+            return tx
 
         if transform_name != "EulerTransform":
             raise ValueError(
@@ -279,6 +337,12 @@ def register_images(
             "metric": settings.metric,
             "optimizer": settings.optimizer,
             "sampling_percentage": settings.sampling_percentage,
+            "automatic_parameter_estimation": settings.automatic_parameter_estimation,
+            "sp_a": settings.sp_a,
+            "maximum_step_length": settings.maximum_step_length,
+            "sigmoid_scale_factor": settings.sigmoid_scale_factor,
+            "number_of_gradient_measurements": settings.number_of_gradient_measurements,
+            "number_of_jacobian_measurements": settings.number_of_jacobian_measurements,
             "number_of_resolutions": settings.number_of_resolutions,
             "interpolator": settings.interpolator,
             "initializer": settings.initializer,

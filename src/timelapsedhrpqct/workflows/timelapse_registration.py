@@ -195,11 +195,17 @@ def _registration_settings_from_config(config: AppConfig) -> RegistrationSetting
         interpolator=cfg.interpolator,
         optimizer=cfg.optimizer,
         number_of_iterations=cfg.number_of_iterations,
+        automatic_parameter_estimation=cfg.automatic_parameter_estimation,
+        sp_a=cfg.sp_a,
+        maximum_step_length=cfg.maximum_step_length,
+        sigmoid_scale_factor=cfg.sigmoid_scale_factor,
+        number_of_gradient_measurements=cfg.number_of_gradient_measurements,
+        number_of_jacobian_measurements=cfg.number_of_jacobian_measurements,
         initializer=cfg.initializer,
         number_of_resolutions=cfg.number_of_resolutions,
         use_masks=cfg.use_masks,
         debug=cfg.debug,
-)
+    )
 
 
 def _write_baseline_qc(
@@ -252,6 +258,7 @@ def _write_baseline_qc(
     overlay_path = _baseline_overlay_path(
         dataset_root=dataset_root,
         subject_id=subject_id,
+        site=site,
         stack_index=stack_index,
         moving_session=moving_session,
         baseline_session=baseline_session,
@@ -259,6 +266,7 @@ def _write_baseline_qc(
     checker_path = _baseline_checkerboard_path(
         dataset_root=dataset_root,
         subject_id=subject_id,
+        site=site,
         stack_index=stack_index,
         moving_session=moving_session,
         baseline_session=baseline_session,

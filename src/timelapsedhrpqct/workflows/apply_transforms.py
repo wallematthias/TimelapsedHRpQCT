@@ -193,8 +193,16 @@ def _resample_once(
     reference: sitk.Image,
     transform: sitk.Transform,
     is_mask: bool,
+    image_interpolator: str = "linear",
+    mask_interpolator: str = "nearest",
 ) -> sitk.Image:
-    interpolator = sitk.sitkNearestNeighbor if is_mask else sitk.sitkLinear
+    interp_name = mask_interpolator if is_mask else image_interpolator
+    if interp_name == "nearest":
+        interpolator = sitk.sitkNearestNeighbor
+    elif interp_name == "linear":
+        interpolator = sitk.sitkLinear
+    else:
+        raise ValueError(f"Unsupported transform interpolator: {interp_name}")
     output_pixel_type = sitk.sitkUInt8 if is_mask else sitk.sitkFloat32
 
     out = sitk.Resample(
@@ -324,8 +332,14 @@ def run_apply_transforms(
     dataset_root: str | Path,
     config: AppConfig,
 ) -> None:
-    _ = config
     dataset_root = Path(dataset_root)
+    transform_cfg = getattr(config, "transform", None)
+    image_interpolator = str(
+        getattr(transform_cfg, "image_interpolator", "linear")
+    ).lower()
+    mask_interpolator = str(
+        getattr(transform_cfg, "mask_interpolator", "nearest")
+    ).lower()
     records = iter_imported_stack_records(dataset_root)
     grouped = group_imported_stacks_by_subject_site_and_stack(records)
 
@@ -383,6 +397,8 @@ def run_apply_transforms(
                     reference=reference_image,
                     transform=transform,
                     is_mask=False,
+                    image_interpolator=image_interpolator,
+                    mask_interpolator=mask_interpolator,
                 )
 
                 nonzero = sitk.Cast(image_tx != 0, sitk.sitkFloat32)
@@ -402,6 +418,8 @@ def run_apply_transforms(
                         reference=reference_image,
                         transform=transform,
                         is_mask=True,
+                        image_interpolator=image_interpolator,
+                        mask_interpolator=mask_interpolator,
                     )
                     mask_union_by_role[role] = mask_union_by_role[role] | sitk.Cast(
                         mask_tx > 0,
@@ -422,6 +440,8 @@ def run_apply_transforms(
                         reference=reference_image,
                         transform=transform,
                         is_mask=True,
+                        image_interpolator=image_interpolator,
+                        mask_interpolator=mask_interpolator,
                     )
                     seg_union = seg_union | sitk.Cast(seg_tx > 0, sitk.sitkUInt8)
                     seg_written = True
