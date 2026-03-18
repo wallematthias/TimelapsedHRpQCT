@@ -869,6 +869,15 @@ def run_analysis(
                     compartment=compartment,
                 ),
             )
+            if site == "radius":
+                write_image(
+                    common_img,
+                    common_region_path(
+                        dataset_root=dataset_root,
+                        subject_id=subject_id,
+                        compartment=compartment,
+                    ),
+                )
             del common_img
 
         for (compartment, t0, t1, thr, cluster_size), label_arr in outputs.label_images.items():
@@ -886,6 +895,19 @@ def run_analysis(
                     cluster_size=cluster_size,
                 ),
             )
+            if site == "radius":
+                write_image(
+                    label_img,
+                    analysis_visualize_path(
+                        dataset_root=dataset_root,
+                        subject_id=subject_id,
+                        compartment=compartment,
+                        t0=t0,
+                        t1=t1,
+                        thr=thr,
+                        cluster_size=cluster_size,
+                    ),
+                )
             del label_img
 
         pairwise_df = pd.DataFrame(outputs.pairwise_rows)
@@ -895,6 +917,12 @@ def run_analysis(
         pairwise_path.parent.mkdir(parents=True, exist_ok=True)
         pairwise_df.to_csv(pairwise_path, index=False)
         trajectory_df.to_csv(trajectory_path, index=False)
+        if site == "radius":
+            legacy_pairwise_path = pairwise_remodelling_csv_path(dataset_root, subject_id)
+            legacy_trajectory_path = trajectory_metrics_csv_path(dataset_root, subject_id)
+            legacy_pairwise_path.parent.mkdir(parents=True, exist_ok=True)
+            pairwise_df.to_csv(legacy_pairwise_path, index=False)
+            trajectory_df.to_csv(legacy_trajectory_path, index=False)
 
         analysis_meta = build_analysis_summary_metadata(
             dataset_root=dataset_root,
@@ -918,6 +946,17 @@ def run_analysis(
         )
         meta_path = analysis_metadata_path(dataset_root, subject_id, site)
         write_json(analysis_meta, meta_path)
+        if site == "radius":
+            legacy_meta = dict(analysis_meta)
+            legacy_meta["common_regions"] = {
+                comp: str(common_region_path(dataset_root, subject_id, comp))
+                for comp in params.compartments
+            }
+            legacy_meta["analysis_dir"] = str(analysis_dir(dataset_root, subject_id))
+            legacy_meta["analysis_metadata"] = str(analysis_metadata_path(dataset_root, subject_id))
+            legacy_meta["pairwise_csv"] = str(pairwise_remodelling_csv_path(dataset_root, subject_id))
+            legacy_meta["trajectory_csv"] = str(trajectory_metrics_csv_path(dataset_root, subject_id))
+            write_json(legacy_meta, analysis_metadata_path(dataset_root, subject_id))
 
         print(
             f"[analysis] sub-{subject_id} site-{site}: wrote "

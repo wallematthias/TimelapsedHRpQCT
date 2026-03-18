@@ -136,7 +136,7 @@ def _deserialize_imported_stack(
 ) -> ImportedStackRecord:
     return ImportedStackRecord(
         subject_id=payload["subject_id"],
-        site=payload["site"],
+        site=payload.get("site", "radius"),
         session_id=payload["session_id"],
         stack_index=int(payload["stack_index"]),
         image_path=_deserialize_path(dataset_root, payload["image_path"]),
@@ -175,7 +175,7 @@ def _deserialize_fused_session(
 ) -> FusedSessionRecord:
     return FusedSessionRecord(
         subject_id=payload["subject_id"],
-        site=payload["site"],
+        site=payload.get("site", "radius"),
         session_id=payload["session_id"],
         image_path=_deserialize_path(dataset_root, payload["image_path"]),
         mask_paths={
@@ -211,7 +211,7 @@ def _deserialize_filled_session(
 ) -> FilledSessionRecord:
     return FilledSessionRecord(
         subject_id=payload["subject_id"],
-        site=payload["site"],
+        site=payload.get("site", "radius"),
         session_id=payload["session_id"],
         image_path=_deserialize_path(dataset_root, payload["image_path"]),
         full_mask_path=_deserialize_path(dataset_root, payload["full_mask_path"]),

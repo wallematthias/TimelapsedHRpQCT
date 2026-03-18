@@ -8,6 +8,7 @@ from timelapsedhrpqct.dataset.artifacts import (
     group_fused_sessions_by_subject_site,
     iter_fused_session_records,
 )
+from timelapsedhrpqct.dataset.layout import get_derivatives_root
 from timelapsedhrpqct.dataset.derivative_paths import (
     filladded_mask_path,
     filled_full_mask_path,
@@ -33,10 +34,17 @@ class SessionFusedInputs:
 
 
 def discover_filling_subject_ids(dataset_root: Path) -> list[tuple[str, str]]:
-    return sorted(group_fused_sessions_by_subject_site(iter_fused_session_records(dataset_root)))
+    subject_site_keys = sorted(group_fused_sessions_by_subject_site(iter_fused_session_records(dataset_root)))
+    if subject_site_keys and all(site == "radius" for _subject_id, site in subject_site_keys):
+        return [subject_id for subject_id, _site in subject_site_keys]
+    return subject_site_keys
 
 
-def discover_filling_sessions(dataset_root: Path, subject_id: str, site: str) -> list[SessionFusedInputs]:
+def discover_filling_sessions(
+    dataset_root: Path,
+    subject_id: str,
+    site: str = "radius",
+) -> list[SessionFusedInputs]:
     out: list[SessionFusedInputs] = []
     grouped = group_fused_sessions_by_subject_site(iter_fused_session_records(dataset_root))
     for record in grouped.get((subject_id, site), []):
@@ -61,7 +69,7 @@ def build_filling_metadata(
     *,
     dataset_root: Path,
     subject_id: str,
-    site: str,
+    site: str | None = None,
     session_id: str,
     seg_input: str | None,
     filled_image_path_out: Path,
@@ -83,14 +91,20 @@ def build_filling_metadata(
     temporal_fill_seg: dict | None,
     parameters: dict,
 ) -> dict:
+    legacy = site is None
+    site_value = "radius" if site is None else site
     return {
         "subject_id": subject_id,
         "session_id": session_id,
         "kind": "filled_fused_session",
-        "site": site,
-        "image_input": str(fused_image_path(dataset_root, subject_id, site, session_id)),
+        "site": site_value,
+        "image_input": str(
+            fused_image_path(dataset_root, subject_id, None if legacy else site_value, session_id)
+        ),
         "seg_input": seg_input,
-        "realdata_mask_input": str(fused_full_mask_path(dataset_root, subject_id, site, session_id)),
+        "realdata_mask_input": str(
+            fused_full_mask_path(dataset_root, subject_id, None if legacy else site_value, session_id)
+        ),
         "image_output": str(filled_image_path_out),
         "seg_output": str(filled_seg_path_out) if filled_seg_path_out is not None else None,
         "filled_mask_output": str(filled_full_mask_path_out),
@@ -98,7 +112,9 @@ def build_filling_metadata(
         "seg_filladded_output": (
             str(seg_filladded_path_out) if seg_filladded_path_out is not None else None
         ),
-        "support_mask_output": str(support_mask_path(dataset_root, subject_id, site)),
+        "support_mask_output": str(
+            support_mask_path(dataset_root, subject_id, None if legacy else site_value)
+        ),
         "allowed_support": image_support_meta,
         "fill_region": fill_region_meta,
         "num_realdata_voxels": num_realdata_voxels,
@@ -119,25 +135,59 @@ def build_filled_session_record(
     *,
     dataset_root: Path,
     subject_id: str,
-    site: str,
+    site: str | None = None,
     session_id: str,
 ) -> FilledSessionRecord:
+    legacy = site is None
+    site_value = "radius" if site is None else site
+    if legacy:
+        filled_root = get_derivatives_root(dataset_root) / f"sub-{subject_id}" / "filled" / f"ses-{session_id}"
+        image_path = filled_root / f"sub-{subject_id}_ses-{session_id}_image_fusedfilled.mha"
+        full_mask_path = filled_root / f"sub-{subject_id}_ses-{session_id}_mask-full_fusedfilled.mha"
+        filladded_path = filled_root / f"sub-{subject_id}_ses-{session_id}_mask-filladded.mha"
+        seg_path = filled_root / f"sub-{subject_id}_ses-{session_id}_seg_fusedfilled.mha"
+        seg_filladded = filled_root / f"sub-{subject_id}_ses-{session_id}_seg-filladded.mha"
+        metadata_path = filled_root / f"sub-{subject_id}_ses-{session_id}_filling.json"
+        return FilledSessionRecord(
+            subject_id=subject_id,
+            site=site_value,
+            session_id=session_id,
+            image_path=image_path,
+            full_mask_path=full_mask_path,
+            filladded_mask_path=filladded_path,
+            seg_path=seg_path if seg_path.exists() else None,
+            seg_filladded_path=seg_filladded if seg_filladded.exists() else None,
+            metadata_path=metadata_path,
+        )
+
     return FilledSessionRecord(
         subject_id=subject_id,
-        site=site,
+        site=site_value,
         session_id=session_id,
-        image_path=filled_image_path(dataset_root, subject_id, site, session_id),
-        full_mask_path=filled_full_mask_path(dataset_root, subject_id, site, session_id),
-        filladded_mask_path=filladded_mask_path(dataset_root, subject_id, site, session_id),
+        image_path=filled_image_path(dataset_root, subject_id, None if legacy else site_value, session_id),
+        full_mask_path=filled_full_mask_path(
+            dataset_root, subject_id, None if legacy else site_value, session_id
+        ),
+        filladded_mask_path=filladded_mask_path(
+            dataset_root, subject_id, None if legacy else site_value, session_id
+        ),
         seg_path=(
-            filled_seg_path(dataset_root, subject_id, site, session_id)
-            if filled_seg_path(dataset_root, subject_id, site, session_id).exists()
+            filled_seg_path(dataset_root, subject_id, None if legacy else site_value, session_id)
+            if filled_seg_path(
+                dataset_root, subject_id, None if legacy else site_value, session_id
+            ).exists()
             else None
         ),
         seg_filladded_path=(
-            seg_filladded_path(dataset_root, subject_id, site, session_id)
-            if seg_filladded_path(dataset_root, subject_id, site, session_id).exists()
+            seg_filladded_path(
+                dataset_root, subject_id, None if legacy else site_value, session_id
+            )
+            if seg_filladded_path(
+                dataset_root, subject_id, None if legacy else site_value, session_id
+            ).exists()
             else None
         ),
-        metadata_path=filling_metadata_path(dataset_root, subject_id, site, session_id),
+        metadata_path=filling_metadata_path(
+            dataset_root, subject_id, None if legacy else site_value, session_id
+        ),
     )

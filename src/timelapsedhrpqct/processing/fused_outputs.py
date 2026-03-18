@@ -8,7 +8,7 @@ from timelapsedhrpqct.dataset.artifacts import FusedSessionRecord
 def build_fused_session_metadata(
     *,
     subject_id: str,
-    site: str,
+    site: str | None = None,
     session_id: str,
     baseline_session: str,
     reference_source: str,
@@ -18,16 +18,17 @@ def build_fused_session_metadata(
     fused_seg_path: Path | None,
     fused_mask_paths: dict[str, Path],
 ) -> dict:
+    site_token = f"_site-{site}" if site is not None else ""
     return {
         "subject_id": subject_id,
-        "site": site,
+        "site": "radius" if site is None else site,
         "session_id": session_id,
         "kind": "fused_transformed_session",
         "space_from": [
-            f"sub-{subject_id}_site-{site}_ses-{session_id}_stack-{c['stack_index']:02d}_native"
+            f"sub-{subject_id}{site_token}_ses-{session_id}_stack-{c['stack_index']:02d}_native"
             for c in contributors
         ],
-        "space_to": f"sub-{subject_id}_site-{site}_fused_baseline_common",
+        "space_to": f"sub-{subject_id}{site_token}_fused_baseline_common",
         "baseline_session": baseline_session,
         "reference_image": reference_source,
         "reference_size": reference_size,
@@ -51,7 +52,7 @@ def build_fused_session_metadata(
 def build_fused_session_record(
     *,
     subject_id: str,
-    site: str,
+    site: str = "radius",
     session_id: str,
     image_path: Path,
     mask_paths: dict[str, Path],

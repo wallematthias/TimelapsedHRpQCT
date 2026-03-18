@@ -16,7 +16,7 @@ import:
     full: ["FULL_MASK", "_FULL"]
     seg: ["_SEG", "SEG"]
 
-  crop_to_subject_box: true
+  crop_to_subject_box: false
   crop_threshold_bmd: 450.0
   crop_padding_voxels: 5
   crop_num_largest_components: 1
@@ -127,12 +127,12 @@ masks:
 # Timelapsed registration
 # -----------------------------------------------------------------------------
 timelapsed_registration:
-  debug: true
+  debug: false
   strategy: sequential_to_baseline # currently the only supported strategy
   reference_session: baseline
   transform_type: euler # euler | translation
   metric: correlation # correlation | mattes
-  sampling_percentage: 0.001
+  sampling_percentage: 0.1
   interpolator: linear # linear | nearest
   optimizer: adaptive_stochastic_gradient_descent # current supported default
   number_of_iterations: 250
@@ -150,7 +150,7 @@ multistack_correction:
   transform_type: euler # euler | translation
   # Mattes is the recommended default for multistack superstack registration.
   metric: mattes # correlation | mattes
-  sampling_percentage: 0.2
+  sampling_percentage: 0.5
   interpolator: linear # linear | nearest
   optimizer: adaptive_stochastic_gradient_descent # current supported default
   number_of_iterations: 1000
@@ -158,7 +158,7 @@ multistack_correction:
   initializer: geometry # geometry
   number_of_resolutions: 1
   use_masks: true
-  debug: true
+  debug: false
 
 # -----------------------------------------------------------------------------
 # Transform application
@@ -173,7 +173,7 @@ transform:
 fusion:
   save_fused: true
   save_fusedfilled: true
-  enable_filling: false
+  enable_filling: true
 
 # -----------------------------------------------------------------------------
 # Filling

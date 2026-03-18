@@ -470,11 +470,16 @@ def fused_metadata_path(
 
 
 def imported_stack_dir(dataset_root: Path, session: RawSession) -> Path:
-    return get_derivatives_root(dataset_root) / f"sub-{session.subject_id}" / f"site-{session.site}" / f"ses-{session.session_id}" / "stacks"
+    root = get_derivatives_root(dataset_root) / f"sub-{session.subject_id}"
+    if session.site:
+        root = root / f"site-{session.site}"
+    return root / f"ses-{session.session_id}" / "stacks"
 
 
 def imported_stack_prefix(session: RawSession, stack_index: int) -> str:
-    return f"sub-{session.subject_id}_site-{session.site}_ses-{session.session_id}_stack-{stack_index:02d}"
+    if session.site:
+        return f"sub-{session.subject_id}_site-{session.site}_ses-{session.session_id}_stack-{stack_index:02d}"
+    return f"sub-{session.subject_id}_ses-{session.session_id}_stack-{stack_index:02d}"
 
 
 def imported_stack_image_path(

@@ -228,6 +228,22 @@ def _raw_session_crop_key(raw_session: RawSession) -> str:
     return f"{raw_session.subject_id}|{site}|{raw_session.session_id}"
 
 
+def _resolve_subject_crop_session_key(
+    raw_session: RawSession,
+    subject_crop_spec: SubjectCropSpec,
+) -> str:
+    preferred_key = _raw_session_crop_key(raw_session)
+    if preferred_key in subject_crop_spec.per_session_center_index_xyz:
+        return preferred_key
+    if raw_session.session_id in subject_crop_spec.per_session_center_index_xyz:
+        return raw_session.session_id
+    site = raw_session.site or "radius"
+    radius_key = f"{raw_session.subject_id}|{site}|{raw_session.session_id}"
+    if radius_key in subject_crop_spec.per_session_center_index_xyz:
+        return radius_key
+    return preferred_key
+
+
 def _compute_subject_crop_spec(
     raw_sessions: list[RawSession],
     config: AppConfig,
@@ -371,7 +387,7 @@ def import_raw_session(
     crop_info: dict | None = None
 
     if subject_crop_spec is not None:
-        session_key = _raw_session_crop_key(raw_session)
+        session_key = _resolve_subject_crop_session_key(raw_session, subject_crop_spec)
 
         center_index_xyz = subject_crop_spec.per_session_center_index_xyz[session_key]
         target_size_xyz = subject_crop_spec.target_size_xyz

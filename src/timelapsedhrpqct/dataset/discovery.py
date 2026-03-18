@@ -129,7 +129,7 @@ def _extract_subject_session_with_regex(
     path: Path,
     session_regex: str,
 ) -> tuple[str, str, str | None, str | None, int | None]:
-    sanitized_name = f"{_strip_aim_suffix(path.name)}.aim"
+    sanitized_name = re.sub(r"(?i)(\.aim)(;\d+)$", r"\1", path.name)
     match = re.search(session_regex, sanitized_name)
     if match is None:
         raise ValueError(
