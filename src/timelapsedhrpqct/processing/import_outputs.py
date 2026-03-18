@@ -97,7 +97,9 @@ def build_stack_metadata(
     return {
         "subject_id": raw_session.subject_id,
         "session_id": raw_session.session_id,
+        "scan_site": raw_session.site,
         "stack_index": stack_range.stack_index,
+        "source_stack_index": raw_session.stack_index,
         "slice_range": {
             "stack_index": stack_range.stack_index,
             "z_start": stack_range.z_start,

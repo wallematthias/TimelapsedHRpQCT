@@ -49,3 +49,21 @@ def test_discover_raw_sessions_ignores_pipeline_managed_copies(tmp_path: Path) -
     assert sessions[0].subject_id == "INSR_269"
     assert sessions[0].session_id == "C1"
     assert sessions[0].raw_mask_paths["cort"] == raw_cort
+
+
+def test_discover_raw_sessions_extracts_site_and_stack_from_filename(tmp_path: Path) -> None:
+    root = tmp_path / "data"
+    image = root / "SUBJECT_001_DT_STACK2_T1.AIM"
+    trab = root / "SUBJECT_001_DT_STACK2_T1_TRAB_MASK.AIM"
+
+    _touch(image)
+    _touch(trab)
+
+    sessions = discover_raw_sessions(root, DiscoveryConfig())
+
+    assert len(sessions) == 1
+    assert sessions[0].subject_id == "SUBJECT_001"
+    assert sessions[0].session_id == "T1"
+    assert sessions[0].site == "tibia"
+    assert sessions[0].stack_index == 2
+    assert sessions[0].raw_mask_paths["trab"] == trab

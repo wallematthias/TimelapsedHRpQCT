@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from timelapsedhrpqct.dataset.artifacts import (
-    group_fused_sessions_by_subject,
+    group_fused_sessions_by_subject_site,
     iter_fused_session_records,
 )
 from timelapsedhrpqct.dataset.derivative_paths import (
@@ -20,29 +20,34 @@ from timelapsedhrpqct.utils.session_ids import session_sort_key
 @dataclass(slots=True)
 class SessionAnalysisInputs:
     subject_id: str
+    site: str
     session_id: str
     image_path: Path
     seg_path: Path | None
     mask_paths: dict[str, Path]
 
 
-def discover_analysis_subject_ids(dataset_root: Path) -> list[str]:
-    return sorted(group_fused_sessions_by_subject(iter_fused_session_records(dataset_root)))
+def discover_analysis_subject_ids(dataset_root: Path) -> list[str] | list[tuple[str, str]]:
+    subject_site_keys = sorted(group_fused_sessions_by_subject_site(iter_fused_session_records(dataset_root)))
+    if subject_site_keys and all(site == "radius" for _subject_id, site in subject_site_keys):
+        return [subject_id for subject_id, _site in subject_site_keys]
+    return subject_site_keys
 
 
 def discover_analysis_sessions(
     dataset_root: Path,
     subject_id: str,
-    use_filled_images: bool,
-    require_seg: bool,
+    site: str = "radius",
+    use_filled_images: bool = False,
+    require_seg: bool = False,
 ) -> list[SessionAnalysisInputs]:
     sessions: list[SessionAnalysisInputs] = []
-    grouped = group_fused_sessions_by_subject(iter_fused_session_records(dataset_root))
-    for record in grouped.get(subject_id, []):
+    grouped = group_fused_sessions_by_subject_site(iter_fused_session_records(dataset_root))
+    for record in grouped.get((subject_id, site), []):
         session_id = record.session_id
         if use_filled_images:
-            image_path = filled_image_path(dataset_root, subject_id, session_id)
-            seg_path = filled_seg_path(dataset_root, subject_id, session_id)
+            image_path = filled_image_path(dataset_root, subject_id, site, session_id)
+            seg_path = filled_seg_path(dataset_root, subject_id, site, session_id)
         else:
             image_path = record.image_path
             seg_path = record.seg_path
@@ -63,6 +68,7 @@ def discover_analysis_sessions(
         sessions.append(
             SessionAnalysisInputs(
                 subject_id=subject_id,
+                site=site,
                 session_id=session_id,
                 image_path=image_path,
                 seg_path=seg_path,
@@ -78,6 +84,7 @@ def build_analysis_summary_metadata(
     *,
     dataset_root: Path,
     subject_id: str,
+    site: str | None = None,
     space: str = "baseline_common",
     use_filled_images: bool,
     compartments: list[str],
@@ -94,8 +101,11 @@ def build_analysis_summary_metadata(
     gaussian_filter: bool = False,
     gaussian_sigma: float = 1.2,
 ) -> dict:
+    legacy = site is None
+    site = "radius" if site is None else site
     return {
         "subject_id": subject_id,
+        "site": site,
         "kind": "analysis_summary",
         "space": space,
         "method": method,
@@ -116,9 +126,9 @@ def build_analysis_summary_metadata(
         "pairwise_csv": str(pairwise_csv),
         "trajectory_csv": str(trajectory_csv),
         "common_regions": {
-            comp: str(common_region_path(dataset_root, subject_id, comp))
+            comp: str(common_region_path(dataset_root, subject_id, None if legacy else site, comp))
             for comp in compartments
         },
-        "analysis_dir": str(analysis_dir(dataset_root, subject_id)),
-        "analysis_metadata": str(analysis_metadata_path(dataset_root, subject_id)),
+        "analysis_dir": str(analysis_dir(dataset_root, subject_id, None if legacy else site)),
+        "analysis_metadata": str(analysis_metadata_path(dataset_root, subject_id, None if legacy else site)),
     }

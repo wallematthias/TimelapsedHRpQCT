@@ -6,7 +6,7 @@ from pathlib import Path
 import SimpleITK as sitk
 from timelapsedhrpqct.config.models import AppConfig
 from timelapsedhrpqct.dataset.artifacts import (
-    group_imported_stacks_by_subject_and_stack,
+    group_imported_stacks_by_subject_site_and_stack,
     iter_imported_stack_records,
 )
 from timelapsedhrpqct.dataset.derivative_paths import (
@@ -46,20 +46,24 @@ def _write_transform(transform: sitk.Transform, path: Path) -> None:
     sitk.WriteTransform(flatten_transform(transform), str(path))
 
 
-def _stack_transform_dir(dataset_root: Path, subject_id: str, stack_index: int) -> Path:
-    return timelapse_stack_transform_dir(dataset_root, subject_id, stack_index)
+def _stack_transform_dir(dataset_root: Path, subject_id: str, site: str, stack_index: int) -> Path:
+    return timelapse_stack_transform_dir(dataset_root, subject_id, site, stack_index)
 
 
 def _pairwise_transform_path(
     dataset_root: Path,
     subject_id: str,
-    stack_index: int,
-    moving_session: str,
-    fixed_session: str,
+    site: str = "radius",
+    stack_index: int | None = None,
+    moving_session: str | None = None,
+    fixed_session: str | None = None,
 ) -> Path:
+    if stack_index is None or moving_session is None or fixed_session is None:
+        raise ValueError("stack_index, moving_session, and fixed_session are required")
     return timelapse_pairwise_transform_path(
         dataset_root,
         subject_id,
+        site,
         stack_index,
         moving_session,
         fixed_session,
@@ -69,13 +73,17 @@ def _pairwise_transform_path(
 def _pairwise_metadata_path(
     dataset_root: Path,
     subject_id: str,
-    stack_index: int,
-    moving_session: str,
-    fixed_session: str,
+    site: str = "radius",
+    stack_index: int | None = None,
+    moving_session: str | None = None,
+    fixed_session: str | None = None,
 ) -> Path:
+    if stack_index is None or moving_session is None or fixed_session is None:
+        raise ValueError("stack_index, moving_session, and fixed_session are required")
     return timelapse_pairwise_metadata_path(
         dataset_root,
         subject_id,
+        site,
         stack_index,
         moving_session,
         fixed_session,
@@ -85,13 +93,17 @@ def _pairwise_metadata_path(
 def _baseline_transform_path(
     dataset_root: Path,
     subject_id: str,
-    stack_index: int,
-    moving_session: str,
-    baseline_session: str,
+    site: str = "radius",
+    stack_index: int | None = None,
+    moving_session: str | None = None,
+    baseline_session: str | None = None,
 ) -> Path:
+    if stack_index is None or moving_session is None or baseline_session is None:
+        raise ValueError("stack_index, moving_session, and baseline_session are required")
     return timelapse_baseline_transform_path(
         dataset_root,
         subject_id,
+        site,
         stack_index,
         moving_session,
         baseline_session,
@@ -101,13 +113,17 @@ def _baseline_transform_path(
 def _baseline_metadata_path(
     dataset_root: Path,
     subject_id: str,
-    stack_index: int,
-    moving_session: str,
-    baseline_session: str,
+    site: str = "radius",
+    stack_index: int | None = None,
+    moving_session: str | None = None,
+    baseline_session: str | None = None,
 ) -> Path:
+    if stack_index is None or moving_session is None or baseline_session is None:
+        raise ValueError("stack_index, moving_session, and baseline_session are required")
     return timelapse_baseline_metadata_path(
         dataset_root,
         subject_id,
+        site,
         stack_index,
         moving_session,
         baseline_session,
@@ -117,13 +133,17 @@ def _baseline_metadata_path(
 def _baseline_registered_image_path(
     dataset_root: Path,
     subject_id: str,
-    stack_index: int,
-    moving_session: str,
-    baseline_session: str,
+    site: str = "radius",
+    stack_index: int | None = None,
+    moving_session: str | None = None,
+    baseline_session: str | None = None,
 ) -> Path:
+    if stack_index is None or moving_session is None or baseline_session is None:
+        raise ValueError("stack_index, moving_session, and baseline_session are required")
     return timelapse_baseline_registered_image_path(
         dataset_root,
         subject_id,
+        site,
         stack_index,
         moving_session,
         baseline_session,
@@ -133,6 +153,7 @@ def _baseline_registered_image_path(
 def _baseline_overlay_path(
     dataset_root: Path,
     subject_id: str,
+    site: str,
     stack_index: int,
     moving_session: str,
     baseline_session: str,
@@ -140,6 +161,7 @@ def _baseline_overlay_path(
     return timelapse_baseline_overlay_path(
         dataset_root,
         subject_id,
+        site,
         stack_index,
         moving_session,
         baseline_session,
@@ -149,6 +171,7 @@ def _baseline_overlay_path(
 def _baseline_checkerboard_path(
     dataset_root: Path,
     subject_id: str,
+    site: str,
     stack_index: int,
     moving_session: str,
     baseline_session: str,
@@ -156,6 +179,7 @@ def _baseline_checkerboard_path(
     return timelapse_baseline_checkerboard_path(
         dataset_root,
         subject_id,
+        site,
         stack_index,
         moving_session,
         baseline_session,
@@ -181,6 +205,7 @@ def _registration_settings_from_config(config: AppConfig) -> RegistrationSetting
 def _write_baseline_qc(
     dataset_root: Path,
     subject_id: str,
+    site: str,
     stack_index: int,
     moving_session: str,
     baseline_session: str,
@@ -219,6 +244,7 @@ def _write_baseline_qc(
     registered_path = _baseline_registered_image_path(
         dataset_root=dataset_root,
         subject_id=subject_id,
+        site=site,
         stack_index=stack_index,
         moving_session=moving_session,
         baseline_session=baseline_session,
@@ -255,7 +281,7 @@ def run_timelapse_registration(
 ) -> None:
     dataset_root = Path(dataset_root)
     records = iter_imported_stack_records(dataset_root)
-    grouped = group_imported_stacks_by_subject_and_stack(records)
+    grouped = group_imported_stacks_by_subject_site_and_stack(records)
     settings = _registration_settings_from_config(config)
     cfg = config.timelapsed_registration
 
@@ -270,8 +296,8 @@ def run_timelapse_registration(
         f"use_masks={settings.use_masks}"
     )
 
-    for subject_id, stacks_by_index in grouped.items():
-        print(f"[timelapse] Timelapse registration for subject: {subject_id}")
+    for (subject_id, site), stacks_by_index in grouped.items():
+        print(f"[timelapse] Timelapse registration for subject: {subject_id}, site: {site}")
 
         for stack_index, stack_records in sorted(stacks_by_index.items()):
             if len(stack_records) == 0:
@@ -284,6 +310,7 @@ def run_timelapse_registration(
                 baseline_path = _baseline_transform_path(
                     dataset_root,
                     subject_id,
+                    site,
                     stack_index,
                     moving_session=baseline_session,
                     baseline_session=baseline_session,
@@ -293,6 +320,7 @@ def run_timelapse_registration(
                 meta_path = _baseline_metadata_path(
                     dataset_root,
                     subject_id,
+                    site,
                     stack_index,
                     moving_session=baseline_session,
                     baseline_session=baseline_session,
@@ -300,6 +328,7 @@ def run_timelapse_registration(
                 write_json(
                     build_baseline_registration_metadata(
                         subject_id=subject_id,
+                        site=site,
                         stack_index=stack_index,
                         moving_session=baseline_session,
                         baseline_session=baseline_session,
@@ -313,6 +342,7 @@ def run_timelapse_registration(
                     qc_outputs = _write_baseline_qc(
                         dataset_root=dataset_root,
                         subject_id=subject_id,
+                        site=site,
                         stack_index=stack_index,
                         moving_session=baseline_session,
                         baseline_session=baseline_session,
@@ -371,6 +401,7 @@ def run_timelapse_registration(
                 tfm_path = _pairwise_transform_path(
                     dataset_root,
                     subject_id,
+                    site,
                     stack_index,
                     moving_session=moving_session,
                     fixed_session=fixed_session,
@@ -380,6 +411,7 @@ def run_timelapse_registration(
                 meta_path = _pairwise_metadata_path(
                     dataset_root,
                     subject_id,
+                    site,
                     stack_index,
                     moving_session=moving_session,
                     fixed_session=fixed_session,
@@ -387,6 +419,7 @@ def run_timelapse_registration(
                 write_json(
                     build_pairwise_registration_metadata(
                         subject_id=subject_id,
+                        site=site,
                         stack_index=stack_index,
                         moving_session=moving_session,
                         fixed_session=fixed_session,
@@ -439,6 +472,7 @@ def run_timelapse_registration(
                 tfm_path = _baseline_transform_path(
                     dataset_root,
                     subject_id,
+                    site,
                     stack_index,
                     moving_session=moving_session,
                     baseline_session=baseline_session,
@@ -455,6 +489,7 @@ def run_timelapse_registration(
                     qc_outputs = _write_baseline_qc(
                         dataset_root=dataset_root,
                         subject_id=subject_id,
+                        site=site,
                         stack_index=stack_index,
                         moving_session=moving_session,
                         baseline_session=baseline_session,
@@ -466,6 +501,7 @@ def run_timelapse_registration(
                 meta_path = _baseline_metadata_path(
                     dataset_root,
                     subject_id,
+                    site,
                     stack_index,
                     moving_session=moving_session,
                     baseline_session=baseline_session,
@@ -473,6 +509,7 @@ def run_timelapse_registration(
                 write_json(
                     build_baseline_registration_metadata(
                         subject_id=subject_id,
+                        site=site,
                         stack_index=stack_index,
                         moving_session=moving_session,
                         baseline_session=baseline_session,

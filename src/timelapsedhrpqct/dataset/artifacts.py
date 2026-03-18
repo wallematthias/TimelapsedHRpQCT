@@ -18,6 +18,7 @@ class ImportedStackRecord:
     seg_path: Path | None
     metadata_path: Path | None
     slice_range: StackSliceRange | None = None
+    site: str = "radius"
 
 
 @dataclass(slots=True)
@@ -28,6 +29,7 @@ class FusedSessionRecord:
     mask_paths: dict[str, Path]
     seg_path: Path | None
     metadata_path: Path | None
+    site: str = "radius"
 
 
 @dataclass(slots=True)
@@ -40,6 +42,7 @@ class FilledSessionRecord:
     seg_path: Path | None
     seg_filladded_path: Path | None
     metadata_path: Path | None
+    site: str = "radius"
 
 
 def _artifact_dir(dataset_root: str | Path) -> Path:
@@ -113,6 +116,7 @@ def _serialize_imported_stack(
 ) -> dict:
     return {
         "subject_id": record.subject_id,
+        "site": record.site,
         "session_id": record.session_id,
         "stack_index": record.stack_index,
         "image_path": _serialize_path(dataset_root, record.image_path),
@@ -132,6 +136,7 @@ def _deserialize_imported_stack(
 ) -> ImportedStackRecord:
     return ImportedStackRecord(
         subject_id=payload["subject_id"],
+        site=payload["site"],
         session_id=payload["session_id"],
         stack_index=int(payload["stack_index"]),
         image_path=_deserialize_path(dataset_root, payload["image_path"]),
@@ -152,6 +157,7 @@ def _serialize_fused_session(
 ) -> dict:
     return {
         "subject_id": record.subject_id,
+        "site": record.site,
         "session_id": record.session_id,
         "image_path": _serialize_path(dataset_root, record.image_path),
         "mask_paths": {
@@ -169,6 +175,7 @@ def _deserialize_fused_session(
 ) -> FusedSessionRecord:
     return FusedSessionRecord(
         subject_id=payload["subject_id"],
+        site=payload["site"],
         session_id=payload["session_id"],
         image_path=_deserialize_path(dataset_root, payload["image_path"]),
         mask_paths={
@@ -187,6 +194,7 @@ def _serialize_filled_session(
 ) -> dict:
     return {
         "subject_id": record.subject_id,
+        "site": record.site,
         "session_id": record.session_id,
         "image_path": _serialize_path(dataset_root, record.image_path),
         "full_mask_path": _serialize_path(dataset_root, record.full_mask_path),
@@ -203,6 +211,7 @@ def _deserialize_filled_session(
 ) -> FilledSessionRecord:
     return FilledSessionRecord(
         subject_id=payload["subject_id"],
+        site=payload["site"],
         session_id=payload["session_id"],
         image_path=_deserialize_path(dataset_root, payload["image_path"]),
         full_mask_path=_deserialize_path(dataset_root, payload["full_mask_path"]),
@@ -219,14 +228,14 @@ def upsert_imported_stack_records(
 ) -> None:
     index_path = _imported_stack_index_path(dataset_root)
     existing = {
-        (r["subject_id"], r["session_id"], int(r["stack_index"])): r
+        (r["subject_id"], r["site"], r["session_id"], int(r["stack_index"])): r
         for r in _read_records(index_path)
     }
     for record in records:
-        existing[(record.subject_id, record.session_id, int(record.stack_index))] = (
+        existing[(record.subject_id, record.site, record.session_id, int(record.stack_index))] = (
             _serialize_imported_stack(dataset_root, record)
         )
-    ordered = sorted(existing.values(), key=lambda r: (r["subject_id"], r["session_id"], int(r["stack_index"])))
+    ordered = sorted(existing.values(), key=lambda r: (r["subject_id"], r["site"], r["session_id"], int(r["stack_index"])))
     _write_records(index_path, ordered)
 
 
@@ -243,13 +252,13 @@ def upsert_fused_session_record(
 ) -> None:
     index_path = _fused_session_index_path(dataset_root)
     existing = {
-        (r["subject_id"], r["session_id"]): r for r in _read_records(index_path)
+        (r["subject_id"], r["site"], r["session_id"]): r for r in _read_records(index_path)
     }
-    existing[(record.subject_id, record.session_id)] = _serialize_fused_session(
+    existing[(record.subject_id, record.site, record.session_id)] = _serialize_fused_session(
         dataset_root,
         record,
     )
-    ordered = sorted(existing.values(), key=lambda r: (r["subject_id"], r["session_id"]))
+    ordered = sorted(existing.values(), key=lambda r: (r["subject_id"], r["site"], r["session_id"]))
     _write_records(index_path, ordered)
 
 
@@ -266,13 +275,13 @@ def upsert_filled_session_record(
 ) -> None:
     index_path = _filled_session_index_path(dataset_root)
     existing = {
-        (r["subject_id"], r["session_id"]): r for r in _read_records(index_path)
+        (r["subject_id"], r["site"], r["session_id"]): r for r in _read_records(index_path)
     }
-    existing[(record.subject_id, record.session_id)] = _serialize_filled_session(
+    existing[(record.subject_id, record.site, record.session_id)] = _serialize_filled_session(
         dataset_root,
         record,
     )
-    ordered = sorted(existing.values(), key=lambda r: (r["subject_id"], r["session_id"]))
+    ordered = sorted(existing.values(), key=lambda r: (r["subject_id"], r["site"], r["session_id"]))
     _write_records(index_path, ordered)
 
 
@@ -283,38 +292,38 @@ def iter_filled_session_records(dataset_root: str | Path) -> list[FilledSessionR
     ]
 
 
-def group_imported_stacks_by_subject_and_stack(
+def group_imported_stacks_by_subject_site_and_stack(
     records: list[ImportedStackRecord],
-) -> dict[str, dict[int, list[ImportedStackRecord]]]:
-    grouped: dict[str, dict[int, list[ImportedStackRecord]]] = {}
+) -> dict[tuple[str, str], dict[int, list[ImportedStackRecord]]]:
+    grouped: dict[tuple[str, str], dict[int, list[ImportedStackRecord]]] = {}
 
     for record in records:
-        grouped.setdefault(record.subject_id, {}).setdefault(record.stack_index, []).append(record)
+        grouped.setdefault((record.subject_id, record.site), {}).setdefault(record.stack_index, []).append(record)
 
-    for subject_id in grouped:
-        for stack_index in grouped[subject_id]:
-            grouped[subject_id][stack_index].sort(key=lambda r: r.session_id)
+    for key in grouped:
+        for stack_index in grouped[key]:
+            grouped[key][stack_index].sort(key=lambda r: r.session_id)
 
     return grouped
 
 
-def group_fused_sessions_by_subject(
+def group_fused_sessions_by_subject_site(
     records: list[FusedSessionRecord],
-) -> dict[str, list[FusedSessionRecord]]:
-    grouped: dict[str, list[FusedSessionRecord]] = {}
+) -> dict[tuple[str, str], list[FusedSessionRecord]]:
+    grouped: dict[tuple[str, str], list[FusedSessionRecord]] = {}
     for record in records:
-        grouped.setdefault(record.subject_id, []).append(record)
-    for subject_id in grouped:
-        grouped[subject_id].sort(key=lambda r: r.session_id)
+        grouped.setdefault((record.subject_id, record.site), []).append(record)
+    for key in grouped:
+        grouped[key].sort(key=lambda r: r.session_id)
     return grouped
 
 
-def group_filled_sessions_by_subject(
+def group_filled_sessions_by_subject_site(
     records: list[FilledSessionRecord],
-) -> dict[str, list[FilledSessionRecord]]:
-    grouped: dict[str, list[FilledSessionRecord]] = {}
+) -> dict[tuple[str, str], list[FilledSessionRecord]]:
+    grouped: dict[tuple[str, str], list[FilledSessionRecord]] = {}
     for record in records:
-        grouped.setdefault(record.subject_id, []).append(record)
-    for subject_id in grouped:
-        grouped[subject_id].sort(key=lambda r: r.session_id)
+        grouped.setdefault((record.subject_id, record.site), []).append(record)
+    for key in grouped:
+        grouped[key].sort(key=lambda r: r.session_id)
     return grouped

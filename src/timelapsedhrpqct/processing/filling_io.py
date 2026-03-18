@@ -5,7 +5,7 @@ from pathlib import Path
 
 from timelapsedhrpqct.dataset.artifacts import (
     FilledSessionRecord,
-    group_fused_sessions_by_subject,
+    group_fused_sessions_by_subject_site,
     iter_fused_session_records,
 )
 from timelapsedhrpqct.dataset.derivative_paths import (
@@ -25,26 +25,28 @@ from timelapsedhrpqct.utils.session_ids import session_sort_key
 @dataclass(slots=True)
 class SessionFusedInputs:
     subject_id: str
+    site: str
     session_id: str
     image_path: Path
     full_mask_path: Path
     seg_path: Path | None = None
 
 
-def discover_filling_subject_ids(dataset_root: Path) -> list[str]:
-    return sorted(group_fused_sessions_by_subject(iter_fused_session_records(dataset_root)))
+def discover_filling_subject_ids(dataset_root: Path) -> list[tuple[str, str]]:
+    return sorted(group_fused_sessions_by_subject_site(iter_fused_session_records(dataset_root)))
 
 
-def discover_filling_sessions(dataset_root: Path, subject_id: str) -> list[SessionFusedInputs]:
+def discover_filling_sessions(dataset_root: Path, subject_id: str, site: str) -> list[SessionFusedInputs]:
     out: list[SessionFusedInputs] = []
-    grouped = group_fused_sessions_by_subject(iter_fused_session_records(dataset_root))
-    for record in grouped.get(subject_id, []):
+    grouped = group_fused_sessions_by_subject_site(iter_fused_session_records(dataset_root))
+    for record in grouped.get((subject_id, site), []):
         full_mask = record.mask_paths.get("full")
         if full_mask is None:
             continue
         out.append(
             SessionFusedInputs(
                 subject_id=subject_id,
+                site=site,
                 session_id=record.session_id,
                 image_path=record.image_path,
                 full_mask_path=full_mask,
@@ -59,6 +61,7 @@ def build_filling_metadata(
     *,
     dataset_root: Path,
     subject_id: str,
+    site: str,
     session_id: str,
     seg_input: str | None,
     filled_image_path_out: Path,
@@ -84,9 +87,10 @@ def build_filling_metadata(
         "subject_id": subject_id,
         "session_id": session_id,
         "kind": "filled_fused_session",
-        "image_input": str(fused_image_path(dataset_root, subject_id, session_id)),
+        "site": site,
+        "image_input": str(fused_image_path(dataset_root, subject_id, site, session_id)),
         "seg_input": seg_input,
-        "realdata_mask_input": str(fused_full_mask_path(dataset_root, subject_id, session_id)),
+        "realdata_mask_input": str(fused_full_mask_path(dataset_root, subject_id, site, session_id)),
         "image_output": str(filled_image_path_out),
         "seg_output": str(filled_seg_path_out) if filled_seg_path_out is not None else None,
         "filled_mask_output": str(filled_full_mask_path_out),
@@ -94,7 +98,7 @@ def build_filling_metadata(
         "seg_filladded_output": (
             str(seg_filladded_path_out) if seg_filladded_path_out is not None else None
         ),
-        "support_mask_output": str(support_mask_path(dataset_root, subject_id)),
+        "support_mask_output": str(support_mask_path(dataset_root, subject_id, site)),
         "allowed_support": image_support_meta,
         "fill_region": fill_region_meta,
         "num_realdata_voxels": num_realdata_voxels,
@@ -115,23 +119,25 @@ def build_filled_session_record(
     *,
     dataset_root: Path,
     subject_id: str,
+    site: str,
     session_id: str,
 ) -> FilledSessionRecord:
     return FilledSessionRecord(
         subject_id=subject_id,
+        site=site,
         session_id=session_id,
-        image_path=filled_image_path(dataset_root, subject_id, session_id),
-        full_mask_path=filled_full_mask_path(dataset_root, subject_id, session_id),
-        filladded_mask_path=filladded_mask_path(dataset_root, subject_id, session_id),
+        image_path=filled_image_path(dataset_root, subject_id, site, session_id),
+        full_mask_path=filled_full_mask_path(dataset_root, subject_id, site, session_id),
+        filladded_mask_path=filladded_mask_path(dataset_root, subject_id, site, session_id),
         seg_path=(
-            filled_seg_path(dataset_root, subject_id, session_id)
-            if filled_seg_path(dataset_root, subject_id, session_id).exists()
+            filled_seg_path(dataset_root, subject_id, site, session_id)
+            if filled_seg_path(dataset_root, subject_id, site, session_id).exists()
             else None
         ),
         seg_filladded_path=(
-            seg_filladded_path(dataset_root, subject_id, session_id)
-            if seg_filladded_path(dataset_root, subject_id, session_id).exists()
+            seg_filladded_path(dataset_root, subject_id, site, session_id)
+            if seg_filladded_path(dataset_root, subject_id, site, session_id).exists()
             else None
         ),
-        metadata_path=filling_metadata_path(dataset_root, subject_id, session_id),
+        metadata_path=filling_metadata_path(dataset_root, subject_id, site, session_id),
     )

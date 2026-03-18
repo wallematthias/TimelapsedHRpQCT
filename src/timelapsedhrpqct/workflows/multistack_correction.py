@@ -7,7 +7,7 @@ import SimpleITK as sitk
 
 from timelapsedhrpqct.config.models import AppConfig
 from timelapsedhrpqct.dataset.artifacts import (
-    group_imported_stacks_by_subject_and_stack,
+    group_imported_stacks_by_subject_site_and_stack,
     iter_imported_stack_records,
 )
 from timelapsedhrpqct.dataset.derivative_paths import (
@@ -59,44 +59,54 @@ def _free_memory() -> None:
     gc.collect()
 
 
-def _stack_correction_dir(dataset_root: Path, subject_id: str) -> Path:
-    return stack_correction_dir(dataset_root, subject_id)
+def _stack_correction_dir(dataset_root: Path, subject_id: str, site: str) -> Path:
+    return stack_correction_dir(dataset_root, subject_id, site)
 
 
-def _transforms_dir(dataset_root: Path, subject_id: str) -> Path:
-    return transforms_dir(dataset_root, subject_id)
+def _transforms_dir(dataset_root: Path, subject_id: str, site: str) -> Path:
+    return transforms_dir(dataset_root, subject_id, site)
 
 
-def _final_transform_dir(dataset_root: Path, subject_id: str) -> Path:
-    return _transforms_dir(dataset_root, subject_id) / "final"
+def _final_transform_dir(dataset_root: Path, subject_id: str, site: str) -> Path:
+    return _transforms_dir(dataset_root, subject_id, site) / "final"
 
 
 def _stack_correction_transform_path(
     dataset_root: Path,
     subject_id: str,
-    stack_index: int,
+    site: str = "radius",
+    stack_index: int | None = None,
 ) -> Path:
-    return stack_correction_transform_path(dataset_root, subject_id, stack_index)
+    if stack_index is None:
+        raise ValueError("stack_index is required")
+    return stack_correction_transform_path(dataset_root, subject_id, site, stack_index)
 
 
 def _stack_correction_metadata_path(
     dataset_root: Path,
     subject_id: str,
-    stack_index: int,
+    site: str = "radius",
+    stack_index: int | None = None,
 ) -> Path:
-    return stack_correction_metadata_path(dataset_root, subject_id, stack_index)
+    if stack_index is None:
+        raise ValueError("stack_index is required")
+    return stack_correction_metadata_path(dataset_root, subject_id, site, stack_index)
 
 
 def _final_transform_path(
     dataset_root: Path,
     subject_id: str,
-    stack_index: int,
-    moving_session: str,
-    baseline_session: str,
+    site: str = "radius",
+    stack_index: int | None = None,
+    moving_session: str | None = None,
+    baseline_session: str | None = None,
 ) -> Path:
+    if stack_index is None or moving_session is None or baseline_session is None:
+        raise ValueError("stack_index, moving_session, and baseline_session are required")
     return final_transform_path(
         dataset_root=dataset_root,
         subject_id=subject_id,
+        site=site,
         stack_index=stack_index,
         moving_session=moving_session,
         baseline_session=baseline_session,
@@ -106,22 +116,26 @@ def _final_transform_path(
 def _final_transform_metadata_path(
     dataset_root: Path,
     subject_id: str,
-    stack_index: int,
-    moving_session: str,
-    baseline_session: str,
+    site: str = "radius",
+    stack_index: int | None = None,
+    moving_session: str | None = None,
+    baseline_session: str | None = None,
 ) -> Path:
+    if stack_index is None or moving_session is None or baseline_session is None:
+        raise ValueError("stack_index, moving_session, and baseline_session are required")
     return final_transform_metadata_path(
         dataset_root=dataset_root,
         subject_id=subject_id,
+        site=site,
         stack_index=stack_index,
         moving_session=moving_session,
         baseline_session=baseline_session,
     )
 
 
-def _superstack_dir(dataset_root: Path, subject_id: str, stack_index: int) -> Path:
+def _superstack_dir(dataset_root: Path, subject_id: str, site: str, stack_index: int) -> Path:
     return (
-        _stack_correction_dir(dataset_root, subject_id)
+        _stack_correction_dir(dataset_root, subject_id, site)
         / "superstacks"
         / f"stack-{stack_index:02d}"
     )
@@ -130,75 +144,81 @@ def _superstack_dir(dataset_root: Path, subject_id: str, stack_index: int) -> Pa
 def _superstack_image_path(
     dataset_root: Path,
     subject_id: str,
+    site: str,
     stack_index: int,
 ) -> Path:
-    return _superstack_dir(dataset_root, subject_id, stack_index) / (
-        f"sub-{subject_id}_stack-{stack_index:02d}_superstack.mha"
+    return _superstack_dir(dataset_root, subject_id, site, stack_index) / (
+        f"sub-{subject_id}_site-{site}_stack-{stack_index:02d}_superstack.mha"
     )
 
 
 def _superstack_mask_path(
     dataset_root: Path,
     subject_id: str,
+    site: str,
     stack_index: int,
 ) -> Path:
-    return _superstack_dir(dataset_root, subject_id, stack_index) / (
-        f"sub-{subject_id}_stack-{stack_index:02d}_superstack_mask-full.mha"
+    return _superstack_dir(dataset_root, subject_id, site, stack_index) / (
+        f"sub-{subject_id}_site-{site}_stack-{stack_index:02d}_superstack_mask-full.mha"
     )
 
 
 def _superstack_reference_path(
     dataset_root: Path,
     subject_id: str,
+    site: str,
     stack_index: int,
 ) -> Path:
-    return _superstack_dir(dataset_root, subject_id, stack_index) / (
-        f"sub-{subject_id}_stack-{stack_index:02d}_superstack_reference.mha"
+    return _superstack_dir(dataset_root, subject_id, site, stack_index) / (
+        f"sub-{subject_id}_site-{site}_stack-{stack_index:02d}_superstack_reference.mha"
     )
 
 
 def _superstack_metadata_path(
     dataset_root: Path,
     subject_id: str,
+    site: str,
     stack_index: int,
 ) -> Path:
-    return _superstack_dir(dataset_root, subject_id, stack_index) / (
-        f"sub-{subject_id}_stack-{stack_index:02d}_superstack.json"
+    return _superstack_dir(dataset_root, subject_id, site, stack_index) / (
+        f"sub-{subject_id}_site-{site}_stack-{stack_index:02d}_superstack.json"
     )
 
 
-def _qc_common_dir(dataset_root: Path, subject_id: str) -> Path:
-    return _stack_correction_dir(dataset_root, subject_id) / "qc_common"
+def _qc_common_dir(dataset_root: Path, subject_id: str, site: str) -> Path:
+    return _stack_correction_dir(dataset_root, subject_id, site) / "qc_common"
 
 
 def _qc_corrected_superstack_path(
     dataset_root: Path,
     subject_id: str,
+    site: str,
     stack_index: int,
 ) -> Path:
-    return _qc_common_dir(dataset_root, subject_id) / (
-        f"sub-{subject_id}_stack-{stack_index:02d}_corrected_superstack.mha"
+    return _qc_common_dir(dataset_root, subject_id, site) / (
+        f"sub-{subject_id}_site-{site}_stack-{stack_index:02d}_corrected_superstack.mha"
     )
 
 
-def _qc_overlay_path(dataset_root: Path, subject_id: str) -> Path:
-    return _qc_common_dir(dataset_root, subject_id) / (
-        f"sub-{subject_id}_corrected_superstacks_overlay.mha"
+def _qc_overlay_path(dataset_root: Path, subject_id: str, site: str) -> Path:
+    return _qc_common_dir(dataset_root, subject_id, site) / (
+        f"sub-{subject_id}_site-{site}_corrected_superstacks_overlay.mha"
     )
 
 
-def _common_reference_path(dataset_root: Path, subject_id: str) -> Path:
-    return common_reference_path(dataset_root, subject_id)
+def _common_reference_path(dataset_root: Path, subject_id: str, site: str) -> Path:
+    return common_reference_path(dataset_root, subject_id, site)
 
 
 def _pairwise_crop_debug_dir(
     dataset_root: Path,
     subject_id: str,
+    site: str,
     moving_stack_index: int,
     fixed_stack_index: int,
 ) -> Path:
     return (
-        _stack_correction_dir(dataset_root, subject_id)
+        _stack_correction_dir(dataset_root, subject_id, site)
         / "debug_pairwise_crops"
         / f"stack-{moving_stack_index:02d}_to_stack-{fixed_stack_index:02d}"
     )
@@ -285,6 +305,7 @@ def _make_subject_common_reference(
 def _build_stack_superstack_in_common_reference(
     dataset_root: Path,
     subject_id: str,
+    site: str,
     stack_index: int,
     stack_records: list,
     baseline_session: str,
@@ -305,6 +326,7 @@ def _build_stack_superstack_in_common_reference(
         baseline_tfm_path = timelapse_baseline_transform_path(
             dataset_root=dataset_root,
             subject_id=subject_id,
+            site=site,
             stack_index=stack_index,
             moving_session=record.session_id,
             baseline_session=baseline_session,
@@ -354,29 +376,30 @@ def _build_stack_superstack_in_common_reference(
     if debug_save:
         write_image(
             superstack,
-            _superstack_image_path(dataset_root, subject_id, stack_index),
+            _superstack_image_path(dataset_root, subject_id, site, stack_index),
         )
         write_image(
             common_reference,
-            _superstack_reference_path(dataset_root, subject_id, stack_index),
+            _superstack_reference_path(dataset_root, subject_id, site, stack_index),
         )
         if supermask is not None:
             write_image(
                 supermask,
-                _superstack_mask_path(dataset_root, subject_id, stack_index),
+                _superstack_mask_path(dataset_root, subject_id, site, stack_index),
             )
 
         write_json(
             {
                 "subject_id": subject_id,
+                "site": site,
                 "stack_index": stack_index,
                 "baseline_session": baseline_session,
                 "kind": "superstack",
                 "space_from": [
-                    f"sub-{subject_id}_ses-{sid}_stack-{stack_index:02d}_native"
+                    f"sub-{subject_id}_site-{site}_ses-{sid}_stack-{stack_index:02d}_native"
                     for sid in session_ids
                 ],
-                "space_to": f"sub-{subject_id}_stack-common",
+                "space_to": f"sub-{subject_id}_site-{site}_stack-common",
                 "num_timepoints": len(session_ids),
                 "sessions": session_ids,
                 "mask_strategy": (
@@ -387,7 +410,7 @@ def _build_stack_superstack_in_common_reference(
                     "composition": "timelapse_to_baseline_only",
                 },
             },
-            _superstack_metadata_path(dataset_root, subject_id, stack_index),
+            _superstack_metadata_path(dataset_root, subject_id, site, stack_index),
         )
 
     del aligned_images
@@ -404,6 +427,7 @@ def _build_stack_superstack_in_common_reference(
 def _build_all_superstacks(
     dataset_root: Path,
     subject_id: str,
+    site: str,
     stacks_by_index: dict[int, list],
     baseline_session: str,
     common_reference: sitk.Image,
@@ -415,6 +439,7 @@ def _build_all_superstacks(
         superstack, supermask, meta = _build_stack_superstack_in_common_reference(
             dataset_root=dataset_root,
             subject_id=subject_id,
+            site=site,
             stack_index=stack_index,
             stack_records=stack_records,
             baseline_session=baseline_session,
@@ -433,6 +458,7 @@ def _build_all_superstacks(
 def _write_pairwise_crop_debug(
     dataset_root: Path,
     subject_id: str,
+    site: str,
     moving_stack_index: int,
     fixed_stack_index: int,
     fixed_image: sitk.Image,
@@ -443,6 +469,7 @@ def _write_pairwise_crop_debug(
     debug_dir = _pairwise_crop_debug_dir(
         dataset_root=dataset_root,
         subject_id=subject_id,
+        site=site,
         moving_stack_index=moving_stack_index,
         fixed_stack_index=fixed_stack_index,
     )
@@ -459,6 +486,7 @@ def _write_pairwise_crop_debug(
 def _estimate_stack_corrections_from_superstacks(
     dataset_root: Path,
     subject_id: str,
+    site: str,
     superstacks: dict[int, dict],
     baseline_session: str,
     settings: RegistrationSettings,
@@ -514,6 +542,7 @@ def _estimate_stack_corrections_from_superstacks(
             _write_pairwise_crop_debug(
                 dataset_root=dataset_root,
                 subject_id=subject_id,
+                site=site,
                 moving_stack_index=stack_index,
                 fixed_stack_index=stack_index - 1,
                 fixed_image=fixed_super,
@@ -546,16 +575,18 @@ def _estimate_stack_corrections_from_superstacks(
             _stack_correction_transform_path(
                 dataset_root=dataset_root,
                 subject_id=subject_id,
+                site=site,
                 stack_index=stack_index,
             ),
         )
         write_json(
             {
                 "subject_id": subject_id,
+                "site": site,
                 "stack_index": stack_index,
                 "kind": "stackshift_correction_adjacent",
-                "space_from": f"sub-{subject_id}_stack-{stack_index:02d}_superstack_common",
-                "space_to": f"sub-{subject_id}_stack-{stack_index - 1:02d}_superstack_common",
+                "space_from": f"sub-{subject_id}_site-{site}_stack-{stack_index:02d}_superstack_common",
+                "space_to": f"sub-{subject_id}_site-{site}_stack-{stack_index - 1:02d}_superstack_common",
                 "baseline_session": baseline_session,
                 "metric_value": result.metric_value,
                 "optimizer_stop_condition": result.optimizer_stop_condition,
@@ -570,6 +601,7 @@ def _estimate_stack_corrections_from_superstacks(
             _stack_correction_metadata_path(
                 dataset_root=dataset_root,
                 subject_id=subject_id,
+                site=site,
                 stack_index=stack_index,
             ),
         )
@@ -584,16 +616,18 @@ def _estimate_stack_corrections_from_superstacks(
         _stack_correction_transform_path(
             dataset_root=dataset_root,
             subject_id=subject_id,
+            site=site,
             stack_index=1,
         ),
     )
     write_json(
         {
             "subject_id": subject_id,
+            "site": site,
             "stack_index": 1,
             "kind": "stackshift_correction_adjacent",
-            "space_from": f"sub-{subject_id}_stack-01_superstack_common",
-            "space_to": f"sub-{subject_id}_stack-01_superstack_common",
+            "space_from": f"sub-{subject_id}_site-{site}_stack-01_superstack_common",
+            "space_to": f"sub-{subject_id}_site-{site}_stack-01_superstack_common",
             "baseline_session": baseline_session,
             "source": "identity_reference_stack",
             "method": "identity",
@@ -601,6 +635,7 @@ def _estimate_stack_corrections_from_superstacks(
         _stack_correction_metadata_path(
             dataset_root=dataset_root,
             subject_id=subject_id,
+            site=site,
             stack_index=1,
         ),
     )
@@ -611,6 +646,7 @@ def _estimate_stack_corrections_from_superstacks(
 def _estimate_stack_corrections_from_boundary_slices(
     dataset_root: Path,
     subject_id: str,
+    site: str,
     stacks_by_index: dict[int, list],
     baseline_session: str,
     settings: RegistrationSettings,
@@ -700,16 +736,18 @@ def _estimate_stack_corrections_from_boundary_slices(
             _stack_correction_transform_path(
                 dataset_root=dataset_root,
                 subject_id=subject_id,
+                site=site,
                 stack_index=stack_index,
             ),
         )
         write_json(
             {
                 "subject_id": subject_id,
+                "site": site,
                 "stack_index": stack_index,
                 "kind": "stackshift_correction_adjacent",
-                "space_from": f"sub-{subject_id}_stack-{stack_index:02d}_boundary_slice",
-                "space_to": f"sub-{subject_id}_stack-{stack_index - 1:02d}_boundary_slice",
+                "space_from": f"sub-{subject_id}_site-{site}_stack-{stack_index:02d}_boundary_slice",
+                "space_to": f"sub-{subject_id}_site-{site}_stack-{stack_index - 1:02d}_boundary_slice",
                 "baseline_session": baseline_session,
                 "metric_value": result.metric_value,
                 "optimizer_stop_condition": result.optimizer_stop_condition,
@@ -724,6 +762,7 @@ def _estimate_stack_corrections_from_boundary_slices(
             _stack_correction_metadata_path(
                 dataset_root=dataset_root,
                 subject_id=subject_id,
+                site=site,
                 stack_index=stack_index,
             ),
         )
@@ -744,16 +783,18 @@ def _estimate_stack_corrections_from_boundary_slices(
         _stack_correction_transform_path(
             dataset_root=dataset_root,
             subject_id=subject_id,
+            site=site,
             stack_index=1,
         ),
     )
     write_json(
         {
             "subject_id": subject_id,
+            "site": site,
             "stack_index": 1,
             "kind": "stackshift_correction_adjacent",
-            "space_from": f"sub-{subject_id}_stack-01_boundary_slice",
-            "space_to": f"sub-{subject_id}_stack-01_boundary_slice",
+            "space_from": f"sub-{subject_id}_site-{site}_stack-01_boundary_slice",
+            "space_to": f"sub-{subject_id}_site-{site}_stack-01_boundary_slice",
             "baseline_session": baseline_session,
             "source": "identity_reference_stack",
             "method": "identity",
@@ -761,6 +802,7 @@ def _estimate_stack_corrections_from_boundary_slices(
         _stack_correction_metadata_path(
             dataset_root=dataset_root,
             subject_id=subject_id,
+            site=site,
             stack_index=1,
         ),
     )
@@ -771,6 +813,7 @@ def _estimate_stack_corrections_from_boundary_slices(
 def _write_identity_stack_correction_for_single_stack(
     dataset_root: Path,
     subject_id: str,
+    site: str,
     stack_index: int,
     baseline_session: str,
 ) -> None:
@@ -780,22 +823,25 @@ def _write_identity_stack_correction_for_single_stack(
         _stack_correction_transform_path(
             dataset_root=dataset_root,
             subject_id=subject_id,
+            site=site,
             stack_index=stack_index,
         ),
     )
     write_json(
         {
             "subject_id": subject_id,
+            "site": site,
             "stack_index": stack_index,
             "kind": "stackshift_correction_adjacent",
-            "space_from": f"sub-{subject_id}_stack-{stack_index:02d}_superstack_common",
-            "space_to": f"sub-{subject_id}_stack-{stack_index:02d}_superstack_common",
+            "space_from": f"sub-{subject_id}_site-{site}_stack-{stack_index:02d}_superstack_common",
+            "space_to": f"sub-{subject_id}_site-{site}_stack-{stack_index:02d}_superstack_common",
             "baseline_session": baseline_session,
             "method": "identity_single_stack_subject",
         },
         _stack_correction_metadata_path(
             dataset_root=dataset_root,
             subject_id=subject_id,
+            site=site,
             stack_index=stack_index,
         ),
     )
@@ -804,6 +850,7 @@ def _write_identity_stack_correction_for_single_stack(
 def _write_corrected_superstack_qc(
     dataset_root: Path,
     subject_id: str,
+    site: str,
     superstacks: dict[int, dict],
     common_reference: sitk.Image,
     cumulative_corrections: dict[int, sitk.Transform],
@@ -817,11 +864,11 @@ def _write_corrected_superstack_qc(
     for stack_index in sorted(corrected_union_by_stack):
         write_image(
             corrected_union_by_stack[stack_index],
-            _qc_corrected_superstack_path(dataset_root, subject_id, stack_index),
+            _qc_corrected_superstack_path(dataset_root, subject_id, site, stack_index),
         )
 
     if overlay is not None:
-        write_image(overlay, _qc_overlay_path(dataset_root, subject_id))
+        write_image(overlay, _qc_overlay_path(dataset_root, subject_id, site))
 
     del corrected_union_by_stack, overlay
     _free_memory()
@@ -833,7 +880,7 @@ def run_stack_correction(
 ) -> None:
     dataset_root = Path(dataset_root)
     records = iter_imported_stack_records(dataset_root)
-    grouped = group_imported_stacks_by_subject_and_stack(records)
+    grouped = group_imported_stacks_by_subject_site_and_stack(records)
     settings = _default_stack_correction_settings(config)
     cfg = config.multistack_correction
     method = _stack_correction_method(config)
@@ -850,8 +897,8 @@ def run_stack_correction(
         f"use_masks={settings.use_masks}"
     )
 
-    for subject_id, stacks_by_index in grouped.items():
-        print(f"[timelapse] Stack correction for subject: {subject_id}")
+    for (subject_id, site), stacks_by_index in grouped.items():
+        print(f"[timelapse] Stack correction for subject: {subject_id}, site: {site}")
 
         if not stacks_by_index:
             continue
@@ -880,7 +927,7 @@ def run_stack_correction(
             )
 
             if cfg.debug:
-                write_image(common_reference, _common_reference_path(dataset_root, subject_id))
+                write_image(common_reference, _common_reference_path(dataset_root, subject_id, site))
                 _print_image_info("subject common reference", common_reference)
 
         if len(stack_indices) == 1:
@@ -888,6 +935,7 @@ def run_stack_correction(
             _write_identity_stack_correction_for_single_stack(
                 dataset_root=dataset_root,
                 subject_id=subject_id,
+                site=site,
                 stack_index=stack_index,
                 baseline_session=baseline_session,
             )
@@ -900,6 +948,7 @@ def run_stack_correction(
                 superstacks = _build_all_superstacks(
                     dataset_root=dataset_root,
                     subject_id=subject_id,
+                    site=site,
                     stacks_by_index=stacks_by_index,
                     baseline_session=baseline_session,
                     common_reference=common_reference,
@@ -909,6 +958,7 @@ def run_stack_correction(
                 cumulative_corrections = _estimate_stack_corrections_from_superstacks(
                     dataset_root=dataset_root,
                     subject_id=subject_id,
+                    site=site,
                     superstacks=superstacks,
                     baseline_session=baseline_session,
                     settings=settings,
@@ -918,6 +968,7 @@ def run_stack_correction(
                     _write_corrected_superstack_qc(
                         dataset_root=dataset_root,
                         subject_id=subject_id,
+                        site=site,
                         superstacks=superstacks,
                         common_reference=common_reference,
                         cumulative_corrections=cumulative_corrections,
@@ -934,6 +985,7 @@ def run_stack_correction(
                 cumulative_corrections = _estimate_stack_corrections_from_boundary_slices(
                     dataset_root=dataset_root,
                     subject_id=subject_id,
+                    site=site,
                     stacks_by_index=stacks_by_index,
                     baseline_session=baseline_session,
                     settings=settings,
@@ -950,6 +1002,7 @@ def run_stack_correction(
                 baseline_path = timelapse_baseline_transform_path(
                     dataset_root=dataset_root,
                     subject_id=subject_id,
+                    site=site,
                     stack_index=stack_index,
                     moving_session=moving_session,
                     baseline_session=baseline_session,
@@ -968,6 +1021,7 @@ def run_stack_correction(
                 final_path = _final_transform_path(
                     dataset_root=dataset_root,
                     subject_id=subject_id,
+                    site=site,
                     stack_index=stack_index,
                     moving_session=moving_session,
                     baseline_session=baseline_session,
@@ -977,6 +1031,7 @@ def run_stack_correction(
                 final_meta_path = _final_transform_metadata_path(
                     dataset_root=dataset_root,
                     subject_id=subject_id,
+                    site=site,
                     stack_index=stack_index,
                     moving_session=moving_session,
                     baseline_session=baseline_session,
@@ -984,13 +1039,14 @@ def run_stack_correction(
                 write_json(
                     {
                         "subject_id": subject_id,
+                        "site": site,
                         "stack_index": stack_index,
                         "session_id": moving_session,
                         "kind": "final",
                         "space_from": (
-                            f"sub-{subject_id}_ses-{moving_session}_stack-{stack_index:02d}_native"
+                            f"sub-{subject_id}_site-{site}_ses-{moving_session}_stack-{stack_index:02d}_native"
                         ),
-                        "space_to": f"sub-{subject_id}_fused_baseline_common",
+                        "space_to": f"sub-{subject_id}_site-{site}_fused_baseline_common",
                         "baseline_session": baseline_session,
                         "transform_hierarchy": {
                             "baseline_transform": str(baseline_path),
@@ -998,6 +1054,7 @@ def run_stack_correction(
                                 _stack_correction_transform_path(
                                     dataset_root=dataset_root,
                                     subject_id=subject_id,
+                                    site=site,
                                     stack_index=stack_index,
                                 )
                             ),

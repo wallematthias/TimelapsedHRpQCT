@@ -20,6 +20,8 @@ class RawSession:
     subject_id: str
     session_id: str
     raw_image_path: Path
+    site: str | None = None
+    stack_index: int | None = None
     raw_mask_paths: dict[MaskRole, Path] = field(default_factory=dict)
     raw_seg_path: Path | None = None
 
@@ -36,6 +38,8 @@ class RawSession:
             raise ValueError("session_id must not be empty")
         if not self.raw_image_path:
             raise ValueError("raw_image_path must be provided")
+        if self.stack_index is not None and self.stack_index < 1:
+            raise ValueError("stack_index must be >= 1 when provided")
 
 
 @dataclass(slots=True)
@@ -81,6 +85,7 @@ class StackArtifact:
     seg_path: Path | None = None
     metadata_path: Path | None = None
     slice_range: StackSliceRange | None = None
+    site: str = "radius"
 
     def get_mask_path(self, role: MaskRole) -> Path | None:
         return self.mask_paths.get(role)
@@ -91,6 +96,8 @@ class StackArtifact:
     def validate(self) -> None:
         if not self.subject_id:
             raise ValueError("subject_id must not be empty")
+        if not self.site:
+            raise ValueError("site must not be empty")
         if not self.session_id:
             raise ValueError("session_id must not be empty")
         if self.stack_index < 1:
@@ -119,10 +126,13 @@ class TransformRecord:
     space_to: str
     transform_path: Path
     metadata: dict[str, Any] = field(default_factory=dict)
+    site: str = "radius"
 
     def validate(self) -> None:
         if not self.subject_id:
             raise ValueError("subject_id must not be empty")
+        if not self.site:
+            raise ValueError("site must not be empty")
         if self.stack_index < 1:
             raise ValueError("stack_index must be >= 1")
         if not self.session_id:
@@ -146,6 +156,7 @@ class SessionStackCollection:
     subject_id: str
     session_id: str
     stacks: list[StackArtifact]
+    site: str = "radius"
 
     def sorted_stacks(self) -> list[StackArtifact]:
         return sorted(self.stacks, key=lambda s: s.stack_index)

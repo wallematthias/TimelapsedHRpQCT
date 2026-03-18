@@ -25,7 +25,9 @@ Use cropping when sessions contain large zero-padded regions or varying acquisit
 
 Controls raw AIM session discovery.
 
-- `session_regex`: optional regex with named groups `subject`, `session`, and optional `role`
+- `session_regex`: optional regex with named groups `subject`, `session`, and optional `site`, `stack`, and `role`
+- `default_site`: site used when no site token can be inferred from a filename
+- `site_aliases`: mapping from filename tokens such as `DR`, `DT`, `KN` to canonical sites such as `radius`, `tibia`, `knee`
 - `role_aliases`: mapping from canonical roles to filename aliases
 
 This is the main place to adapt the pipeline to your local naming scheme.
@@ -39,6 +41,8 @@ Controls generated mask and segmentation behavior on imported stacks.
 - `roles`: mask roles to keep and use. Typical values are `["full", "trab", "cort"]` or `["full"]`
 - `generate_segmentation`: whether the mask-generation stage should also write segmentation outputs
 - `derive_full_from_cort_trab`: allow reconstruction of the full mask from cortical and trabecular masks
+- `site_selection`: filename-based rules used to infer `radius`, `tibia`, or `knee` per scan
+- `site_defaults`: per-site contour overrides applied after the shared base mask settings
 
 If you only want to work with a total mask, set `roles: ["full"]`. In that case the pipeline will not require `trab` or `cort` masks.
 
@@ -50,6 +54,7 @@ Key options:
 
 - `periosteal_threshold`
 - `periosteal_kernelsize`
+- `periosteal_open_radius`
 - `gaussian_sigma`
 - `gaussian_truncate`
 - `expansion_depth`
@@ -62,11 +67,12 @@ Parameters for inner contour estimation.
 
 Key options:
 
-- `site`
+- `site`: fallback site when no filename pattern matches
 - `endosteal_threshold`
 - `endosteal_kernelsize`
 - `peel`
 - `expansion_depth`
+- `trabecular_close_radius`
 - `use_adaptive_threshold`
 
 ### `masks.segmentation`
@@ -74,7 +80,7 @@ Key options:
 Controls segmentation from stack images and masks.
 
 - `method`: `global` or `adaptive`
-- `gaussian_sigma`: Gaussian smoothing sigma before `global` thresholding, in voxels
+- `gaussian_sigma`: Gaussian smoothing sigma before `global` thresholding; converted internally to physical units using image spacing
 - `trab_threshold`
 - `cort_threshold`
 - `adaptive_low_threshold`

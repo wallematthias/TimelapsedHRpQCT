@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import shutil
+from collections import defaultdict
 from pathlib import Path
 
 import SimpleITK as sitk
@@ -214,6 +215,14 @@ def _detect_crop_from_image(
     )
 
 
+def _raw_session_crop_key(raw_session: RawSession) -> str:
+    """
+    Unique key for crop bookkeeping. Must distinguish same session_id across sites.
+    """
+    site = raw_session.site or "unknown"
+    return f"{raw_session.subject_id}|{site}|{raw_session.session_id}"
+
+
 def _compute_subject_crop_spec(
     raw_sessions: list[RawSession],
     config: AppConfig,
@@ -225,6 +234,8 @@ def _compute_subject_crop_spec(
     max_size = [0, 0, 0]
 
     for raw_session in raw_sessions:
+        session_key = _raw_session_crop_key(raw_session)
+
         image, _meta = read_aim(raw_session.raw_image_path, scaling="bmd")
         detection = _detect_crop_from_image(
             image=image,
@@ -232,20 +243,22 @@ def _compute_subject_crop_spec(
             padding_voxels=config.import_.crop_padding_voxels,
             num_largest_components=config.import_.crop_num_largest_components,
         )
-        per_session_detection[raw_session.session_id] = detection
+        per_session_detection[session_key] = detection
+
         for i in range(3):
             max_size[i] = max(max_size[i], detection.bbox_size_xyz[i])
 
         print(
-            f"[import] subject={raw_session.subject_id} ses={raw_session.session_id} "
-            f"detected bbox index={detection.bbox_index_xyz} size={detection.bbox_size_xyz}"
+            f"[import] subject={raw_session.subject_id} site={raw_session.site} "
+            f"ses={raw_session.session_id} detected bbox "
+            f"index={detection.bbox_index_xyz} size={detection.bbox_size_xyz}"
         )
 
     return SubjectCropSpec(
         target_size_xyz=tuple(max_size),
         per_session_center_index_xyz={
-            session_id: det.center_index_xyz
-            for session_id, det in per_session_detection.items()
+            session_key: det.center_index_xyz
+            for session_key, det in per_session_detection.items()
         },
         per_session_detection=per_session_detection,
     )
@@ -353,7 +366,9 @@ def import_raw_session(
     crop_info: dict | None = None
 
     if subject_crop_spec is not None:
-        center_index_xyz = subject_crop_spec.per_session_center_index_xyz[raw_session.session_id]
+        session_key = _raw_session_crop_key(raw_session)
+
+        center_index_xyz = subject_crop_spec.per_session_center_index_xyz[session_key]
         target_size_xyz = subject_crop_spec.target_size_xyz
         roi_index_xyz = _centered_roi_index_for_target_size(
             center_index_xyz=center_index_xyz,
@@ -389,7 +404,7 @@ def import_raw_session(
         if seg_image is not None:
             seg_image = _reset_origin_to_zero(seg_image)
 
-        detection = subject_crop_spec.per_session_detection[raw_session.session_id]
+        detection = subject_crop_spec.per_session_detection[session_key]
         crop_info = build_crop_metadata(
             subject_crop_spec=subject_crop_spec,
             session_id=raw_session.session_id,
@@ -398,8 +413,9 @@ def import_raw_session(
         )
 
         print(
-            f"[import] sub-{raw_session.subject_id} ses-{raw_session.session_id} "
-            f"applied centered crop index={roi_index_xyz} size={target_size_xyz}"
+            f"[import] sub-{raw_session.subject_id} site-{raw_session.site} "
+            f"ses-{raw_session.session_id} applied centered crop "
+            f"index={roi_index_xyz} size={target_size_xyz}"
         )
     else:
         crop_info = build_crop_metadata(
@@ -415,11 +431,20 @@ def import_raw_session(
     )
 
     z_slices = image.GetSize()[2]
-    stack_ranges = compute_stack_ranges(
-        z_slices=z_slices,
-        stack_depth=config.import_.stack_depth,
-        on_incomplete_stack=config.import_.on_incomplete_stack,
-    )
+    if raw_session.stack_index is not None:
+        stack_ranges = [
+            StackSliceRange(
+                stack_index=int(raw_session.stack_index),
+                z_start=0,
+                z_stop=int(z_slices),
+            )
+        ]
+    else:
+        stack_ranges = compute_stack_ranges(
+            z_slices=z_slices,
+            stack_depth=config.import_.stack_depth,
+            on_incomplete_stack=config.import_.on_incomplete_stack,
+        )
 
     stack_artifacts: list[StackArtifact] = []
 
@@ -471,6 +496,7 @@ def import_raw_session(
 
         artifact = StackArtifact(
             subject_id=raw_session.subject_id,
+            site=raw_session.site or "radius",
             session_id=raw_session.session_id,
             stack_index=stack_index,
             image_path=image_path,
@@ -501,16 +527,24 @@ def import_subject_sessions(
             f"import_subject_sessions expects a single subject, got: {sorted(subject_ids)}"
         )
 
-    subject_crop_spec = _compute_subject_crop_spec(raw_sessions, config)
+    sessions_by_site: dict[str, list[RawSession]] = defaultdict(list)
+    for raw_session in raw_sessions:
+        site_key = raw_session.site or config.discovery.default_site.lower()
+        sessions_by_site[site_key].append(raw_session)
 
     artifacts: list[StackArtifact] = []
-    for raw_session in raw_sessions:
-        artifacts.extend(
-            import_raw_session(
-                raw_session=raw_session,
-                output_root=output_root,
-                config=config,
-                subject_crop_spec=subject_crop_spec,
+
+    for site_key, site_sessions in sorted(sessions_by_site.items()):
+        subject_crop_spec = _compute_subject_crop_spec(site_sessions, config)
+
+        for raw_session in site_sessions:
+            artifacts.extend(
+                import_raw_session(
+                    raw_session=raw_session,
+                    output_root=output_root,
+                    config=config,
+                    subject_crop_spec=subject_crop_spec,
+                )
             )
-        )
+
     return artifacts

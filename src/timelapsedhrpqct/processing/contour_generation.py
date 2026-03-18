@@ -1,13 +1,11 @@
 from __future__ import annotations
 
+import time
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
 import numpy as np
 import SimpleITK as sitk
-from scipy import ndimage
-from skimage.filters import gaussian
-from skimage.morphology import ball, remove_small_objects
 
 from timelapsedhrpqct.processing.masks import resolve_masks
 
@@ -25,6 +23,7 @@ from timelapsedhrpqct.processing.masks import resolve_masks
 class OuterContourParams:
     periosteal_threshold: float = 300.0
     periosteal_kernelsize: int = 5
+    periosteal_open_radius: int = 2
     gaussian_sigma: float = 1.5
     gaussian_truncate: float = 1.0
     expansion_depth: tuple[int, int] = (0, 5)
@@ -42,12 +41,7 @@ class InnerContourParams:
     gaussian_truncate: float = 1.0
     peel: int = 3
     expansion_depth: tuple[int, int, int, int] = (0, 3, 10, 3)
-    ipl_misc1_1_radius: int = 15
-    ipl_misc1_0_radius: int = 800
-    ipl_misc1_1_tibia: int = 25
-    ipl_misc1_0_tibia: int = 200000
-    ipl_misc1_1_misc: int = 15
-    ipls_misc1_0_misc: int = 800
+    trabecular_close_radius: int | None = None
     init_pad: int = 30
     use_adaptive_threshold: bool = False
 
@@ -56,7 +50,7 @@ class InnerContourParams:
 class SegmentationParams:
     enabled: bool = True
     method: str = "global"  # "global" | "adaptive"
-    gaussian_sigma: float = 1.0
+    gaussian_sigma: float = 0.8
     trab_threshold: float = 320.0
     cort_threshold: float = 450.0
     adaptive_low_threshold: float = 190.0
@@ -83,6 +77,13 @@ class GeneratedContours:
     metadata: dict[str, Any]
 
 
+def _log_step(verbose: bool, label: str, start_time: float) -> float:
+    now = time.perf_counter()
+    if verbose:
+        print(f"[contour] {label}: {now - start_time:.3f}s")
+    return now
+
+
 # -----------------------------------------------------------------------------
 # SITK / NumPy conversion
 # -----------------------------------------------------------------------------
@@ -101,6 +102,32 @@ def numpy_xyz_to_sitk_binary(mask_xyz: np.ndarray, reference: sitk.Image) -> sit
     out = sitk.GetImageFromArray(arr_zyx)
     out.CopyInformation(reference)
     return sitk.Cast(out > 0, sitk.sitkUInt8)
+
+
+def numpy_xyz_to_sitk_scalar(
+    image_xyz: np.ndarray,
+    spacing_xyz: tuple[float, float, float] | None = None,
+) -> sitk.Image:
+    """Convert a NumPy x, y, z scalar array into a float32 SimpleITK image."""
+    arr_zyx = np.transpose(np.asarray(image_xyz, dtype=np.float32), (2, 1, 0))
+    image = sitk.GetImageFromArray(arr_zyx)
+    if spacing_xyz is not None:
+        image.SetSpacing(tuple(float(v) for v in spacing_xyz))
+    return image
+
+
+def sitk_binary_to_numpy_xyz(mask: sitk.Image) -> np.ndarray:
+    """Convert a SimpleITK binary mask into a NumPy boolean array in x, y, z order."""
+    arr_zyx = sitk.GetArrayFromImage(sitk.Cast(mask > 0, sitk.sitkUInt8))
+    return np.ascontiguousarray(np.transpose(arr_zyx.astype(bool), (2, 1, 0)))
+
+
+def numpy_xyz_bool_to_sitk(
+    mask_xyz: np.ndarray,
+    spacing_xyz: tuple[float, float, float] | None = None,
+) -> sitk.Image:
+    """Convert a NumPy x, y, z boolean mask into a uint8 SimpleITK image."""
+    return sitk.Cast(numpy_xyz_to_sitk_scalar(mask_xyz.astype(np.float32), spacing_xyz=spacing_xyz) > 0, sitk.sitkUInt8)
 
 
 # -----------------------------------------------------------------------------
@@ -134,14 +161,9 @@ def _boundingbox_from_mask(mask: np.ndarray, mode: str = "slices") -> tuple[slic
 
 
 def _largest_connected_component(mask: np.ndarray) -> np.ndarray:
-    labels, num = ndimage.label(mask)
-    if num == 0:
+    if not np.any(mask):
         return _ensure_bool(mask)
-
-    counts = np.bincount(labels.ravel())
-    counts[0] = 0
-    largest_label = int(np.argmax(counts))
-    return _ensure_bool(labels == largest_label)
+    return sitk_binary_to_numpy_xyz(_sitk_largest_connected_component(numpy_xyz_bool_to_sitk(mask)))
 
 
 def _safe_remove_small_objects(mask: np.ndarray, min_size: int) -> np.ndarray:
@@ -149,108 +171,155 @@ def _safe_remove_small_objects(mask: np.ndarray, min_size: int) -> np.ndarray:
         return _ensure_bool(mask)
     if not np.any(mask):
         return _ensure_bool(mask)
-    return _ensure_bool(remove_small_objects(mask.astype(bool), min_size=min_size))
+    return sitk_binary_to_numpy_xyz(_sitk_extract_large_regions(numpy_xyz_bool_to_sitk(mask), int(min_size)))
 
 
-def crop_pad_image(
-    reference_image: np.ndarray,
-    resize_image: np.ndarray,
-    ref_img_position: tuple[int, ...] | None = None,
-    resize_img_position: tuple[int, ...] | None = None,
-    delta_position: tuple[int, ...] | None = None,
-    padding_value: int = 0,
+def _expand_slices(
+    bbox: tuple[slice, slice, slice],
+    shape: tuple[int, int, int],
+    pad_x: int,
+    pad_y: int | None = None,
+    pad_z: int | None = None,
+) -> tuple[slice, slice, slice]:
+    if pad_y is None:
+        pad_y = pad_x
+    if pad_z is None:
+        pad_z = pad_x
+
+    pads = (int(pad_x), int(pad_y), int(pad_z))
+    expanded: list[slice] = []
+    for axis, (slc, pad) in enumerate(zip(bbox, pads)):
+        start = max(0, int(slc.start) - pad)
+        stop = min(int(shape[axis]), int(slc.stop) + pad)
+        expanded.append(slice(start, stop))
+    return tuple(expanded)  # type: ignore[return-value]
+
+
+def _resolve_site_defaults(site: str) -> dict[str, int]:
+    site_key = site.lower()
+    if site_key == "radius":
+        return {"trabecular_close_radius": 15}
+    if site_key == "tibia":
+        return {"trabecular_close_radius": 25}
+    if site_key == "knee":
+        return {"trabecular_close_radius": 25}
+    return {"trabecular_close_radius": 15}
+
+
+def _sitk_gaussian(image: sitk.Image, sigma: float, truncate: float) -> sitk.Image:
+    if sigma <= 0:
+        return sitk.Cast(image, sitk.sitkFloat32)
+    spacing = tuple(float(v) for v in image.GetSpacing())
+    voxel_size = float(min(spacing)) if spacing else 1.0
+    sigma_physical = float(sigma) * voxel_size
+    sitk.ProcessObject_SetGlobalWarningDisplay(False)
+    smoothed = sitk.SmoothingRecursiveGaussian(
+        sitk.Cast(image, sitk.sitkFloat32),
+        sigma=sigma_physical,
+    )
+    sitk.ProcessObject_SetGlobalWarningDisplay(True)
+    return sitk.Cast(smoothed, sitk.sitkFloat32)
+
+
+def _sitk_binary_threshold(image: sitk.Image, lower: float, upper: float = 10000.0) -> sitk.Image:
+    return sitk.BinaryThreshold(
+        sitk.Cast(image, sitk.sitkFloat32),
+        lowerThreshold=float(lower),
+        upperThreshold=float(upper),
+        insideValue=1,
+        outsideValue=0,
+    )
+
+
+def _sitk_largest_connected_component(mask: sitk.Image) -> sitk.Image:
+    if int(sitk.GetArrayViewFromImage(mask > 0).sum()) == 0:
+        return sitk.Cast(mask > 0, sitk.sitkUInt8)
+    connected = sitk.ConnectedComponent(sitk.Cast(mask > 0, sitk.sitkUInt8), True)
+    relabeled = sitk.RelabelComponent(connected, sortByObjectSize=True)
+    return sitk.Cast(relabeled == 1, sitk.sitkUInt8)
+
+
+def _sitk_invert_binary(mask: sitk.Image) -> sitk.Image:
+    mask_u8 = sitk.Cast(mask > 0, sitk.sitkUInt8)
+    return sitk.Cast(mask_u8 == 0, sitk.sitkUInt8)
+
+
+def _morphology_safe_pad(mask: sitk.Image, radius: int) -> tuple[sitk.Image, list[int]]:
+    if radius <= 0:
+        return sitk.Cast(mask > 0, sitk.sitkUInt8), [0, 0, 0]
+    pad = [int(radius)] * 3
+    return sitk.MirrorPad(sitk.Cast(mask > 0, sitk.sitkUInt8), pad, pad), pad
+
+
+def _morphology_safe_crop(mask: sitk.Image, pad: list[int]) -> sitk.Image:
+    if not any(pad):
+        return sitk.Cast(mask > 0, sitk.sitkUInt8)
+    return sitk.Crop(sitk.Cast(mask > 0, sitk.sitkUInt8), pad, pad)
+
+
+def _sitk_binary_dilate(mask: sitk.Image, radius: int) -> sitk.Image:
+    padded, pad = _morphology_safe_pad(mask, radius)
+    dilated = sitk.BinaryDilate(padded, [int(radius)] * 3, sitk.sitkBall, 0, 1)
+    return _morphology_safe_crop(dilated, pad)
+
+
+def _sitk_binary_erode(mask: sitk.Image, radius: int) -> sitk.Image:
+    padded, pad = _morphology_safe_pad(mask, radius)
+    eroded = sitk.BinaryErode(padded, [int(radius)] * 3, sitk.sitkBall, 0, 1)
+    return _morphology_safe_crop(eroded, pad)
+
+
+def _sitk_binary_closing(mask: sitk.Image, radius: int) -> sitk.Image:
+    padded, pad = _morphology_safe_pad(mask, radius)
+    closed = sitk.BinaryMorphologicalClosing(padded, [int(radius)] * 3, sitk.sitkBall, 1)
+    return _morphology_safe_crop(closed, pad)
+
+
+def _sitk_binary_opening(mask: sitk.Image, radius: int) -> sitk.Image:
+    padded, pad = _morphology_safe_pad(mask, radius)
+    opened = sitk.BinaryMorphologicalOpening(padded, [int(radius)] * 3, sitk.sitkBall, 0, 1)
+    return _morphology_safe_crop(opened, pad)
+
+
+def _sitk_close_with_connected_components(mask: sitk.Image, radius: int) -> sitk.Image:
+    if radius <= 0:
+        return sitk.Cast(mask > 0, sitk.sitkUInt8)
+    dilated = _sitk_binary_dilate(mask, radius)
+    background = _sitk_invert_binary(dilated)
+    background = _sitk_largest_connected_component(background)
+    foreground = _sitk_invert_binary(background)
+    return _sitk_binary_erode(foreground, radius)
+
+
+def _sitk_open_with_connected_components(mask: sitk.Image, radius: int) -> sitk.Image:
+    if radius <= 0:
+        return sitk.Cast(mask > 0, sitk.sitkUInt8)
+    eroded = _sitk_binary_erode(mask, radius)
+    eroded = _sitk_largest_connected_component(eroded)
+    return _sitk_binary_dilate(eroded, radius)
+
+
+def _sitk_extract_large_regions(mask: sitk.Image, min_voxels: int) -> sitk.Image:
+    if min_voxels <= 0:
+        return sitk.Cast(mask > 0, sitk.sitkUInt8)
+    connected = sitk.ConnectedComponent(sitk.Cast(mask > 0, sitk.sitkUInt8), True)
+    relabeled = sitk.RelabelComponent(connected, int(min_voxels), True)
+    return sitk.Cast(relabeled > 0, sitk.sitkUInt8)
+
+
+def _smooth_density_xyz(
+    image_xyz: np.ndarray,
+    sigma: float,
+    truncate: float = 4.0,
+    spacing_xyz: tuple[float, float, float] | None = None,
 ) -> np.ndarray:
-    """
-    Crop or pad resize_image to align with reference_image.
-
-    All arrays are expected in x, y, z order.
-    """
-    if (ref_img_position is not None or resize_img_position is not None) and delta_position is not None:
-        raise ValueError("When specifying delta_position, no additional position is needed.")
-    if (ref_img_position is None or resize_img_position is None) and delta_position is None:
-        raise ValueError("Positions of both images must be specified unless delta_position is given.")
-
-    if delta_position is None:
-        delta_position = tuple(np.subtract(resize_img_position, ref_img_position))
-
-    delta_position_arr = np.asarray(delta_position, dtype=int)
-    delta_position_end = np.asarray(reference_image.shape, dtype=int) - (
-        delta_position_arr + np.asarray(resize_image.shape, dtype=int)
+    return sitk_to_numpy_xyz(
+        _sitk_gaussian(
+            numpy_xyz_to_sitk_scalar(image_xyz, spacing_xyz=spacing_xyz),
+            sigma=sigma,
+            truncate=truncate,
+        )
     )
-
-    delta_position_pad_start = np.maximum(0, delta_position_arr)
-    delta_position_slice_start = np.abs(np.minimum(0, delta_position_arr))
-
-    delta_position_pad_end = np.maximum(0, delta_position_end)
-    delta_position_slice_end = np.minimum(0, delta_position_end)
-    delta_position_slice_end = [None if val == 0 else int(val) for val in delta_position_slice_end]
-
-    delta_position_slice_tuple = tuple(
-        slice(int(start), end) for start, end in zip(delta_position_slice_start, delta_position_slice_end)
-    )
-
-    pad_width = np.column_stack([delta_position_pad_start, delta_position_pad_end])
-    resized_image = np.pad(
-        resize_image,
-        pad_width=pad_width,
-        mode="constant",
-        constant_values=padding_value,
-    )[delta_position_slice_tuple]
-    return np.ascontiguousarray(resized_image)
-
-
-def fast_binary_closing(
-    image: np.ndarray,
-    structure: np.ndarray,
-    iterations: int = 1,
-    output: np.ndarray | None = None,
-    origin: int = -1,
-) -> np.ndarray:
-    downscale_factor = 0.5
-    downsampled_image = ndimage.zoom(image.astype(np.uint8), zoom=downscale_factor, order=0).astype(bool)
-    downsampled_structure = ndimage.zoom(structure.astype(np.uint8), zoom=downscale_factor, order=0).astype(bool)
-
-    closed_downsampled = ndimage.binary_closing(
-        downsampled_image,
-        structure=downsampled_structure,
-        iterations=iterations,
-        output=output,
-        origin=origin,
-    )
-    closed_upscaled = ndimage.zoom(
-        closed_downsampled.astype(np.uint8),
-        zoom=1.0 / downscale_factor,
-        order=0,
-    ).astype(bool)
-
-    return _ensure_bool(closed_upscaled[: image.shape[0], : image.shape[1], : image.shape[2]])
-
-
-def fast_binary_opening(
-    image: np.ndarray,
-    structure: np.ndarray,
-    iterations: int = 1,
-    output: np.ndarray | None = None,
-    origin: int = -1,
-) -> np.ndarray:
-    downscale_factor = 0.5
-    downsampled_image = ndimage.zoom(image.astype(np.uint8), zoom=downscale_factor, order=0).astype(bool)
-    downsampled_structure = ndimage.zoom(structure.astype(np.uint8), zoom=downscale_factor, order=0).astype(bool)
-
-    opened_downsampled = ndimage.binary_opening(
-        downsampled_image,
-        structure=downsampled_structure,
-        iterations=iterations,
-        output=output,
-        origin=origin,
-    )
-    opened_upscaled = ndimage.zoom(
-        opened_downsampled.astype(np.uint8),
-        zoom=1.0 / downscale_factor,
-        order=0,
-    ).astype(bool)
-
-    return _ensure_bool(opened_upscaled[: image.shape[0], : image.shape[1], : image.shape[2]])
 
 
 # -----------------------------------------------------------------------------
@@ -263,16 +332,20 @@ def generate_seg_from_existing_masks(
     trab_mask: sitk.Image,
     cort_mask: sitk.Image,
     params: ContourGenerationParams,
+    verbose: bool = False,
 ) -> sitk.Image:
     """
     Generate only seg from an image plus existing masks.
 
     This is mainly useful when full/trab/cort already exist and only seg is missing.
     """
+    started = time.perf_counter()
     image_xyz = sitk_to_numpy_xyz(image)
+    spacing_xyz = tuple(float(v) for v in image.GetSpacing())
     full_xyz = sitk_to_numpy_xyz(full_mask) > 0
     trab_xyz = sitk_to_numpy_xyz(trab_mask) > 0
     cort_xyz = sitk_to_numpy_xyz(cort_mask) > 0
+    started = _log_step(verbose, "loaded existing masks", started)
 
     seg_xyz = _segment_bone_xyz(
         image_xyz=image_xyz,
@@ -280,14 +353,17 @@ def generate_seg_from_existing_masks(
         trab_mask_xyz=trab_xyz,
         cort_mask_xyz=cort_xyz,
         params=params.segmentation,
+        spacing_xyz=spacing_xyz,
     )
     seg_xyz = seg_xyz & full_xyz
+    _log_step(verbose, "generated segmentation from existing masks", started)
 
     return numpy_xyz_to_sitk_binary(seg_xyz, image)
 
 
 def combined_threshold(
     density: np.ndarray,
+    spacing_xyz: tuple[float, float, float] | None = None,
     low_threshold: float = 190.0,
     high_threshold: float = 450.0,
     block_size: int = 13,
@@ -303,14 +379,10 @@ def combined_threshold(
     if block_size % 2 == 0:
         raise ValueError(f"block_size must be odd, got {block_size}")
 
-    thresh_image = np.zeros(density.shape, dtype=np.float32)
-
-    kernel = np.ones((block_size,), dtype=np.float32) / float(block_size)
-    ndimage.convolve1d(density, kernel, axis=0, output=thresh_image, mode="reflect")
-    ndimage.convolve1d(thresh_image, kernel, axis=1, output=thresh_image, mode="reflect")
-    ndimage.convolve1d(thresh_image, kernel, axis=2, output=thresh_image, mode="reflect")
-
-    filtered_density = gaussian(density, sigma=1, preserve_range=True)
+    density_sitk = numpy_xyz_to_sitk_scalar(density, spacing_xyz=spacing_xyz)
+    radius = block_size // 2
+    thresh_image = sitk_to_numpy_xyz(sitk.BoxMean(density_sitk, [radius] * 3))
+    filtered_density = _smooth_density_xyz(density, sigma=1.0, truncate=4.0, spacing_xyz=spacing_xyz)
 
     low_mask = filtered_density > low_threshold
     local_thresh = thresh_image * low_mask
@@ -328,12 +400,13 @@ def _segment_bone_xyz(
     trab_mask_xyz: np.ndarray,
     cort_mask_xyz: np.ndarray,
     params: SegmentationParams,
+    spacing_xyz: tuple[float, float, float] | None = None,
 ) -> np.ndarray:
     if not params.enabled:
         return _ensure_bool(full_mask_xyz)
 
     if params.method == "global":
-        filtered = gaussian(image_xyz, sigma=params.gaussian_sigma, preserve_range=True)
+        filtered = _smooth_density_xyz(image_xyz, sigma=params.gaussian_sigma, truncate=4.0, spacing_xyz=spacing_xyz)
         trab_seg = (filtered >= params.trab_threshold) & trab_mask_xyz
         cort_seg = (filtered >= params.cort_threshold) & cort_mask_xyz
         seg = trab_seg | cort_seg
@@ -341,6 +414,7 @@ def _segment_bone_xyz(
     elif params.method == "adaptive":
         seg = combined_threshold(
             image_xyz,
+            spacing_xyz=spacing_xyz,
             low_threshold=params.adaptive_low_threshold,
             high_threshold=params.adaptive_high_threshold,
             block_size=params.adaptive_block_size,
@@ -366,7 +440,9 @@ def _segment_bone_xyz(
 
 def outer_contour(
     density_xyz: np.ndarray,
+    spacing_xyz: tuple[float, float, float] | None = None,
     options: dict[str, Any] | None = None,
+    verbose: bool = False,
 ) -> np.ndarray:
     """
     Generate the periosteal / full mask.
@@ -379,77 +455,51 @@ def outer_contour(
         opt = dict(options)
 
     density_xyz = np.asarray(density_xyz, dtype=np.float32)
+    started = time.perf_counter()
     nonzero_mask = density_xyz > 0
     if not np.any(nonzero_mask):
         return np.zeros_like(density_xyz, dtype=bool)
 
-    shapeholder = np.zeros_like(density_xyz, dtype=bool)
-    bb = _boundingbox_from_mask(nonzero_mask)
+    bb = _expand_slices(
+        _boundingbox_from_mask(nonzero_mask),
+        density_xyz.shape,
+        pad_x=int(opt["init_pad"]),
+        pad_y=int(opt["init_pad"]),
+        pad_z=max(int(opt["expansion_depth"][0]), int(opt["expansion_depth"][1])),
+    )
     density_cropped = density_xyz[bb]
+    started = _log_step(verbose, "outer roi", started)
 
-    periosteal_kernelsize = ball(int(opt["periosteal_kernelsize"]))
-    gaussian_sigma = float(opt["gaussian_sigma"])
-    gaussian_truncate = float(opt["gaussian_truncate"])
-
-    init_pad_x = int(opt["init_pad"])
-    init_pad_y = int(opt["init_pad"])
-    depth0 = int(opt["expansion_depth"][0])
-
-    density_padded = np.pad(
-        density_cropped,
-        ((init_pad_x, init_pad_x), (init_pad_y, init_pad_y), (depth0, depth0)),
-        mode="constant",
-        constant_values=0,
+    image_sitk = numpy_xyz_to_sitk_scalar(density_cropped, spacing_xyz=spacing_xyz)
+    filtered = _sitk_gaussian(
+        image_sitk,
+        sigma=float(opt["gaussian_sigma"]),
+        truncate=float(opt["gaussian_truncate"]),
     )
-
-    density_filtered = gaussian(
-        density_padded,
-        sigma=gaussian_sigma,
-        mode="mirror",
-        truncate=gaussian_truncate,
-        preserve_range=True,
-    )
+    started = _log_step(verbose, "outer gaussian", started)
 
     if bool(opt.get("use_adaptive_threshold", True)):
-        density_thresholded = combined_threshold(density_filtered)
+        thresholded_xyz = combined_threshold(sitk_to_numpy_xyz(filtered), spacing_xyz=spacing_xyz)
+        thresholded = numpy_xyz_to_sitk_scalar(thresholded_xyz.astype(np.float32), spacing_xyz=spacing_xyz) > 0
+        thresholded = sitk.Cast(thresholded, sitk.sitkUInt8)
     else:
-        density_thresholded = density_filtered > float(opt["periosteal_threshold"])
+        thresholded = _sitk_binary_threshold(filtered, lower=float(opt["periosteal_threshold"]))
+    started = _log_step(verbose, "outer threshold", started)
 
-    depth1 = int(opt["expansion_depth"][1])
-    density_thresholded_padded = np.pad(
-        density_thresholded,
-        ((0, 0), (0, 0), (depth1, depth1)),
-        mode="reflect",
-    )
-
-    greatest_component = _largest_connected_component(density_thresholded_padded)
-    density_dilated = ndimage.binary_dilation(
-        greatest_component,
-        structure=periosteal_kernelsize,
-        iterations=1,
-    )
-
-    outer_region = _largest_connected_component(density_dilated == 0)
-    outer_region = ~outer_region
-
-    mask_eroded = ndimage.binary_erosion(
-        outer_region,
-        structure=periosteal_kernelsize,
-        iterations=1,
-    )
-
-    mask = mask_eroded[
-        init_pad_x:-init_pad_x,
-        init_pad_y:-init_pad_y,
-        depth1:-depth1,
-    ]
+    thresholded = sitk.Mask(thresholded, _sitk_binary_threshold(image_sitk, lower=1.0))
+    thresholded = _sitk_largest_connected_component(thresholded)
+    thresholded = _sitk_close_with_connected_components(thresholded, int(opt["periosteal_kernelsize"]))
+    thresholded = _sitk_binary_opening(thresholded, int(opt.get("periosteal_open_radius", 0)))
+    started = _log_step(verbose, "outer morphology", started)
 
     if bool(opt.get("fill_holes", True)):
-        mask = ndimage.binary_fill_holes(
-            np.pad(mask, ((0, 0), (0, 0), (1, 1)), mode="constant", constant_values=1)
-        )[:, :, 1:-1]
+        thresholded = sitk.BinaryFillhole(thresholded, fullyConnected=True, foregroundValue=1)
+    started = _log_step(verbose, "outer fill holes", started)
 
-    shapeholder[bb] = mask
+    mask_xyz = sitk_binary_to_numpy_xyz(thresholded)
+    shapeholder = np.zeros_like(density_xyz, dtype=bool)
+    shapeholder[bb] = mask_xyz
+    _log_step(verbose, "outer total", started)
     return _ensure_bool(shapeholder)
 
 
@@ -457,7 +507,9 @@ def inner_contour(
     density_xyz: np.ndarray,
     outer_mask_xyz: np.ndarray,
     site: str = "radius",
+    spacing_xyz: tuple[float, float, float] | None = None,
     options: dict[str, Any] | None = None,
+    verbose: bool = False,
 ) -> tuple[np.ndarray, np.ndarray]:
     """
     Generate trabecular and cortical masks.
@@ -471,182 +523,100 @@ def inner_contour(
 
     density_xyz = np.asarray(density_xyz, dtype=np.float32)
     outer_mask_xyz = _ensure_bool(outer_mask_xyz)
+    started = time.perf_counter()
 
-    nonzero_mask = density_xyz > 0
-    if not np.any(nonzero_mask):
+    if not np.any(outer_mask_xyz):
         empty = np.zeros_like(density_xyz, dtype=bool)
         return empty, empty
 
-    if site == "radius":
-        ipl_misc1_1 = int(opt["ipl_misc1_1_radius"])
-    elif site == "tibia":
-        ipl_misc1_1 = int(opt["ipl_misc1_1_tibia"])
-    else:
-        ipl_misc1_1 = int(opt["ipl_misc1_1_misc"])
+    site_defaults = _resolve_site_defaults(site)
+    trabecular_close_radius = int(
+        opt["trabecular_close_radius"]
+        if opt.get("trabecular_close_radius") is not None
+        else site_defaults["trabecular_close_radius"]
+    )
 
-    endosteal_threshold = float(opt["endosteal_threshold"])
-    endosteal_kernelsize = ball(int(opt["endosteal_kernelsize"]))
-    gaussian_sigma = float(opt["gaussian_sigma"])
-    gaussian_truncate = float(opt["gaussian_truncate"])
+    bb = _expand_slices(
+        _boundingbox_from_mask(outer_mask_xyz),
+        density_xyz.shape,
+        pad_x=int(opt["init_pad"]),
+        pad_y=int(opt["init_pad"]),
+        pad_z=int(opt["expansion_depth"][0]),
+    )
+    density_cropped = density_xyz[bb]
+    outer_cropped = outer_mask_xyz[bb]
+    started = _log_step(verbose, "inner roi", started)
+
+    image_sitk = numpy_xyz_to_sitk_scalar(density_cropped, spacing_xyz=spacing_xyz)
+    peri_mask = sitk.Cast(
+        numpy_xyz_to_sitk_scalar(outer_cropped.astype(np.float32), spacing_xyz=spacing_xyz) > 0,
+        sitk.sitkUInt8,
+    )
+    masked_image = sitk.Mask(image_sitk, peri_mask)
+
+    filtered = _sitk_gaussian(
+        masked_image,
+        sigma=float(opt["gaussian_sigma"]),
+        truncate=float(opt["gaussian_truncate"]),
+    )
+    started = _log_step(verbose, "inner gaussian", started)
+
+    if bool(opt.get("use_adaptive_threshold", False)):
+        cortical_xyz = combined_threshold(sitk_to_numpy_xyz(filtered), spacing_xyz=spacing_xyz)
+        cortical_mask = sitk.Cast(
+            numpy_xyz_to_sitk_scalar(cortical_xyz.astype(np.float32), spacing_xyz=spacing_xyz) > 0,
+            sitk.sitkUInt8,
+        )
+    else:
+        cortical_mask = _sitk_binary_threshold(filtered, lower=float(opt["endosteal_threshold"]))
+    started = _log_step(verbose, "inner cortical threshold", started)
+
+    cortical_mask = sitk.Mask(cortical_mask, peri_mask)
+
+    peel = int(opt["peel"])
+    peri_eroded = _sitk_binary_erode(peri_mask, peel) if peel > 0 else peri_mask
+
+    endo = sitk.Cast(sitk.And(peri_mask > 0, sitk.Not(cortical_mask > 0)), sitk.sitkUInt8)
+    endo = sitk.Mask(endo, peri_eroded)
+
+    cortical_region = _sitk_invert_binary(endo)
+    cortical_region = _sitk_largest_connected_component(cortical_region)
+    cortical_region = sitk.Mask(cortical_region, peri_mask)
+    started = _log_step(verbose, "inner cortical cleanup", started)
+
+    trab = sitk.Cast(sitk.And(peri_mask > 0, sitk.Not(cortical_region > 0)), sitk.sitkUInt8)
+    trab = _sitk_largest_connected_component(trab)
+    trab = _sitk_open_with_connected_components(trab, int(opt["endosteal_kernelsize"]))
+    started = _log_step(verbose, "inner trab seed", started)
+
+    if trabecular_close_radius > 0:
+        trab = _sitk_binary_closing(trab, trabecular_close_radius)
+        trab_open = _sitk_binary_opening(trab, trabecular_close_radius)
+    else:
+        trab_open = trab
+    started = _log_step(verbose, "inner trab close/open", started)
+
+    corners = sitk.Cast(sitk.And(trab > 0, sitk.Not(trab_open > 0)), sitk.sitkUInt8)
+    corners = _sitk_binary_erode(corners, 3)
+    corners = _sitk_extract_large_regions(corners, 64)
+    corners = _sitk_binary_dilate(corners, 3)
+    corners = _sitk_extract_large_regions(corners, 64)
+    started = _log_step(verbose, "inner corners", started)
+
+    trab = sitk.Cast(sitk.Or(trab > 0, trab_open > 0), sitk.sitkUInt8)
+    trab = sitk.Cast(sitk.Or(trab > 0, corners > 0), sitk.sitkUInt8)
+    if trabecular_close_radius > 0:
+        trab = _sitk_binary_closing(trab, trabecular_close_radius)
+    trab = sitk.Mask(trab, peri_eroded)
+
+    cort = sitk.Cast(sitk.And(peri_mask > 0, sitk.Not(trab > 0)), sitk.sitkUInt8)
+    started = _log_step(verbose, "inner final masks", started)
 
     shapeholder_trab = np.zeros_like(density_xyz, dtype=bool)
     shapeholder_cort = np.zeros_like(density_xyz, dtype=bool)
-
-    bb = _boundingbox_from_mask(nonzero_mask)
-    density_cropped = density_xyz[bb]
-    outer_cropped = outer_mask_xyz[bb]
-
-    mask = outer_cropped.astype(bool)
-
-    init_pad_x = int(opt["init_pad"])
-    init_pad_y = int(opt["init_pad"])
-    depth0 = int(opt["expansion_depth"][0])
-
-    density_padded = np.pad(
-        density_cropped,
-        ((init_pad_x, init_pad_x), (init_pad_y, init_pad_y), (depth0, depth0)),
-        mode="constant",
-        constant_values=0,
-    )
-    mask = np.pad(
-        mask,
-        ((init_pad_x, init_pad_x), (init_pad_y, init_pad_y), (depth0, depth0)),
-        mode="constant",
-        constant_values=0,
-    )
-
-    endosteal_density_filtered = ndimage.gaussian_filter(
-        density_padded,
-        sigma=gaussian_sigma,
-        order=0,
-        mode="mirror",
-        truncate=gaussian_truncate,
-    )
-
-    peel = int(opt["peel"])
-    mask_peel = np.pad(mask, ((0, 0), (0, 0), (peel, peel)), mode="reflect")
-    mask_peel = ndimage.binary_erosion(mask_peel, iterations=peel)
-    mask_peel = mask_peel[:, :, peel:-peel]
-
-    if bool(opt.get("use_adaptive_threshold", False)):
-        endosteal_density_thresholded = combined_threshold(endosteal_density_filtered)
-    else:
-        endosteal_density_thresholded = endosteal_density_filtered > endosteal_threshold
-
-    endosteal_density_thresholded = endosteal_density_thresholded & mask_peel
-
-    if not np.any(endosteal_density_thresholded):
-        fallback_trab = np.zeros_like(density_xyz, dtype=bool)
-        fallback_cort = outer_mask_xyz.astype(bool)
-        return fallback_trab, fallback_cort
-
-    crop_bb = _boundingbox_from_mask(endosteal_density_thresholded)
-
-    endosteal_masked = (~endosteal_density_thresholded) & mask_peel
-
-    depth1 = int(opt["expansion_depth"][1])
-    endosteal_padded = np.pad(endosteal_masked, ((0, 0), (0, 0), (depth1, depth1)), mode="reflect")
-
-    endosteal_component = _largest_connected_component(endosteal_padded)
-    endosteal_eroded = ndimage.binary_erosion(
-        endosteal_component,
-        structure=endosteal_kernelsize,
-        iterations=1,
-    )
-    endosteal_dilated = ndimage.binary_dilation(
-        endosteal_eroded,
-        structure=endosteal_kernelsize,
-        iterations=1,
-    )
-    endosteal_dilated = endosteal_dilated[:, :, depth1:-depth1]
-    endosteal_cropped = endosteal_dilated[crop_bb]
-
-    bound_x = int(opt["init_pad"])
-    bound_y = int(opt["init_pad"])
-    depth2 = int(opt["expansion_depth"][2])
-
-    endosteal_cropped_padded = np.pad(
-        endosteal_cropped,
-        ((bound_x, bound_x), (bound_y, bound_y), (0, 0)),
-        mode="constant",
-        constant_values=0,
-    )
-    endosteal_cropped_padded = np.pad(
-        endosteal_cropped_padded,
-        ((0, 0), (0, 0), (depth2, depth2)),
-        mode="reflect",
-    )
-
-    endosteal_closed = fast_binary_closing(endosteal_cropped_padded, structure=ball(10), iterations=1)
-    endosteal_opened = fast_binary_opening(endosteal_closed, structure=ball(10), iterations=1)
-
-    endosteal_closed = endosteal_closed[bound_x:-bound_x, bound_y:-bound_y, depth2:-depth2]
-    endosteal_opened = endosteal_opened[bound_x:-bound_x, bound_y:-bound_y, depth2:-depth2]
-
-    corners = np.subtract(endosteal_closed.astype(np.int8), endosteal_opened.astype(np.int8)).astype(bool)
-
-    depth3 = int(opt["expansion_depth"][3])
-    corners_padded = np.pad(corners, ((0, 0), (0, 0), (depth3, depth3)), mode="reflect")
-    corn_ero = ndimage.binary_erosion(corners_padded, structure=ball(3), iterations=1)
-    corn_cl = ndimage.binary_dilation(corn_ero, structure=ball(3), iterations=1)
-    corners = corn_cl[:, :, depth3:-depth3]
-
-    trab_mask = corners | endosteal_opened
-
-    bound_x = int(opt["init_pad"])
-    bound_y = int(opt["init_pad"])
-    depth4 = int(ipl_misc1_1)
-
-    trab_mask_padded = np.pad(
-        trab_mask,
-        ((bound_x, bound_x), (bound_y, bound_y), (0, 0)),
-        mode="constant",
-        constant_values=0,
-    )
-    trab_mask_padded = np.pad(
-        trab_mask_padded,
-        ((0, 0), (0, 0), (depth4, depth4)),
-        mode="reflect",
-    )
-
-    trab_close = fast_binary_closing(trab_mask_padded, structure=ball(ipl_misc1_1), iterations=1)
-    trab_mask = trab_close[bound_x:-bound_x, bound_y:-bound_y, depth4:-depth4]
-
-    image_bounds = _boundingbox_from_mask(endosteal_density_thresholded, mode="list")
-    empty_image = np.zeros(density_padded.shape, dtype=bool)
-
-    resized_trab_mask = crop_pad_image(
-        empty_image,
-        trab_mask,
-        ref_img_position=(0, 0, 0),
-        resize_img_position=(
-            int(image_bounds[0][0]) - init_pad_x,
-            int(image_bounds[1][0]) - init_pad_y,
-            0,
-        ),
-        padding_value=0,
-    )
-
-    resized_trab_mask = resized_trab_mask[: density_padded.shape[0], : density_padded.shape[1], : density_padded.shape[2]]
-    resized_trab_mask = resized_trab_mask[
-        init_pad_x:-init_pad_x,
-        init_pad_y:-init_pad_y,
-        depth0 : (resized_trab_mask.shape[2] - depth0 if depth0 > 0 else resized_trab_mask.shape[2]),
-    ]
-
-    if resized_trab_mask.shape != density_cropped.shape:
-        corrected = np.zeros_like(density_cropped, dtype=bool)
-        sx = min(corrected.shape[0], resized_trab_mask.shape[0])
-        sy = min(corrected.shape[1], resized_trab_mask.shape[1])
-        sz = min(corrected.shape[2], resized_trab_mask.shape[2])
-        corrected[:sx, :sy, :sz] = resized_trab_mask[:sx, :sy, :sz]
-        resized_trab_mask = corrected
-
-    resized_cort_mask = outer_cropped.astype(bool)
-    resized_cort_mask[resized_trab_mask.astype(bool)] = False
-
-    shapeholder_trab[bb] = resized_trab_mask.astype(bool)
-    shapeholder_cort[bb] = resized_cort_mask.astype(bool)
+    shapeholder_trab[bb] = sitk_binary_to_numpy_xyz(trab)
+    shapeholder_cort[bb] = sitk_binary_to_numpy_xyz(cort)
+    _log_step(verbose, "inner total", started)
 
     return _ensure_bool(shapeholder_trab), _ensure_bool(shapeholder_cort)
 
@@ -659,24 +629,34 @@ def inner_contour(
 def generate_masks_from_image(
     image: sitk.Image,
     params: ContourGenerationParams,
+    verbose: bool = False,
 ) -> GeneratedContours:
     """
     Generate seg/full/trab/cort from an imported stack image.
 
     Returns SimpleITK uint8 binary masks with identical geometry to the input image.
     """
+    started = time.perf_counter()
     image_xyz = sitk_to_numpy_xyz(image)
+    spacing_xyz = tuple(float(v) for v in image.GetSpacing())
+    started = _log_step(verbose, "image to numpy", started)
 
     full_xyz = outer_contour(
         image_xyz,
+        spacing_xyz=spacing_xyz,
         options=asdict(params.outer),
+        verbose=verbose,
     )
+    started = _log_step(verbose, "outer contour complete", started)
     trab_xyz, cort_xyz = inner_contour(
         image_xyz,
         full_xyz,
         site=params.inner.site,
+        spacing_xyz=spacing_xyz,
         options=asdict(params.inner),
+        verbose=verbose,
     )
+    started = _log_step(verbose, "inner contour complete", started)
 
     full_xyz = _ensure_bool(full_xyz)
     trab_xyz = _ensure_bool(trab_xyz) & full_xyz
@@ -688,8 +668,10 @@ def generate_masks_from_image(
         trab_mask_xyz=trab_xyz,
         cort_mask_xyz=cort_xyz,
         params=params.segmentation,
+        spacing_xyz=spacing_xyz,
     )
     seg_xyz = seg_xyz & full_xyz
+    started = _log_step(verbose, "segmentation complete", started)
 
     full_sitk = numpy_xyz_to_sitk_binary(full_xyz, image)
     trab_sitk = numpy_xyz_to_sitk_binary(trab_xyz, image)
@@ -708,9 +690,10 @@ def generate_masks_from_image(
     full_sitk = resolved_masks["full"]
     trab_sitk = resolved_masks["trab"]
     cort_sitk = resolved_masks["cort"]
+    _log_step(verbose, "mask resolution complete", started)
 
     metadata: dict[str, Any] = {
-        "contour_method": "legacy_contour_generation",
+        "contour_method": "sitk_morphology_contour_generation",
         "segmentation_method": params.segmentation.method,
         "voxel_counts": {
             "seg": int(seg_xyz.sum()),

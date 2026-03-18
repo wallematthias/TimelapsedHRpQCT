@@ -27,7 +27,7 @@ from timelapsedhrpqct.analysis.remodelling import (
 )
 from timelapsedhrpqct.config.models import AppConfig
 from timelapsedhrpqct.dataset.artifacts import (
-    group_imported_stacks_by_subject_and_stack,
+    group_imported_stacks_by_subject_site_and_stack,
     iter_imported_stack_records,
 )
 from timelapsedhrpqct.dataset.derivative_paths import (
@@ -121,6 +121,7 @@ def _maybe_smooth_density(image_arr: np.ndarray, params: AnalysisParams) -> np.n
 def _load_session_to_baseline_transform(
     dataset_root: Path,
     subject_id: str,
+    site: str,
     stack_index: int,
     session_id: str,
     baseline_session: str,
@@ -128,6 +129,7 @@ def _load_session_to_baseline_transform(
     final_path = final_transform_path(
         dataset_root=dataset_root,
         subject_id=subject_id,
+        site=site,
         stack_index=stack_index,
         moving_session=session_id,
         baseline_session=baseline_session,
@@ -135,15 +137,36 @@ def _load_session_to_baseline_transform(
     if final_path.exists():
         return sitk.ReadTransform(str(final_path))
 
-    baseline_path = timelapse_baseline_transform_path(
+    legacy_final_path = final_transform_path(
         dataset_root=dataset_root,
         subject_id=subject_id,
         stack_index=stack_index,
         moving_session=session_id,
         baseline_session=baseline_session,
     )
+    if legacy_final_path.exists():
+        return sitk.ReadTransform(str(legacy_final_path))
+
+    baseline_path = timelapse_baseline_transform_path(
+        dataset_root=dataset_root,
+        subject_id=subject_id,
+        site=site,
+        stack_index=stack_index,
+        moving_session=session_id,
+        baseline_session=baseline_session,
+    )
     if baseline_path.exists():
         return sitk.ReadTransform(str(baseline_path))
+
+    legacy_baseline_path = timelapse_baseline_transform_path(
+        dataset_root=dataset_root,
+        subject_id=subject_id,
+        stack_index=stack_index,
+        moving_session=session_id,
+        baseline_session=baseline_session,
+    )
+    if legacy_baseline_path.exists():
+        return sitk.ReadTransform(str(legacy_baseline_path))
 
     raise FileNotFoundError(
         f"Missing analysis transform for sub-{subject_id} ses-{session_id} stack-{stack_index:02d}"
@@ -249,12 +272,14 @@ def _apply_overrides(
 def _baseline_common_outputs(
     dataset_root: Path,
     subject_id: str,
+    site: str,
     params: AnalysisParams,
 ) -> tuple[RemodellingOutputs, sitk.Image]:
     require_seg = params.method == "grayscale_and_binary"
     sessions = discover_analysis_sessions(
         dataset_root=dataset_root,
         subject_id=subject_id,
+        site=site,
         use_filled_images=params.use_filled_images,
         require_seg=require_seg,
     )
@@ -316,6 +341,7 @@ def _baseline_common_outputs(
             common_region_path(
                 dataset_root=dataset_root,
                 subject_id=subject_id,
+                site=site,
                 compartment=compartment,
             )
         ),
@@ -326,14 +352,15 @@ def _baseline_common_outputs(
 def _pairwise_fixed_t0_outputs_single_stack(
     dataset_root: Path,
     subject_id: str,
+    site: str,
     params: AnalysisParams,
 ) -> tuple[RemodellingOutputs, sitk.Image]:
     if params.use_filled_images:
         raise ValueError("pairwise_fixed_t0 analysis does not support use_filled_images=true")
 
     records = iter_imported_stack_records(dataset_root)
-    grouped = group_imported_stacks_by_subject_and_stack(records)
-    stacks_by_index = grouped.get(subject_id, {})
+    grouped = group_imported_stacks_by_subject_site_and_stack(records)
+    stacks_by_index = grouped.get((subject_id, site), {})
     if len(stacks_by_index) != 1:
         raise ValueError(
             "pairwise_fixed_t0 analysis currently supports single-stack subjects only"
@@ -367,6 +394,7 @@ def _pairwise_fixed_t0_outputs_single_stack(
         record.session_id: _load_session_to_baseline_transform(
             dataset_root=dataset_root,
             subject_id=subject_id,
+            site=site,
             stack_index=stack_index,
             session_id=record.session_id,
             baseline_session=baseline_session,
@@ -614,7 +642,7 @@ def _pairwise_fixed_t0_outputs_single_stack(
                             "t1": t1,
                             "threshold": thr,
                             "cluster_min_size": cluster_size,
-                            "common_region_path": str(common_region_path(dataset_root, subject_id, compartment)),
+                            "common_region_path": str(common_region_path(dataset_root, subject_id, site, compartment)),
                             "binary_source_t0": str(rec0.seg_path) if require_seg and rec0.seg_path is not None else None,
                             "binary_source_t1": str(rec1.seg_path) if require_seg and rec1.seg_path is not None else None,
                             "BV0_vox": bv0,
@@ -729,7 +757,7 @@ def _pairwise_fixed_t0_outputs_single_stack(
                         "compartment": compartment,
                         "threshold": thr,
                         "cluster_min_size": cluster_size,
-                        "common_region_path": str(common_region_path(dataset_root, subject_id, compartment)),
+                        "common_region_path": str(common_region_path(dataset_root, subject_id, site, compartment)),
                         "formation_total_vox_series": formation_total_series,
                         "resorption_total_vox_series": resorption_total_series,
                         "formed_then_resorbed_vox": ftr_vox,
@@ -758,24 +786,30 @@ def run_analysis(
         visualize=visualize,
     )
 
-    subject_ids = discover_analysis_subject_ids(dataset_root)
-    if not subject_ids:
-        print(f"[analysis] No subjects found under: {dataset_root}")
+    subject_site_keys = discover_analysis_subject_ids(dataset_root)
+    if not subject_site_keys:
+        print(f"[analysis] No subject/site groups found under: {dataset_root}")
         return
 
-    for subject_id in subject_ids:
+    for item in subject_site_keys:
+        if isinstance(item, tuple):
+            subject_id, site = item
+        else:
+            subject_id, site = item, "radius"
         effective_space = params.space
         try:
             if params.space == "pairwise_fixed_t0":
                 outputs, ref_img = _pairwise_fixed_t0_outputs_single_stack(
                     dataset_root=dataset_root,
                     subject_id=subject_id,
+                    site=site,
                     params=params,
                 )
             elif params.space == "baseline_common":
                 outputs, ref_img = _baseline_common_outputs(
                     dataset_root=dataset_root,
                     subject_id=subject_id,
+                    site=site,
                     params=params,
                 )
             else:
@@ -793,6 +827,7 @@ def run_analysis(
                 outputs, ref_img = _baseline_common_outputs(
                     dataset_root=dataset_root,
                     subject_id=subject_id,
+                    site=site,
                     params=params,
                 )
             elif "need at least 2 sessions" in str(exc):
@@ -812,9 +847,19 @@ def run_analysis(
                 common_region_path(
                     dataset_root=dataset_root,
                     subject_id=subject_id,
+                    site=site,
                     compartment=compartment,
                 ),
             )
+            if site == "radius":
+                write_image(
+                    common_img,
+                    common_region_path(
+                        dataset_root=dataset_root,
+                        subject_id=subject_id,
+                        compartment=compartment,
+                    ),
+                )
             del common_img
 
         for (compartment, t0, t1, thr, cluster_size), label_arr in outputs.label_images.items():
@@ -824,6 +869,7 @@ def run_analysis(
                 analysis_visualize_path(
                     dataset_root=dataset_root,
                     subject_id=subject_id,
+                    site=site,
                     compartment=compartment,
                     t0=t0,
                     t1=t1,
@@ -831,19 +877,39 @@ def run_analysis(
                     cluster_size=cluster_size,
                 ),
             )
+            if site == "radius":
+                write_image(
+                    label_img,
+                    analysis_visualize_path(
+                        dataset_root=dataset_root,
+                        subject_id=subject_id,
+                        compartment=compartment,
+                        t0=t0,
+                        t1=t1,
+                        thr=thr,
+                        cluster_size=cluster_size,
+                    ),
+                )
             del label_img
 
         pairwise_df = pd.DataFrame(outputs.pairwise_rows)
         trajectory_df = pd.DataFrame(outputs.trajectory_rows)
-        pairwise_path = pairwise_remodelling_csv_path(dataset_root, subject_id)
-        trajectory_path = trajectory_metrics_csv_path(dataset_root, subject_id)
+        pairwise_path = pairwise_remodelling_csv_path(dataset_root, subject_id, site)
+        trajectory_path = trajectory_metrics_csv_path(dataset_root, subject_id, site)
         pairwise_path.parent.mkdir(parents=True, exist_ok=True)
         pairwise_df.to_csv(pairwise_path, index=False)
         trajectory_df.to_csv(trajectory_path, index=False)
+        if site == "radius":
+            legacy_pairwise_path = pairwise_remodelling_csv_path(dataset_root, subject_id)
+            legacy_trajectory_path = trajectory_metrics_csv_path(dataset_root, subject_id)
+            legacy_pairwise_path.parent.mkdir(parents=True, exist_ok=True)
+            pairwise_df.to_csv(legacy_pairwise_path, index=False)
+            trajectory_df.to_csv(legacy_trajectory_path, index=False)
 
         analysis_meta = build_analysis_summary_metadata(
             dataset_root=dataset_root,
             subject_id=subject_id,
+            site=site,
             use_filled_images=params.use_filled_images,
             compartments=params.compartments,
             method=params.method,
@@ -860,13 +926,22 @@ def run_analysis(
             trajectory_csv=trajectory_path,
             space=effective_space,
         )
-        write_json(
-            analysis_meta,
-            analysis_metadata_path(dataset_root, subject_id),
-        )
+        meta_path = analysis_metadata_path(dataset_root, subject_id, site)
+        write_json(analysis_meta, meta_path)
+        if site == "radius":
+            legacy_meta = dict(analysis_meta)
+            legacy_meta["common_regions"] = {
+                comp: str(common_region_path(dataset_root, subject_id, comp))
+                for comp in params.compartments
+            }
+            legacy_meta["analysis_dir"] = str(analysis_dir(dataset_root, subject_id))
+            legacy_meta["analysis_metadata"] = str(analysis_metadata_path(dataset_root, subject_id))
+            legacy_meta["pairwise_csv"] = str(pairwise_remodelling_csv_path(dataset_root, subject_id))
+            legacy_meta["trajectory_csv"] = str(trajectory_metrics_csv_path(dataset_root, subject_id))
+            write_json(legacy_meta, analysis_metadata_path(dataset_root, subject_id))
 
         print(
-            f"[analysis] sub-{subject_id}: wrote "
+            f"[analysis] sub-{subject_id} site-{site}: wrote "
             f"{len(pairwise_df)} pairwise row(s) and {len(trajectory_df)} trajectory row(s)"
         )
 

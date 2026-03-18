@@ -75,18 +75,18 @@ def run_filling(
     dataset_root = Path(dataset_root)
     params = _get_filling_params(config)
 
-    subject_ids = discover_filling_subject_ids(dataset_root)
-    if not subject_ids:
-        print(f"[fill] No subjects found under: {dataset_root}")
+    subject_site_keys = discover_filling_subject_ids(dataset_root)
+    if not subject_site_keys:
+        print(f"[fill] No subject/site groups found under: {dataset_root}")
         return
 
-    for subject_id in subject_ids:
-        sessions = discover_filling_sessions(dataset_root, subject_id)
+    for subject_id, site in subject_site_keys:
+        sessions = discover_filling_sessions(dataset_root, subject_id, site)
         if not sessions:
-            print(f"[fill] No transformed fused sessions found for sub-{subject_id}")
+            print(f"[fill] No transformed fused sessions found for sub-{subject_id} site-{site}")
             continue
 
-        print(f"[fill] Filling subject: {subject_id} ({len(sessions)} session(s))")
+        print(f"[fill] Filling subject: {subject_id}, site: {site} ({len(sessions)} session(s))")
 
         image_imgs: list[sitk.Image] = []
         real_mask_imgs: list[sitk.Image] = []
@@ -127,7 +127,7 @@ def run_filling(
         )
         write_image(
             support_mask_img,
-            support_mask_path(dataset_root, subject_id),
+            support_mask_path(dataset_root, subject_id, site),
         )
         del support_mask_img
         _free_memory()
@@ -235,10 +235,11 @@ def run_filling(
             filled_img_path = filled_image_path(
                 dataset_root,
                 subject_id,
+                site,
                 session_id,
             )
-            filladded_mask_out = filladded_mask_path(dataset_root, subject_id, session_id)
-            filled_full_mask_out = filled_full_mask_path(dataset_root, subject_id, session_id)
+            filladded_mask_out = filladded_mask_path(dataset_root, subject_id, site, session_id)
+            filled_full_mask_out = filled_full_mask_path(dataset_root, subject_id, site, session_id)
 
             write_image(filled_img, filled_img_path)
             write_image(filladded_mask, filladded_mask_out)
@@ -258,8 +259,8 @@ def run_filling(
                     pixel_id=sitk.sitkUInt8,
                 )
 
-                seg_out_path = filled_seg_path(dataset_root, subject_id, session_id)
-                seg_filladded_out_path = seg_filladded_path(dataset_root, subject_id, session_id)
+                seg_out_path = filled_seg_path(dataset_root, subject_id, site, session_id)
+                seg_filladded_out_path = seg_filladded_path(dataset_root, subject_id, site, session_id)
 
                 write_image(filled_seg, seg_out_path)
                 write_image(seg_filladded, seg_filladded_out_path)
@@ -274,6 +275,7 @@ def run_filling(
                 build_filling_metadata(
                     dataset_root=dataset_root,
                     subject_id=subject_id,
+                    site=site,
                     session_id=session_id,
                     seg_input=(
                         str(sessions[i].seg_path) if sessions[i].seg_path is not None else None
@@ -316,13 +318,14 @@ def run_filling(
                         "roi_margin_z_extra": params.roi_margin_z_extra,
                     },
                 ),
-                filling_metadata_path(dataset_root, subject_id, session_id),
+                filling_metadata_path(dataset_root, subject_id, site, session_id),
             )
             upsert_filled_session_record(
                 dataset_root,
                 build_filled_session_record(
                     dataset_root=dataset_root,
                     subject_id=subject_id,
+                    site=site,
                     session_id=session_id,
                 ),
             )

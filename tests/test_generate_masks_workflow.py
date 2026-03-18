@@ -12,6 +12,7 @@ from timelapsedhrpqct.dataset.artifacts import (
 )
 from timelapsedhrpqct.dataset.layout import get_derivatives_root
 from timelapsedhrpqct.workflows.generate_masks import run_mask_generation
+from timelapsedhrpqct.workflows.generate_masks import _apply_site_defaults, _derive_params, _infer_scan_site
 
 from ._pipeline_helpers import write_image
 
@@ -20,10 +21,10 @@ def test_run_mask_generation_refreshes_imported_artifacts_for_existing_outputs(
     tmp_path: Path,
 ) -> None:
     dataset_root = tmp_path / "dataset"
-    stack_dir = get_derivatives_root(dataset_root) / "sub-001" / "ses-T1" / "stacks"
+    stack_dir = get_derivatives_root(dataset_root) / "sub-001" / "site-radius" / "ses-T1" / "stacks"
     stack_dir.mkdir(parents=True, exist_ok=True)
 
-    stem = "sub-001_ses-T1_stack-01"
+    stem = "sub-001_site-radius_ses-T1_stack-01"
     image_path = stack_dir / f"{stem}_image.mha"
     full_path = stack_dir / f"{stem}_mask-full.mha"
     trab_path = stack_dir / f"{stem}_mask-trab.mha"
@@ -47,6 +48,7 @@ def test_run_mask_generation_refreshes_imported_artifacts_for_existing_outputs(
         [
             ImportedStackRecord(
                 subject_id="001",
+                site="radius",
                 session_id="T1",
                 stack_index=1,
                 image_path=image_path,
@@ -72,3 +74,24 @@ def test_run_mask_generation_refreshes_imported_artifacts_for_existing_outputs(
     }
     assert records[0].seg_path == seg_path
     assert records[0].metadata_path == metadata_path
+
+
+def test_site_is_inferred_from_source_filename_and_applies_site_defaults(tmp_path: Path) -> None:
+    config = AppConfig()
+
+    item = type(
+        "StackLike",
+        (),
+        {
+            "stem": "sub-001_ses-T1_stack-01",
+            "image_path": tmp_path / "sub-001_ses-T1_stack-01_image.mha",
+        },
+    )()
+    metadata = {"source_image": "/tmp/Subject_TIBIA_Followup.AIM"}
+
+    site = _infer_scan_site(item, config, metadata)
+    params = _apply_site_defaults(_derive_params(config), config, site)
+
+    assert site == "tibia"
+    assert params.inner.site == "tibia"
+    assert params.inner.trabecular_close_radius == 25

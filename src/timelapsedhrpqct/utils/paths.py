@@ -22,6 +22,7 @@ def append_session_to_index(
 
     row = {
         "subject_id": raw_session.subject_id,
+        "site": raw_session.site,
         "session_id": raw_session.session_id,
         "raw_image_path": str(raw_session.raw_image_path),
         "stack_count": len(stack_artifacts),
@@ -30,7 +31,7 @@ def append_session_to_index(
     with index_path.open("a", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(
             f,
-            fieldnames=["subject_id", "session_id", "raw_image_path", "stack_count"],
+            fieldnames=["subject_id", "site", "session_id", "raw_image_path", "stack_count"],
         )
         if write_header:
             writer.writeheader()

@@ -17,6 +17,14 @@ def get_session_dir(root: str | Path, subject_id: str, session_id: str) -> Path:
     return get_subject_dir(root, subject_id) / f"ses-{session_id}"
 
 
+def get_site_dir(root: str | Path, subject_id: str, site: str) -> Path:
+    return get_subject_dir(root, subject_id) / f"site-{site}"
+
+
+def get_site_session_dir(root: str | Path, subject_id: str, site: str, session_id: str) -> Path:
+    return get_site_dir(root, subject_id, site) / f"ses-{session_id}"
+
+
 def get_sourcedata_root(root: str | Path) -> Path:
     return Path(root) / "sourcedata" / "hrpqct"
 
@@ -25,6 +33,7 @@ def get_sourcedata_session_dir(root: str | Path, session: RawSession) -> Path:
     return (
         get_sourcedata_root(root)
         / f"sub-{session.subject_id}"
+        / f"site-{session.site}"
         / f"ses-{session.session_id}"
     )
 
@@ -37,6 +46,7 @@ def get_derivative_session_dir(root: str | Path, session: RawSession) -> Path:
     return (
         get_derivatives_root(root)
         / f"sub-{session.subject_id}"
+        / f"site-{session.site}"
         / f"ses-{session.session_id}"
     )
 

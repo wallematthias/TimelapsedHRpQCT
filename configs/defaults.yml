@@ -25,7 +25,12 @@ import:
 # Discovery
 # -----------------------------------------------------------------------------
 discovery:
-  session_regex: '(?i)(?P<subject>SAMPLE\d+)_(?P<session>T\d+)(?:_(?P<role>.*))?\.aim$'
+  session_regex: '(?i)(?P<subject>SAMPLE\d+)_(?P<site>DR|DT|KN)(?:_STACK(?P<stack>\d+))?_(?P<session>T\d+)(?:_(?P<role>.*))?\.aim$'
+  default_site: radius
+  site_aliases:
+    radius: [DR, RADIUS, RAD]
+    tibia: [DT, TIBIA, TIB]
+    knee: [KN, KNEE]
 
   role_aliases:
     cort: ["CORT_MASK", "_CORT", "CORTICAL"]
@@ -43,10 +48,48 @@ masks:
   roles: [full, trab, cort]
   derive_full_from_cort_trab: true
   generate_segmentation: true
+  site_selection:
+    default_site: radius
+    patterns:
+      radius: [radius, rad]
+      tibia: [tibia, tib]
+      knee: [knee]
+  site_defaults:
+    radius:
+      inner:
+        endosteal_threshold: 450
+        endosteal_kernelsize: 3
+        gaussian_sigma: 1.5
+        gaussian_truncate: 1.0
+        peel: 3
+        trabecular_close_radius: 15
+        init_pad: 30
+        use_adaptive_threshold: false
+    tibia:
+      inner:
+        endosteal_threshold: 450
+        endosteal_kernelsize: 3
+        gaussian_sigma: 1.5
+        gaussian_truncate: 1.0
+        peel: 3
+        trabecular_close_radius: 25
+        init_pad: 30
+        use_adaptive_threshold: false
+    knee:
+      inner:
+        endosteal_threshold: 450
+        endosteal_kernelsize: 3
+        gaussian_sigma: 1.5
+        gaussian_truncate: 1.0
+        peel: 3
+        trabecular_close_radius: 25
+        init_pad: 30
+        use_adaptive_threshold: false
 
   outer:
-    periosteal_threshold: 300
+    periosteal_threshold: 320
     periosteal_kernelsize: 5
+    periosteal_open_radius: 3
     gaussian_sigma: 1.5
     gaussian_truncate: 1.0
     expansion_depth: [0, 5]
@@ -56,19 +99,20 @@ masks:
 
   inner:
     site: radius
-    endosteal_threshold: 500
+    endosteal_threshold: 450
     endosteal_kernelsize: 3
     gaussian_sigma: 1.5
     gaussian_truncate: 1.0
     peel: 3
     expansion_depth: [0, 3, 10, 3]
+    trabecular_close_radius: null
     init_pad: 30
     use_adaptive_threshold: false
 
   segmentation:
     method: global # global | adaptive
     enabled: true
-    gaussian_sigma: 1.2 # voxels
+    gaussian_sigma: 0.8
     trab_threshold: 320
     cort_threshold: 450
     adaptive_low_threshold: 190

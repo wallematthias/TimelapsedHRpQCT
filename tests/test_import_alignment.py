@@ -107,3 +107,47 @@ def test_import_aligns_masks_before_subject_crop(monkeypatch, tmp_path: Path) ->
     assert imported_full.GetSize() == (8, 10, 10)
     assert int(imported_full_arr.sum()) == 8 * 10 * 10
     assert imported_full.GetOrigin() == (0.0, 0.0, 0.0)
+
+
+def test_import_uses_filename_stack_index_without_resplitting(monkeypatch, tmp_path: Path) -> None:
+    image = _make_image((20, 10, 7), (0.0, 0.0, 0.0), value=100, pixel_id=sitk.sitkFloat32)
+
+    raw_session = RawSession(
+        subject_id="001",
+        session_id="T1",
+        raw_image_path=tmp_path / "SUBJECT_001_DT_STACK2_T1.AIM",
+        site="tibia",
+        stack_index=2,
+    )
+
+    def fake_read_aim(path: Path, scaling: str = "native"):
+        return sitk.Image(image), {"scaling": scaling}
+
+    monkeypatch.setattr("timelapsedhrpqct.workflows.import_aim.read_aim", fake_read_aim)
+    monkeypatch.setattr(
+        "timelapsedhrpqct.workflows.import_aim._copy_raw_session_files",
+        lambda raw_session, output_root: {},
+    )
+
+    config = SimpleNamespace(
+        import_=SimpleNamespace(
+            stack_depth=3,
+            on_incomplete_stack="error",
+            crop_to_subject_box=False,
+            crop_threshold_bmd=450.0,
+            crop_padding_voxels=0,
+            crop_num_largest_components=1,
+        ),
+        masks=SimpleNamespace(roles=["full", "trab", "cort"]),
+    )
+
+    artifacts = import_raw_session(
+        raw_session=raw_session,
+        output_root=tmp_path / "dataset",
+        config=config,
+        subject_crop_spec=None,
+    )
+
+    assert len(artifacts) == 1
+    assert artifacts[0].stack_index == 2
+    assert sitk.ReadImage(str(artifacts[0].image_path)).GetSize() == (20, 10, 7)

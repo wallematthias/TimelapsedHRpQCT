@@ -9,9 +9,9 @@ from typing import Sequence
 from timelapsedhrpqct.config.loader import load_config
 from timelapsedhrpqct.config.models import AppConfig
 from timelapsedhrpqct.dataset.artifacts import (
-    group_filled_sessions_by_subject,
-    group_fused_sessions_by_subject,
-    group_imported_stacks_by_subject_and_stack,
+    group_filled_sessions_by_subject_site,
+    group_fused_sessions_by_subject_site,
+    group_imported_stacks_by_subject_site_and_stack,
     iter_filled_session_records,
     iter_fused_session_records,
     iter_imported_stack_records,
@@ -392,38 +392,58 @@ def _needs_mask_generation(dataset_root: Path) -> bool:
 
 def _needs_timelapse_registration(dataset_root: Path) -> bool:
     records = iter_imported_stack_records(dataset_root)
-    grouped = group_imported_stacks_by_subject_and_stack(records)
-    for subject_id, stacks_by_index in grouped.items():
+    grouped = group_imported_stacks_by_subject_site_and_stack(records)
+    for (subject_id, site), stacks_by_index in grouped.items():
         for stack_index, stack_records in stacks_by_index.items():
             baseline_session = stack_records[0].session_id
             for record in stack_records:
                 path = timelapse_baseline_transform_path(
                     dataset_root=dataset_root,
                     subject_id=subject_id,
+                    site=site,
                     stack_index=stack_index,
                     moving_session=record.session_id,
                     baseline_session=baseline_session,
                 )
-                if not path.exists():
-                    return True
-    return False
-
-
-def _needs_stack_correction(dataset_root: Path) -> bool:
-    records = iter_imported_stack_records(dataset_root)
-    grouped = group_imported_stacks_by_subject_and_stack(records)
-    for subject_id, stacks_by_index in grouped.items():
-        for stack_index, stack_records in stacks_by_index.items():
-            baseline_session = stack_records[0].session_id
-            for record in stack_records:
-                path = final_transform_path(
+                if path.exists():
+                    continue
+                legacy_path = timelapse_baseline_transform_path(
                     dataset_root=dataset_root,
                     subject_id=subject_id,
                     stack_index=stack_index,
                     moving_session=record.session_id,
                     baseline_session=baseline_session,
                 )
-                if not path.exists():
+                if not legacy_path.exists():
+                    return True
+    return False
+
+
+def _needs_stack_correction(dataset_root: Path) -> bool:
+    records = iter_imported_stack_records(dataset_root)
+    grouped = group_imported_stacks_by_subject_site_and_stack(records)
+    for (subject_id, site), stacks_by_index in grouped.items():
+        for stack_index, stack_records in stacks_by_index.items():
+            baseline_session = stack_records[0].session_id
+            for record in stack_records:
+                path = final_transform_path(
+                    dataset_root=dataset_root,
+                    subject_id=subject_id,
+                    site=site,
+                    stack_index=stack_index,
+                    moving_session=record.session_id,
+                    baseline_session=baseline_session,
+                )
+                if path.exists():
+                    continue
+                legacy_path = final_transform_path(
+                    dataset_root=dataset_root,
+                    subject_id=subject_id,
+                    stack_index=stack_index,
+                    moving_session=record.session_id,
+                    baseline_session=baseline_session,
+                )
+                if not legacy_path.exists():
                     return True
     return False
 
@@ -444,12 +464,12 @@ def _needs_apply_transforms(dataset_root: Path) -> bool:
 
 
 def _needs_filling(dataset_root: Path) -> bool:
-    fused_by_subject = group_fused_sessions_by_subject(iter_fused_session_records(dataset_root))
-    filled_by_subject = group_filled_sessions_by_subject(iter_filled_session_records(dataset_root))
+    fused_by_subject = group_fused_sessions_by_subject_site(iter_fused_session_records(dataset_root))
+    filled_by_subject = group_filled_sessions_by_subject_site(iter_filled_session_records(dataset_root))
     if not fused_by_subject:
         return False
-    for subject_id, fused_records in fused_by_subject.items():
-        filled_records = {record.session_id: record for record in filled_by_subject.get(subject_id, [])}
+    for subject_site, fused_records in fused_by_subject.items():
+        filled_records = {record.session_id: record for record in filled_by_subject.get(subject_site, [])}
         for fused in fused_records:
             filled = filled_records.get(fused.session_id)
             if filled is None:
@@ -562,15 +582,19 @@ def _needs_analysis(
     if args.thr is not None or args.clusters is not None or args.visualize is not None:
         return True
     requested = _requested_analysis_settings(config, args)
-    fused_by_subject = group_fused_sessions_by_subject(iter_fused_session_records(dataset_root))
+    fused_by_subject = group_fused_sessions_by_subject_site(iter_fused_session_records(dataset_root))
     if not fused_by_subject:
         return False
-    for subject_id, sessions in fused_by_subject.items():
+    for (subject_id, site), sessions in fused_by_subject.items():
         if len(sessions) < 2:
             continue
-        meta_path = analysis_metadata_path(dataset_root, subject_id)
+        meta_path = analysis_metadata_path(dataset_root, subject_id, site)
         if not meta_path.exists():
-            return True
+            legacy_meta_path = analysis_metadata_path(dataset_root, subject_id)
+            if legacy_meta_path.exists():
+                meta_path = legacy_meta_path
+            else:
+                return True
         try:
             payload = json.loads(meta_path.read_text(encoding="utf-8"))
         except Exception:
@@ -583,7 +607,7 @@ def _needs_analysis(
             if not out or not _analysis_output_exists(out):
                 return True
         if requested["visualization_enabled"]:
-            visualize_dir = analysis_visualize_dir(dataset_root, subject_id)
+            visualize_dir = analysis_visualize_dir(dataset_root, subject_id, site)
             if not visualize_dir.exists() or not any(visualize_dir.glob("*.mha")):
                 return True
     return False

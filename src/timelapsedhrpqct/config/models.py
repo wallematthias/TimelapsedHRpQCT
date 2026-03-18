@@ -35,6 +35,14 @@ class DiscoveryConfig:
     - role (optional)
     """
     session_regex: str | None = None
+    default_site: str = "radius"
+    site_aliases: dict[str, list[str]] = field(
+        default_factory=lambda: {
+            "radius": ["DR", "RADIUS", "RAD"],
+            "tibia": ["DT", "TIBIA", "TIB"],
+            "knee": ["KN", "KNEE"],
+        }
+    )
     role_aliases: dict[str, list[str]] = field(
         default_factory=lambda: {
             "cort": ["CORT_MASK", "_CORT", "CORTICAL"],
@@ -49,6 +57,7 @@ class DiscoveryConfig:
 class OuterContourConfig:
     periosteal_threshold: float = 300.0
     periosteal_kernelsize: int = 5
+    periosteal_open_radius: int = 2
     gaussian_sigma: float = 1.5
     gaussian_truncate: float = 1.0
     expansion_depth: list[int] = field(default_factory=lambda: [0, 5])
@@ -66,12 +75,7 @@ class InnerContourConfig:
     gaussian_truncate: float = 1.0
     peel: int = 3
     expansion_depth: list[int] = field(default_factory=lambda: [0, 3, 10, 3])
-    ipl_misc1_1_radius: int = 15
-    ipl_misc1_0_radius: int = 800
-    ipl_misc1_1_tibia: int = 25
-    ipl_misc1_0_tibia: int = 200000
-    ipl_misc1_1_misc: int = 15
-    ipls_misc1_0_misc: int = 800
+    trabecular_close_radius: int | None = None
     init_pad: int = 30
     use_adaptive_threshold: bool = False
 
@@ -80,7 +84,7 @@ class InnerContourConfig:
 class MaskSegmentationConfig:
     enabled: bool = True
     method: str = "global"  # "global" | "adaptive"
-    gaussian_sigma: float = 1.2
+    gaussian_sigma: float = 0.8
     trab_threshold: float = 320.0
     cort_threshold: float = 450.0
     adaptive_low_threshold: float = 190.0
@@ -96,6 +100,56 @@ class MasksConfig:
     overwrite: bool = False
     roles: list[str] = field(default_factory=lambda: ["full", "trab", "cort"])
     generate_segmentation: bool = True
+    site_selection: dict[str, object] = field(
+        default_factory=lambda: {
+            "default_site": "radius",
+            "patterns": {
+                "radius": ["radius", "rad"],
+                "tibia": ["tibia", "tib"],
+                "knee": ["knee"],
+            },
+        }
+    )
+    site_defaults: dict[str, dict[str, dict[str, object]]] = field(
+        default_factory=lambda: {
+            "radius": {
+                "inner": {
+                    "endosteal_threshold": 450,
+                    "endosteal_kernelsize": 3,
+                    "gaussian_sigma": 1.5,
+                    "gaussian_truncate": 1.0,
+                    "peel": 3,
+                    "trabecular_close_radius": 15,
+                    "init_pad": 30,
+                    "use_adaptive_threshold": False,
+                }
+            },
+            "tibia": {
+                "inner": {
+                    "endosteal_threshold": 450,
+                    "endosteal_kernelsize": 3,
+                    "gaussian_sigma": 1.5,
+                    "gaussian_truncate": 1.0,
+                    "peel": 3,
+                    "trabecular_close_radius": 25,
+                    "init_pad": 30,
+                    "use_adaptive_threshold": False,
+                }
+            },
+            "knee": {
+                "inner": {
+                    "endosteal_threshold": 450,
+                    "endosteal_kernelsize": 3,
+                    "gaussian_sigma": 1.5,
+                    "gaussian_truncate": 1.0,
+                    "peel": 3,
+                    "trabecular_close_radius": 25,
+                    "init_pad": 30,
+                    "use_adaptive_threshold": False,
+                }
+            },
+        }
+    )
 
     # kept from your earlier mask-resolution logic
     derive_full_from_cort_trab: bool = True

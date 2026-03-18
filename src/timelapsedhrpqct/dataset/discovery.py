@@ -99,10 +99,38 @@ def _classify_role_from_name(path: Path, cfg: DiscoveryConfig) -> str:
     return "image"
 
 
+def _normalize_site(site_text: str | None, cfg: DiscoveryConfig) -> str | None:
+    if not site_text:
+        return None
+    token = site_text.strip().upper()
+    for canonical_site, aliases in cfg.site_aliases.items():
+        alias_set = {canonical_site.upper(), *(alias.upper() for alias in aliases)}
+        if token in alias_set:
+            return canonical_site.lower()
+    return site_text.strip().lower()
+
+
+def _infer_site_from_name(path: Path, cfg: DiscoveryConfig) -> str:
+    stem_upper = _strip_aim_suffix(path.name).upper()
+    for canonical_site, aliases in cfg.site_aliases.items():
+        for alias in aliases:
+            if re.search(rf"(?<![A-Z0-9]){re.escape(alias.upper())}(?![A-Z0-9])", stem_upper):
+                return canonical_site.lower()
+    return cfg.default_site.lower()
+
+
+def _extract_stack_index_default(path: Path) -> int | None:
+    stem = _strip_aim_suffix(path.name)
+    match = re.search(r"(?i)(?:^|_)STACK[_-]?(\d+)(?:_|$)", stem)
+    if match is None:
+        return None
+    return int(match.group(1))
+
+
 def _extract_subject_session_with_regex(
     path: Path,
     session_regex: str,
-) -> tuple[str, str, str | None]:
+) -> tuple[str, str, str | None, str | None, int | None]:
     match = re.search(session_regex, path.name)
     if match is None:
         raise ValueError(
@@ -113,6 +141,8 @@ def _extract_subject_session_with_regex(
     subject_id = groups.get("subject")
     session_id = groups.get("session")
     role = groups.get("role")
+    site = groups.get("site")
+    stack_text = groups.get("stack")
 
     if not subject_id or not session_id:
         raise ValueError(
@@ -120,10 +150,11 @@ def _extract_subject_session_with_regex(
             "'subject' and 'session'"
         )
 
-    return subject_id, session_id, role
+    stack_index = int(stack_text) if stack_text not in {None, ""} else None
+    return subject_id, session_id, role, site, stack_index
 
 
-def _extract_subject_session_default(path: Path) -> tuple[str, str]:
+def _extract_subject_session_default(path: Path) -> tuple[str, str, str, int | None]:
     """
     Infer subject_id and session_id from a filename using default heuristics.
     """
@@ -137,14 +168,25 @@ def _extract_subject_session_default(path: Path) -> tuple[str, str]:
     stem = re.sub(r"(?i)_CORT$", "", stem)
     stem = re.sub(r"(?i)_FULL$", "", stem)
 
+    stack_index = _extract_stack_index_default(path)
+    stem = re.sub(r"(?i)_STACK[_-]?\d+", "", stem)
+
     parts = [p for p in stem.split("_") if p]
-    if len(parts) < 2:
+    if len(parts) < 3:
         raise ValueError(
             f"Could not infer subject/session from filename: {path.name}. "
-            "Expected something like SUBJECT_SESSION*.AIM"
+            "Expected something like SUBJECT_SITE_SESSION*.AIM"
+        )
+    session_id = parts[-1]
+    site_token = parts[-2]
+    subject_id = "_".join(parts[:-2])
+    if not subject_id:
+        raise ValueError(
+            f"Could not infer subject/session from filename: {path.name}. "
+            "Expected something like SUBJECT_SITE_SESSION*.AIM"
         )
 
-    return parts[0], parts[1]
+    return subject_id, session_id, site_token, stack_index
 
 
 def discover_raw_sessions(
@@ -157,12 +199,19 @@ def discover_raw_sessions(
     Supports:
     - heuristic discovery
     - config-driven regex override for subject/session/role extraction
+
+    Important:
+    - site is part of the grouping key, so the same subject/session/stack may
+      legitimately exist at multiple sites (e.g. DR and DT).
     """
     root = Path(root)
     if not root.exists():
         raise FileNotFoundError(f"Discovery root does not exist: {root}")
 
-    grouped: dict[tuple[str, str], list[tuple[Path, str]]] = defaultdict(list)
+    grouped: dict[
+        tuple[str, str, str, int | None],
+        list[tuple[Path, str, str]],
+    ] = defaultdict(list)
 
     for path in root.rglob("*"):
         if not _is_aim_file(path):
@@ -171,27 +220,39 @@ def discover_raw_sessions(
             continue
 
         if discovery_config.session_regex:
-            subject_id, session_id, role_from_regex = _extract_subject_session_with_regex(
-                path, discovery_config.session_regex
-            )
+            (
+                subject_id,
+                session_id,
+                role_from_regex,
+                site_from_regex,
+                stack_index,
+            ) = _extract_subject_session_with_regex(path, discovery_config.session_regex)
+
+            site = _normalize_site(site_from_regex, discovery_config)
+            if site is None:
+                site = _infer_site_from_name(path, discovery_config)
+
             if role_from_regex:
                 role = _classify_role_from_text(role_from_regex, discovery_config)
             else:
                 role = _classify_role_from_name(path, discovery_config)
         else:
-            subject_id, session_id = _extract_subject_session_default(path)
+            subject_id, session_id, site_token, stack_index = _extract_subject_session_default(path)
+            site = _normalize_site(site_token, discovery_config)
+            if site is None:
+                site = _infer_site_from_name(path, discovery_config)
             role = _classify_role_from_name(path, discovery_config)
 
-        grouped[(subject_id, session_id)].append((path, role))
+        grouped[(subject_id, session_id, site, stack_index)].append((path, role, site))
 
     sessions: list[RawSession] = []
 
-    for (subject_id, session_id), entries in sorted(grouped.items()):
+    for (subject_id, session_id, site_value, stack_index), entries in sorted(grouped.items()):
         image_candidates: list[Path] = []
         mask_paths: dict[str, Path] = {}
         seg_path: Path | None = None
 
-        for path, role in sorted(entries, key=lambda x: str(x[0])):
+        for path, role, _site in sorted(entries, key=lambda x: str(x[0])):
             if role not in VALID_ROLES:
                 role = "image"
 
@@ -200,24 +261,27 @@ def discover_raw_sessions(
             elif role in {"cort", "trab", "full"}:
                 if role in mask_paths:
                     raise ValueError(
-                        f"Duplicate {role} mask for {subject_id}/{session_id}: "
+                        f"Duplicate {role} mask for {subject_id}/{session_id}/{site_value}: "
                         f"{mask_paths[role]} and {path}"
                     )
                 mask_paths[role] = path
             elif role == "seg":
                 if seg_path is not None:
                     raise ValueError(
-                        f"Duplicate segmentation for {subject_id}/{session_id}: "
+                        f"Duplicate segmentation for {subject_id}/{session_id}/{site_value}: "
                         f"{seg_path} and {path}"
                     )
                 seg_path = path
 
         if len(image_candidates) == 0:
-            raise ValueError(f"No raw image AIM found for {subject_id}/{session_id}")
+            raise ValueError(
+                f"No raw image AIM found for {subject_id}/{session_id}/{site_value}"
+            )
 
         if len(image_candidates) > 1:
             raise ValueError(
-                f"Multiple ambiguous raw image AIMs found for {subject_id}/{session_id}: "
+                f"Multiple ambiguous raw image AIMs found for "
+                f"{subject_id}/{session_id}/{site_value}: "
                 + ", ".join(str(p) for p in image_candidates)
             )
 
@@ -225,6 +289,8 @@ def discover_raw_sessions(
             subject_id=subject_id,
             session_id=session_id,
             raw_image_path=image_candidates[0],
+            site=site_value,
+            stack_index=stack_index,
             raw_mask_paths=mask_paths,
             raw_seg_path=seg_path,
         )

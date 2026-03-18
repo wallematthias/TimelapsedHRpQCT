@@ -9,7 +9,7 @@ import SimpleITK as sitk
 
 from timelapsedhrpqct.config.models import AppConfig
 from timelapsedhrpqct.dataset.artifacts import (
-    group_imported_stacks_by_subject_and_stack,
+    group_imported_stacks_by_subject_site_and_stack,
     iter_imported_stack_records,
     upsert_fused_session_record,
 )
@@ -102,17 +102,18 @@ def _baseline_record_for_stack(records: list, baseline_session: str):
     )
 
 
-def _transforms_dir(dataset_root: Path, subject_id: str) -> Path:
-    return transforms_dir(dataset_root, subject_id)
+def _transforms_dir(dataset_root: Path, subject_id: str, site: str) -> Path:
+    return transforms_dir(dataset_root, subject_id, site)
 
 
-def _final_transform_dir(dataset_root: Path, subject_id: str) -> Path:
-    return final_transform_dir(dataset_root, subject_id)
+def _final_transform_dir(dataset_root: Path, subject_id: str, site: str) -> Path:
+    return final_transform_dir(dataset_root, subject_id, site)
 
 
 def _final_transform_path(
     dataset_root: Path,
     subject_id: str,
+    site: str,
     stack_index: int,
     moving_session: str,
     baseline_session: str,
@@ -120,51 +121,71 @@ def _final_transform_path(
     return final_transform_path(
         dataset_root=dataset_root,
         subject_id=subject_id,
+        site=site,
         stack_index=stack_index,
         moving_session=moving_session,
         baseline_session=baseline_session,
     )
 
 
-def _stack_correction_dir(dataset_root: Path, subject_id: str) -> Path:
-    return stack_correction_dir(dataset_root, subject_id)
+def _stack_correction_dir(dataset_root: Path, subject_id: str, site: str) -> Path:
+    return stack_correction_dir(dataset_root, subject_id, site)
 
 
-def _common_reference_path(dataset_root: Path, subject_id: str) -> Path:
-    return common_reference_path(dataset_root, subject_id)
+def _common_reference_path(dataset_root: Path, subject_id: str, site: str) -> Path:
+    return common_reference_path(dataset_root, subject_id, site)
 
 
 def _fused_image_path(
     dataset_root: Path,
     subject_id: str,
-    session_id: str,
+    site: str = "radius",
+    session_id: str | None = None,
 ) -> Path:
-    return fused_image_path(dataset_root, subject_id, session_id)
+    if session_id is None:
+        session_id = site
+        site = "radius"
+    return fused_image_path(dataset_root, subject_id, site, session_id)
 
 
 def _fused_seg_path(
     dataset_root: Path,
     subject_id: str,
-    session_id: str,
+    site: str = "radius",
+    session_id: str | None = None,
 ) -> Path:
-    return fused_seg_path(dataset_root, subject_id, session_id)
+    if session_id is None:
+        session_id = site
+        site = "radius"
+    return fused_seg_path(dataset_root, subject_id, site, session_id)
 
 
 def _fused_mask_path(
     dataset_root: Path,
     subject_id: str,
-    session_id: str,
-    role: str,
+    site: str = "radius",
+    session_id: str | None = None,
+    role: str | None = None,
 ) -> Path:
-    return fused_mask_path(dataset_root, subject_id, session_id, role)
+    if role is None:
+        role = str(session_id)
+        session_id = site
+        site = "radius"
+    if session_id is None:
+        raise ValueError("session_id is required")
+    return fused_mask_path(dataset_root, subject_id, site, session_id, role)
 
 
 def _fused_metadata_path(
     dataset_root: Path,
     subject_id: str,
-    session_id: str,
+    site: str = "radius",
+    session_id: str | None = None,
 ) -> Path:
-    return fused_metadata_path(dataset_root, subject_id, session_id)
+    if session_id is None:
+        session_id = site
+        site = "radius"
+    return fused_metadata_path(dataset_root, subject_id, site, session_id)
 
 
 def _resample_once(
@@ -234,11 +255,12 @@ def _make_subject_common_reference_from_baselines(
 def _resolve_reference_image(
     dataset_root: Path,
     subject_id: str,
+    site: str,
     stacks_by_index: dict[int, list],
     baseline_session: str,
     padding_voxels: int = 4,
 ) -> tuple[sitk.Image, str]:
-    reference_path = _common_reference_path(dataset_root, subject_id)
+    reference_path = _common_reference_path(dataset_root, subject_id, site)
     if reference_path.exists():
         return load_image(reference_path), str(reference_path)
 
@@ -253,6 +275,7 @@ def _resolve_reference_image(
 def _resolve_transform_for_record(
     dataset_root: Path,
     subject_id: str,
+    site: str,
     stack_index: int,
     session_id: str,
     baseline_session: str,
@@ -260,6 +283,7 @@ def _resolve_transform_for_record(
     final_path = _final_transform_path(
         dataset_root=dataset_root,
         subject_id=subject_id,
+        site=site,
         stack_index=stack_index,
         moving_session=session_id,
         baseline_session=baseline_session,
@@ -270,6 +294,7 @@ def _resolve_transform_for_record(
     baseline_path = timelapse_baseline_transform_path(
         dataset_root=dataset_root,
         subject_id=subject_id,
+        site=site,
         stack_index=stack_index,
         moving_session=session_id,
         baseline_session=baseline_session,
@@ -302,10 +327,10 @@ def run_apply_transforms(
     _ = config
     dataset_root = Path(dataset_root)
     records = iter_imported_stack_records(dataset_root)
-    grouped = group_imported_stacks_by_subject_and_stack(records)
+    grouped = group_imported_stacks_by_subject_site_and_stack(records)
 
-    for subject_id, stacks_by_index in grouped.items():
-        print(f"[apply] Applying transforms for subject: {subject_id}")
+    for (subject_id, site), stacks_by_index in grouped.items():
+        print(f"[apply] Applying transforms for subject: {subject_id}, site: {site}")
 
         if not stacks_by_index:
             continue
@@ -316,6 +341,7 @@ def run_apply_transforms(
         reference_image, reference_source = _resolve_reference_image(
             dataset_root=dataset_root,
             subject_id=subject_id,
+            site=site,
             stacks_by_index=stacks_by_index,
             baseline_session=baseline_session,
             padding_voxels=4,
@@ -345,6 +371,7 @@ def run_apply_transforms(
                 transform, transform_source_path, transform_source_kind = _resolve_transform_for_record(
                     dataset_root=dataset_root,
                     subject_id=subject_id,
+                    site=site,
                     stack_index=stack_index,
                     session_id=session_id,
                     baseline_session=baseline_session,
@@ -427,6 +454,7 @@ def run_apply_transforms(
             fused_image_path = _fused_image_path(
                 dataset_root=dataset_root,
                 subject_id=subject_id,
+                site=site,
                 session_id=session_id,
             )
             write_image(fused_image, fused_image_path)
@@ -439,6 +467,7 @@ def run_apply_transforms(
                 seg_out = _fused_seg_path(
                     dataset_root=dataset_root,
                     subject_id=subject_id,
+                    site=site,
                     session_id=session_id,
                 )
                 write_image(fused_seg, seg_out)
@@ -455,6 +484,7 @@ def run_apply_transforms(
                 mask_out = _fused_mask_path(
                     dataset_root=dataset_root,
                     subject_id=subject_id,
+                    site=site,
                     session_id=session_id,
                     role=role,
                 )
@@ -467,11 +497,13 @@ def run_apply_transforms(
             metadata_path = _fused_metadata_path(
                 dataset_root=dataset_root,
                 subject_id=subject_id,
+                site=site,
                 session_id=session_id,
             )
             write_json(
                 build_fused_session_metadata(
                     subject_id=subject_id,
+                    site=site,
                     session_id=session_id,
                     baseline_session=baseline_session,
                     reference_source=reference_source,
@@ -487,6 +519,7 @@ def run_apply_transforms(
                 dataset_root,
                 build_fused_session_record(
                     subject_id=subject_id,
+                    site=site,
                     session_id=session_id,
                     image_path=fused_image_path,
                     mask_paths=fused_masks,

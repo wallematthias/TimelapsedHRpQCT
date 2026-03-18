@@ -22,7 +22,12 @@ import:
   crop_num_largest_components: 1
 
 discovery:
-  session_regex: '(?P<subject>INSR_\d+)_DT_(?P<session>C\d+)(?:_(?P<role>.*))?\.AIM$'
+  session_regex: '(?i)(?P<subject>SUBJECT_\d+)_(?P<site>DR|DT|KN)(?:_STACK(?P<stack>\d+))?_(?P<session>T\d+)(?:_(?P<role>.*))?\.aim$'
+  default_site: radius
+  site_aliases:
+    radius: [DR, RADIUS, RAD]
+    tibia: [DT, TIBIA, TIB]
+    knee: [KN, KNEE]
 
   role_aliases:
     cort: ["CORT_MASK", "_CORT", "CORTICAL"]
@@ -34,6 +39,22 @@ masks:
   generate: true
   overwrite: false
   derive_full_from_cort_trab: true
+  site_selection:
+    default_site: radius
+    patterns:
+      radius: [radius, rad]
+      tibia: [tibia, tib]
+      knee: [knee]
+  site_defaults:
+    radius:
+      inner:
+        trabecular_close_radius: 15
+    tibia:
+      inner:
+        trabecular_close_radius: 25
+    knee:
+      inner:
+        trabecular_close_radius: 25
 
   outer:
     periosteal_threshold: 300
@@ -59,7 +80,7 @@ masks:
   segmentation:
     method: global
     enabled: true
-    gaussian_sigma: 1.2
+    gaussian_sigma: 0.8
     trab_threshold: 320
     cort_threshold: 450
     adaptive_low_threshold: 190
@@ -176,8 +197,12 @@ visualization:
 
 ## `discovery`
 
-- `session_regex: '(?P<subject>INSR_\d+)_DT_(?P<session>C\d+)(?:_(?P<role>.*))?\.AIM$'`
-  Extracts `subject`, `session`, and optional `role` directly from filenames. This is the main rule that lets the pipeline discover sessions like `INSR_269_DT_C1_CORT_MASK.AIM`.
+- `session_regex: '(?i)(?P<subject>SUBJECT_\d+)_(?P<site>DR|DT|KN)(?:_STACK(?P<stack>\d+))?_(?P<session>T\d+)(?:_(?P<role>.*))?\.aim$'`
+  Extracts `subject`, `site`, optional `stack`, `session`, and optional `role` directly from filenames. This supports names like `SUBJECT_001_DT_T1.AIM` and `SUBJECT_001_DT_STACK2_T1_CORT_MASK.AIM`.
+- `default_site: radius`
+  Site fallback used when a filename does not contain a recognizable site token.
+- `site_aliases`
+  Maps filename tokens such as `DR`, `DT`, and `KN` to the canonical sites `radius`, `tibia`, and `knee`.
 - `role_aliases:`
   Aliases used to normalize file roles.
 - `cort: ["CORT_MASK", "_CORT", "CORTICAL"]`
@@ -197,6 +222,10 @@ visualization:
   Existing masks and segmentations are preserved unless they are missing.
 - `derive_full_from_cort_trab: true`
   Allows a full mask to be reconstructed from cortical and trabecular masks when needed.
+- `site_selection`
+  Filename-based rules used to infer whether a stack should use the `radius`, `tibia`, or `knee` preset.
+- `site_defaults`
+  Per-site contour overrides applied on top of the shared mask settings.
 
 ### `masks.outer`
 
@@ -204,6 +233,8 @@ visualization:
   Threshold used during outer contour estimation.
 - `periosteal_kernelsize: 5`
   Kernel size for the outer contour routine.
+- `periosteal_open_radius: 2`
+  Small cleanup opening applied after the outer closing step to suppress thin streaks and ring-like artifacts before hole filling.
 - `gaussian_sigma: 1.5`
   Smoothing strength before outer contour extraction.
 - `gaussian_truncate: 1.0`
@@ -220,7 +251,7 @@ visualization:
 ### `masks.inner`
 
 - `site: radius`
-  Site-specific parameter set for the inner contour logic.
+  Fallback site used when no `site_selection` pattern matches the stack filename or source image path.
 - `endosteal_threshold: 500`
   Threshold used during inner contour estimation.
 - `endosteal_kernelsize: 3`
@@ -233,6 +264,8 @@ visualization:
   Peel distance used in the inner contour routine.
 - `expansion_depth: [0, 3, 10, 3]`
   Expansion schedule for the inner contour method.
+- `trabecular_close_radius: null`
+  Optional override for the final trabecular mask closing radius. When left unset, the value comes from the selected `site` preset.
 - `init_pad: 30`
   Padding around the initial ROI.
 - `use_adaptive_threshold: false`
@@ -244,8 +277,8 @@ visualization:
   Segmentation strategy. `global` thresholds within masks; `adaptive` uses density-adaptive logic.
 - `enabled: true`
   Enables segmentation output generation alongside masks.
-- `gaussian_sigma: 1.2`
-  Pre-segmentation smoothing.
+- `gaussian_sigma: 0.8`
+  Pre-segmentation smoothing. This stays closer to IPL-style `/seg_gauss` smoothing while preserving separate trabecular and cortical thresholds.
 - `trab_threshold: 320`
   Global segmentation threshold for trabecular bone.
 - `cort_threshold: 450`
