@@ -25,10 +25,9 @@ import:
 # Discovery
 # -----------------------------------------------------------------------------
 discovery:
-  #session_regex: '(?i)(?P<subject>SAMPLE\d+)_(?P<site>DR|DT|KN)(?:_STACK(?P<stack>\d+))?_(?P<session>T\d+)(?:_(?P<role>.*))?\.aim$'
-  session_regex: '(?i)(?P<subject>INSR_\d+)_(?P<site>DR|DT|KN)_(?P<session>C\d+)(?:_(?P<role>.*))?\.aim$'
+  session_regex: '(?i)(?P<subject>SAMPLE\d+)_(?P<site>DR|DT|KN)(?:_STACK(?P<stack>\d+))?_(?P<session>T\d+)(?:_(?P<role>.*))?\.aim$'
 
-  default_site: radius
+  default_site: tibia
   site_aliases:
     radius: [DR, RADIUS, RAD]
     tibia: [DT, TIBIA, TIB]
