@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -213,9 +214,17 @@ def run_mask_generation(dataset_root: str | Path, config: AppConfig) -> None:
     overwrite = bool(getattr(masks_cfg, "overwrite", False))
     configured_roles = _configured_mask_roles(config)
     generate_seg = bool(getattr(masks_cfg, "generate_segmentation", True))
+    verbose_masks = os.environ.get("TIMELAPSE_MASK_DEBUG", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
 
     items = discover_stack_images(dataset_root)
     print(f"[timelapse] mask generation for {len(items)} stack image(s)")
+    if verbose_masks:
+        print("[timelapse] TIMELAPSE_MASK_DEBUG enabled")
 
     for item in items:
         paths = _stack_paths(item)
@@ -260,34 +269,44 @@ def run_mask_generation(dataset_root: str | Path, config: AppConfig) -> None:
             continue
 
         print(f"[timelapse] processing {item.stem}")
+        print("[timelapse]   reading stack image")
         image = sitk.ReadImage(str(item.image_path))
+        print("[timelapse]   stack image loaded")
         meta = _load_metadata(paths["metadata"])
         site = _infer_scan_site(item, config, meta)
         params = _apply_site_defaults(_derive_params(config), config, site)
         seg_method = params.segmentation.method
         print(f"[timelapse]   selected mask site preset: {site}")
+        print(f"[timelapse]   segmentation method: {seg_method}")
         wrote: list[str] = []
 
         # Case 1: one or more masks missing -> generate masks + seg
         if need_generate_masks:
+            print("[timelapse]   running contour generation")
             result = generate_masks_from_image(
                 image=image,
                 params=params,
+                verbose=verbose_masks,
             )
+            print("[timelapse]   contour generation complete")
 
             if "full" in configured_roles and (overwrite or not has_full):
+                print("[timelapse]   writing full mask")
                 sitk.WriteImage(result.full, str(paths["full"]))
                 wrote.append("full")
 
             if "trab" in configured_roles and (overwrite or not has_trab):
+                print("[timelapse]   writing trab mask")
                 sitk.WriteImage(result.trab, str(paths["trab"]))
                 wrote.append("trab")
 
             if "cort" in configured_roles and (overwrite or not has_cort):
+                print("[timelapse]   writing cort mask")
                 sitk.WriteImage(result.cort, str(paths["cort"]))
                 wrote.append("cort")
 
             if generate_seg and (overwrite or not has_seg):
+                print("[timelapse]   writing segmentation")
                 sitk.WriteImage(result.seg, str(paths["seg"]))
                 wrote.append("seg")
 
@@ -317,18 +336,22 @@ def run_mask_generation(dataset_root: str | Path, config: AppConfig) -> None:
                     "Segmentation generation from existing masks requires full, trab, and cort masks."
                 )
 
+            print("[timelapse]   reading existing masks")
             full_mask = sitk.ReadImage(str(paths["full"]))
             trab_mask = sitk.ReadImage(str(paths["trab"]))
             cort_mask = sitk.ReadImage(str(paths["cort"]))
 
+            print("[timelapse]   generating segmentation from existing masks")
             seg = generate_seg_from_existing_masks(
                 image=image,
                 full_mask=full_mask,
                 trab_mask=trab_mask,
                 cort_mask=cort_mask,
                 params=params,
+                verbose=verbose_masks,
             )
 
+            print("[timelapse]   writing segmentation")
             sitk.WriteImage(seg, str(paths["seg"]))
             wrote.append("seg")
 

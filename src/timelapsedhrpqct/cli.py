@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import argparse
+import faulthandler
 import json
+import os
 from collections import defaultdict
 from pathlib import Path
 from typing import Sequence
@@ -31,19 +33,7 @@ from timelapsedhrpqct.dataset.layout import (
     get_derivatives_root,
     get_sourcedata_session_dir,
 )
-from timelapsedhrpqct.io.aim import read_aim
 from timelapsedhrpqct.processing.stacks import compute_stack_ranges
-from timelapsedhrpqct.workflows.analysis import run_analysis
-from timelapsedhrpqct.workflows.apply_transforms import run_apply_transforms
-from timelapsedhrpqct.workflows.generate_masks import run_mask_generation
-from timelapsedhrpqct.workflows.import_aim import import_subject_sessions
-from timelapsedhrpqct.workflows.multistack_correction import (
-    run_stack_correction,
-)
-from timelapsedhrpqct.workflows.timelapse_registration import (
-    run_timelapse_registration,
-)
-from timelapsedhrpqct.workflows.filling import run_filling
 
 DEFAULT_CONFIG_PATH = Path(__file__).resolve().parents[2] / "configs" / "defaults.yml"
 
@@ -319,6 +309,8 @@ def _print_session_preview(
     output_root: Path,
     config: AppConfig,
 ) -> None:
+    from timelapsedhrpqct.io.aim import read_aim
+
     print(f"Subject: {session.subject_id}")
     print(f"  Session: {session.session_id}")
     print(f"    image : {session.raw_image_path.name}")
@@ -353,6 +345,8 @@ def _print_session_preview(
 
 
 def _expected_stack_count_for_session(session, config: AppConfig) -> int:
+    from timelapsedhrpqct.io.aim import read_aim
+
     image, _meta = read_aim(session.raw_image_path)
     z_slices = image.GetSize()[2]
     stack_ranges = compute_stack_ranges(
@@ -628,6 +622,8 @@ def _multistack_correction_enabled(config: AppConfig) -> bool:
 
 
 def _cmd_import(args: argparse.Namespace) -> int:
+    from timelapsedhrpqct.workflows.import_aim import import_subject_sessions
+
     config = _load_config_or_die(args.config)
 
     input_root: Path = args.input_root
@@ -708,6 +704,8 @@ def _cmd_import(args: argparse.Namespace) -> int:
 
 
 def _cmd_generate_masks(args: argparse.Namespace) -> int:
+    from timelapsedhrpqct.workflows.generate_masks import run_mask_generation
+
     config = _load_config_or_die(args.config)
     dataset_root: Path = args.dataset_root
 
@@ -722,6 +720,10 @@ def _cmd_generate_masks(args: argparse.Namespace) -> int:
 
 
 def _cmd_timelapse_register(args: argparse.Namespace) -> int:
+    from timelapsedhrpqct.workflows.timelapse_registration import (
+        run_timelapse_registration,
+    )
+
     config = _load_config_or_die(args.config)
     dataset_root: Path = args.dataset_root
 
@@ -736,6 +738,10 @@ def _cmd_timelapse_register(args: argparse.Namespace) -> int:
 
 
 def _cmd_stack_correct(args: argparse.Namespace) -> int:
+    from timelapsedhrpqct.workflows.multistack_correction import (
+        run_stack_correction,
+    )
+
     config = _load_config_or_die(args.config)
     dataset_root: Path = args.dataset_root
 
@@ -750,6 +756,8 @@ def _cmd_stack_correct(args: argparse.Namespace) -> int:
 
 
 def _cmd_apply_transforms(args: argparse.Namespace) -> int:
+    from timelapsedhrpqct.workflows.apply_transforms import run_apply_transforms
+
     config = _load_config_or_die(args.config)
     dataset_root: Path = args.dataset_root
 
@@ -764,6 +772,8 @@ def _cmd_apply_transforms(args: argparse.Namespace) -> int:
 
 
 def _cmd_fill(args: argparse.Namespace) -> int:
+    from timelapsedhrpqct.workflows.filling import run_filling
+
     config = _load_config_or_die(args.config)
     dataset_root: Path = args.dataset_root
 
@@ -778,6 +788,8 @@ def _cmd_fill(args: argparse.Namespace) -> int:
 
 
 def _cmd_analyse(args: argparse.Namespace) -> int:
+    from timelapsedhrpqct.workflows.analysis import run_analysis
+
     config = _load_config_or_die(args.config)
     dataset_root: Path = args.dataset_root
 
@@ -918,6 +930,15 @@ def _cmd_run(args: argparse.Namespace) -> int:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    enable_faulthandler = os.environ.get("TIMELAPSE_FAULTHANDLER", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+    if enable_faulthandler:
+        faulthandler.enable(all_threads=True)
+
     parser = _build_parser()
     args = parser.parse_args(argv)
 

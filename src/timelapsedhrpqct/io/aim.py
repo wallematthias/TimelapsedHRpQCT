@@ -2,21 +2,19 @@
 
 from pathlib import Path
 from typing import Tuple, Dict, Any
+import importlib
 
 import numpy as np
 import SimpleITK as sitk
 
-try:
-    import vtkbone
-except ImportError:
-    vtkbone = None
 
-
-def _ensure_vtkbone() -> None:
-    if vtkbone is None:
+def _load_vtkbone():
+    try:
+        return importlib.import_module("vtkbone")
+    except ImportError as exc:
         raise RuntimeError(
             "vtkbone is required for AIM file reading/writing; please install it via conda"
-        )
+        ) from exc
 
 
 def _get_aim_calibration_constants_from_processing_log(
@@ -95,7 +93,7 @@ def read_aim(
         - 'hu'
         - 'bmd' / 'density'
     """
-    _ensure_vtkbone()
+    vtkbone = _load_vtkbone()
 
     reader = vtkbone.vtkboneAIMReader()
     reader.SetFileName(str(path))
