@@ -66,17 +66,25 @@ masks:
         trabecular_close_radius: 15
         init_pad: 30
         use_adaptive_threshold: false
+        morphology_downsample_factor: 1
+        morphology_refine_edges: false
+        morphology_refine_band_voxels: 3
 
       outer:
         periosteal_threshold: 300
         periosteal_kernelsize: 5
         periosteal_open_radius: 2
+        morphology_refine_edges: true
+        morphology_refine_band_voxels: 3
         gaussian_sigma: 1.5
         gaussian_truncate: 1.0
         expansion_depth: [0, 5]
         init_pad: 15
         fill_holes: true
         use_adaptive_threshold: true
+        morphology_downsample_factor: 1
+        morphology_refine_edges: false
+        morphology_refine_band_voxels: 3
 
     tibia:
       inner:
@@ -88,6 +96,9 @@ masks:
         trabecular_close_radius: 25
         init_pad: 30
         use_adaptive_threshold: false
+        morphology_downsample_factor: 1
+        morphology_refine_edges: false
+        morphology_refine_band_voxels: 3
 
       outer:
         periosteal_threshold: 300
@@ -98,21 +109,28 @@ masks:
         expansion_depth: [0, 5]
         init_pad: 15
         fill_holes: true
-        use_adaptive_threshold: true
+        use_adaptive_threshold: false
+        morphology_downsample_factor: 1
+        morphology_refine_edges: false
+        morphology_refine_band_voxels: 3
+
 
     knee:
       inner:
-        endosteal_threshold: 550   # endo_lower in AutocontourKnee
+        endosteal_threshold: 250   # endo_lower in AutocontourKnee
         endosteal_kernelsize: 3    # endo_open_radius
         gaussian_sigma: 2.0        # endo_sigma
         gaussian_truncate: 1.0
         peel: 4                    # endo_min_cort_th
-        trabecular_close_radius: 50  # endo_close_radius (final fill of marrow cavity)
+        trabecular_close_radius: 36  # 50 endo_close_radius (final fill of marrow cavity)
         init_pad: 30
         use_adaptive_threshold: false
+        morphology_downsample_factor: 3
+        morphology_refine_edges: true
+        morphology_refine_band_voxels: 3
 
       outer:
-        periosteal_threshold: 350  # peri_s1/s3_lower
+        periosteal_threshold: 150  # peri_s1/s3_lower
         periosteal_kernelsize: 16  # peri_s4_close_radius (final smoothing close)
         periosteal_open_radius: 8  # peri_s4_open_radius
         gaussian_sigma: 1.5
@@ -121,34 +139,12 @@ masks:
         init_pad: 15
         fill_holes: true
         use_adaptive_threshold: false  # use fixed threshold like AutocontourKnee
-
-  inner:
-    site: radius
-    endosteal_threshold: 500
-    endosteal_kernelsize: 3
-    morphology_downsample_factor: 1
-    gaussian_sigma: 1.5
-    gaussian_truncate: 1.0
-    peel: 3
-    expansion_depth: [0, 3, 10, 3]
-    trabecular_close_radius: null
-    init_pad: 30
-    use_adaptive_threshold: false
-
-  outer:
-    periosteal_threshold: 300
-    periosteal_kernelsize: 5
-    periosteal_open_radius: 2
-    morphology_downsample_factor: 1
-    gaussian_sigma: 1.5
-    gaussian_truncate: 1.0
-    expansion_depth: [0, 5]
-    init_pad: 15
-    fill_holes: true
-    use_adaptive_threshold: true
+        morphology_downsample_factor: 3
+        morphology_refine_edges: true
+        morphology_refine_band_voxels: 3
 
   segmentation:
-    method: global # global | adaptive
+    method: adaptive # global | adaptive
     enabled: true
     gaussian_sigma: 0.8
     trab_threshold: 320

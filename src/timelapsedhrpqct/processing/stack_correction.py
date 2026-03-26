@@ -226,6 +226,13 @@ def extract_2d_slice(image: sitk.Image, z_index: int) -> sitk.Image:
     )
 
 
+def _clamp_z_index_to_image(image: sitk.Image, z_index: int) -> int:
+    z_size = int(image.GetSize()[2])
+    if z_size <= 0:
+        raise ValueError("Image must have at least one z slice")
+    return int(min(max(int(z_index), 0), z_size - 1))
+
+
 def prepare_boundary_slice_registration_inputs(
     fixed_image: sitk.Image,
     moving_image: sitk.Image,
@@ -239,6 +246,9 @@ def prepare_boundary_slice_registration_inputs(
         fixed_z = fixed_image.GetSize()[2] - 1
     if moving_z == -1:
         moving_z = moving_image.GetSize()[2] - 1
+
+    fixed_z = _clamp_z_index_to_image(fixed_image, fixed_z)
+    moving_z = _clamp_z_index_to_image(moving_image, moving_z)
 
     fixed_slice = extract_2d_slice(fixed_image, fixed_z)
     moving_slice = extract_2d_slice(moving_image, moving_z)
@@ -258,6 +268,7 @@ def prepare_boundary_slice_registration_inputs(
             "moving_boundary": "first_slice",
             "fixed_z_index": int(fixed_z),
             "moving_z_index": int(moving_z),
+            "index_convention": "zero_based",
             "fixed_z_physical": fixed_z_physical,
             "moving_z_physical": moving_z_physical,
             "fixed_size": list(fixed_slice.GetSize()),

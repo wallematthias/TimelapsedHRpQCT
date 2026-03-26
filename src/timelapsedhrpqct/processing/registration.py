@@ -27,6 +27,7 @@ class RegistrationSettings:
     number_of_gradient_measurements: int = 0
     number_of_jacobian_measurements: int = 1000
     initializer: str = "geometry"
+    initial_translation_voxels: tuple[float, float, float] = (0.0, 0.0, 0.0)
     number_of_resolutions: int = 4
     use_masks: bool = True
     debug: bool = False
@@ -154,6 +155,36 @@ def _build_elastix_parameter_object(
 
     else:
         raise ValueError(f"Unsupported initializer: {settings.initializer}")
+
+    if len(settings.initial_translation_voxels) != 3:
+        raise ValueError(
+            "initial_translation_voxels must contain exactly 3 values (x, y, z)"
+        )
+    initial_translation_vox = tuple(float(v) for v in settings.initial_translation_voxels)
+    if any(abs(v) > 0.0 for v in initial_translation_vox):
+        spacing = tuple(float(v) for v in fixed_image.GetSpacing())
+        initial_translation_physical = (
+            initial_translation_vox[0] * spacing[0],
+            initial_translation_vox[1] * spacing[1],
+            initial_translation_vox[2] * spacing[2],
+        )
+
+        if transform_type == "translation":
+            parameter_map["TransformParameters"] = tuple(
+                str(v) for v in initial_translation_physical
+            )
+        else:
+            parameter_map["TransformParameters"] = (
+                "0.0",
+                "0.0",
+                "0.0",
+                str(initial_translation_physical[0]),
+                str(initial_translation_physical[1]),
+                str(initial_translation_physical[2]),
+            )
+
+        # Keep user-provided offset deterministic regardless of initializer.
+        parameter_map["AutomaticTransformInitialization"] = ("false",)
 
     parameter_map["HowToCombineTransforms"] = ("Compose",)
     parameter_map["ITKTransformOutputFileNameExtension"] = ("h5",)
@@ -308,6 +339,31 @@ def register_images(
         settings=settings,
         use_masks=use_masks,
     )
+    init_parameter_map = parameter_object.GetParameterMap(0)
+
+    requested_initial_translation_vox = (
+        float(settings.initial_translation_voxels[0]),
+        float(settings.initial_translation_voxels[1]),
+        float(settings.initial_translation_voxels[2]),
+    )
+    spacing = tuple(float(v) for v in fixed_image.GetSpacing())
+    requested_initial_translation_physical = (
+        requested_initial_translation_vox[0] * spacing[0],
+        requested_initial_translation_vox[1] * spacing[1],
+        requested_initial_translation_vox[2] * spacing[2],
+    )
+    init_transform_parameters = list(init_parameter_map.get("TransformParameters", []))
+
+    if settings.debug:
+        print(
+            "[timelapse]   registration init offset "
+            f"vox={list(requested_initial_translation_vox)} "
+            f"physical={list(requested_initial_translation_physical)}"
+        )
+        print(
+            "[timelapse]   elastix init TransformParameters="
+            f"{init_transform_parameters}"
+        )
 
     registered_itk, result_parameter_object = itk.elastix_registration_method(
         fixed_itk,
@@ -346,6 +402,17 @@ def register_images(
             "number_of_resolutions": settings.number_of_resolutions,
             "interpolator": settings.interpolator,
             "initializer": settings.initializer,
+            "initial_translation_voxels": [
+                float(settings.initial_translation_voxels[0]),
+                float(settings.initial_translation_voxels[1]),
+                float(settings.initial_translation_voxels[2]),
+            ],
+            "initial_translation_physical": [
+                float(requested_initial_translation_physical[0]),
+                float(requested_initial_translation_physical[1]),
+                float(requested_initial_translation_physical[2]),
+            ],
+            "elastix_init_transform_parameters": init_transform_parameters,
             "fixed_mask_used": use_masks,
             "moving_mask_used": use_masks,
             "elastix_transform": parameter_map.get("Transform", ["unknown"])[0],

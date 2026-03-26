@@ -59,6 +59,8 @@ class OuterContourConfig:
     periosteal_kernelsize: int = 5
     periosteal_open_radius: int = 2
     morphology_downsample_factor: int = 1
+    morphology_refine_edges: bool = False
+    morphology_refine_band_voxels: int = 3
     gaussian_sigma: float = 1.5
     gaussian_truncate: float = 1.0
     expansion_depth: list[int] = field(default_factory=lambda: [0, 5])
@@ -73,6 +75,8 @@ class InnerContourConfig:
     endosteal_threshold: float = 500.0
     endosteal_kernelsize: int = 3
     morphology_downsample_factor: int = 1
+    morphology_refine_edges: bool = False
+    morphology_refine_band_voxels: int = 3
     gaussian_sigma: float = 1.5
     gaussian_truncate: float = 1.0
     peel: int = 3
@@ -193,6 +197,7 @@ class TimelapsedRegistrationConfig:
 class MultistackCorrectionConfig:
     enabled: bool = True
     method: str = "superstack"
+    overlap_crop_buffer_voxels: int = 10
 
     transform_type: str = "euler"
     metric: str = "correlation"
@@ -206,6 +211,9 @@ class MultistackCorrectionConfig:
     sigmoid_scale_factor: float = 0.1
     number_of_gradient_measurements: int = 0
     number_of_jacobian_measurements: int = 1000
+    initial_translation_voxels: list[float] = field(
+        default_factory=lambda: [0.0, 0.0, 0.0]
+    )
 
     initializer: str = "geometry"
     number_of_resolutions: int = 4

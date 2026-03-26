@@ -239,6 +239,9 @@ def _default_stack_correction_settings(config: AppConfig) -> RegistrationSetting
         sigmoid_scale_factor=cfg.sigmoid_scale_factor,
         number_of_gradient_measurements=cfg.number_of_gradient_measurements,
         number_of_jacobian_measurements=cfg.number_of_jacobian_measurements,
+        initial_translation_voxels=tuple(
+            float(v) for v in getattr(cfg, "initial_translation_voxels", [0.0, 0.0, 0.0])
+        ),
         initializer=cfg.initializer,
         number_of_resolutions=cfg.number_of_resolutions,
         use_masks=getattr(cfg, "use_masks", True),
@@ -496,12 +499,11 @@ def _estimate_stack_corrections_from_superstacks(
     superstacks: dict[int, dict],
     baseline_session: str,
     settings: RegistrationSettings,
+    overlap_crop_buffer_voxels: int = 10,
 ) -> dict[int, sitk.Transform]:
     adjacent_corrections: dict[int, sitk.Transform] = {
         1: sitk.Transform(3, sitk.sitkIdentity)
     }
-
-    overlap_crop_buffer_voxels = 10
 
     for stack_index in sorted(superstacks):
         if stack_index == 1:
@@ -707,11 +709,11 @@ def _estimate_stack_corrections_from_boundary_slices(
         if settings.debug:
             print(
                 f"[timelapse]     boundary 2D fixed stack-{stack_index - 1:02d} "
-                f"z={slice_meta['fixed_z_index']}"
+                f"z={slice_meta['fixed_z_index']} (0-based)"
             )
             print(
                 f"[timelapse]     boundary 2D moving stack-{stack_index:02d} "
-                f"z={slice_meta['moving_z_index']}"
+                f"z={slice_meta['moving_z_index']} (0-based)"
             )
 
         if (
@@ -898,6 +900,8 @@ def run_stack_correction(
         f"optimizer={settings.optimizer}, "
         f"interpolator={settings.interpolator}, "
         f"initializer={settings.initializer}, "
+        f"init_translation_voxels={list(settings.initial_translation_voxels)}, "
+        f"overlap_crop_buffer_voxels={int(getattr(cfg, 'overlap_crop_buffer_voxels', 10))}, "
         f"sampling={settings.sampling_percentage}, "
         f"resolutions={settings.number_of_resolutions}, "
         f"use_masks={settings.use_masks}"
@@ -968,6 +972,9 @@ def run_stack_correction(
                     superstacks=superstacks,
                     baseline_session=baseline_session,
                     settings=settings,
+                    overlap_crop_buffer_voxels=int(
+                        getattr(cfg, "overlap_crop_buffer_voxels", 10)
+                    ),
                 )
 
                 if cfg.debug:

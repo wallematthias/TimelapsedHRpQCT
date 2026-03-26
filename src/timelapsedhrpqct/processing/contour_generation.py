@@ -25,6 +25,8 @@ class OuterContourParams:
     periosteal_kernelsize: int = 5
     periosteal_open_radius: int = 2
     morphology_downsample_factor: int = 1
+    morphology_refine_edges: bool = False
+    morphology_refine_band_voxels: int = 3
     gaussian_sigma: float = 1.5
     gaussian_truncate: float = 1.0
     expansion_depth: tuple[int, int] = (0, 5)
@@ -39,6 +41,8 @@ class InnerContourParams:
     endosteal_threshold: float = 500.0
     endosteal_kernelsize: int = 3
     morphology_downsample_factor: int = 1
+    morphology_refine_edges: bool = False
+    morphology_refine_band_voxels: int = 3
     gaussian_sigma: float = 1.5
     gaussian_truncate: float = 1.0
     peel: int = 3
@@ -294,6 +298,96 @@ def _binary_resample(mask: sitk.Image, size: list[int], spacing: tuple[float, fl
     )
 
 
+def _crop_image_from_binary_mask(
+    image: sitk.Image,
+    mask: sitk.Image,
+    margin: int = 0,
+) -> tuple[sitk.Image, tuple[int, int, int]] | None:
+    mask_xyz = sitk_binary_to_numpy_xyz(mask)
+    if not np.any(mask_xyz):
+        return None
+
+    bbox = _expand_slices(
+        _boundingbox_from_mask(mask_xyz),
+        mask_xyz.shape,
+        int(margin),
+        int(margin),
+        int(margin),
+    )
+    index = (int(bbox[0].start), int(bbox[1].start), int(bbox[2].start))
+    size = [
+        int(bbox[0].stop - bbox[0].start),
+        int(bbox[1].stop - bbox[1].start),
+        int(bbox[2].stop - bbox[2].start),
+    ]
+    cropped = sitk.RegionOfInterest(image, size=size, index=list(index))
+    return cropped, index
+
+
+def _paste_cropped_region(
+    base: sitk.Image,
+    cropped: sitk.Image,
+    index: tuple[int, int, int],
+) -> sitk.Image:
+    return sitk.Paste(
+        sitk.Cast(base > 0, sitk.sitkUInt8),
+        sitk.Cast(cropped > 0, sitk.sitkUInt8),
+        destinationIndex=[int(index[0]), int(index[1]), int(index[2])],
+        sourceSize=list(cropped.GetSize()),
+        sourceIndex=[0, 0, 0],
+    )
+
+
+def _refine_downsampled_edges(
+    base_mask: sitk.Image,
+    coarse_result: sitk.Image,
+    radius: int,
+    operation: Any,
+    band_voxels: int,
+) -> tuple[sitk.Image, dict[str, int]]:
+    radius = int(radius)
+    band_voxels = max(1, int(band_voxels))
+    coarse_u8 = sitk.Cast(coarse_result > 0, sitk.sitkUInt8)
+
+    dist = sitk.SignedMaurerDistanceMap(
+        coarse_u8,
+        insideIsPositive=False,
+        squaredDistance=False,
+        useImageSpacing=False,
+    )
+    band_mask = sitk.Cast(sitk.Abs(dist) <= float(band_voxels), sitk.sitkUInt8)
+
+    cropped = _crop_image_from_binary_mask(base_mask, band_mask, margin=max(radius, band_voxels))
+    if cropped is None:
+        return coarse_u8, {
+            "band_voxels": int(_sitk_binary_sum(band_mask)),
+            "changed_voxels": 0,
+            "refined_positive_voxels": int(_sitk_binary_sum(coarse_u8)),
+        }
+    base_crop, index = cropped
+
+    full_crop = operation(base_crop, radius)
+
+    band_crop = sitk.RegionOfInterest(band_mask, size=list(base_crop.GetSize()), index=list(index))
+
+    coarse_crop = sitk.RegionOfInterest(coarse_u8, size=list(base_crop.GetSize()), index=list(index))
+    blended_crop = sitk.Cast(
+        sitk.Or(
+            sitk.And(band_crop > 0, sitk.Cast(full_crop > 0, sitk.sitkUInt8) > 0),
+            sitk.And(sitk.Not(band_crop > 0), coarse_crop > 0),
+        ),
+        sitk.sitkUInt8,
+    )
+    refined = _paste_cropped_region(coarse_u8, blended_crop, index)
+    changed = sitk.Cast(sitk.Xor(refined > 0, coarse_u8 > 0), sitk.sitkUInt8)
+    refined_in_band = sitk.Cast(sitk.And(refined > 0, band_mask > 0), sitk.sitkUInt8)
+    return refined, {
+        "band_voxels": int(_sitk_binary_sum(band_mask)),
+        "changed_voxels": int(_sitk_binary_sum(changed)),
+        "refined_positive_voxels": int(_sitk_binary_sum(refined_in_band)),
+    }
+
+
 def _downsample_binary_mask(mask: sitk.Image, downsample_factor: int) -> sitk.Image:
     factor = _normalize_downsample_factor(downsample_factor)
     mask_u8 = sitk.Cast(mask > 0, sitk.sitkUInt8)
@@ -334,6 +428,10 @@ def _maybe_downsampled_binary_op(
     radius: int,
     downsample_factor: int,
     operation: Any,
+    refine_edges: bool = False,
+    refine_band_voxels: int = 3,
+    refine_stats: dict[str, dict[str, int]] | None = None,
+    refine_stats_key: str = "operation",
 ) -> sitk.Image:
     factor = _normalize_downsample_factor(downsample_factor)
     mask_u8 = sitk.Cast(mask > 0, sitk.sitkUInt8)
@@ -343,7 +441,31 @@ def _maybe_downsampled_binary_op(
     lowres_mask = _downsample_binary_mask(mask_u8, factor)
     lowres_radius = _scaled_radius(int(radius), factor)
     result_lowres = operation(lowres_mask, lowres_radius)
-    return _upsample_binary_mask(result_lowres, mask_u8)
+    result_full = _upsample_binary_mask(result_lowres, mask_u8)
+    if refine_edges and int(radius) > 0:
+        refined, stats = _refine_downsampled_edges(
+            base_mask=mask_u8,
+            coarse_result=result_full,
+            radius=int(radius),
+            operation=operation,
+            band_voxels=int(refine_band_voxels),
+        )
+        if refine_stats is not None:
+            bucket = refine_stats.setdefault(
+                str(refine_stats_key),
+                {
+                    "calls": 0,
+                    "band_voxels": 0,
+                    "changed_voxels": 0,
+                    "refined_positive_voxels": 0,
+                },
+            )
+            bucket["calls"] += 1
+            bucket["band_voxels"] += int(stats["band_voxels"])
+            bucket["changed_voxels"] += int(stats["changed_voxels"])
+            bucket["refined_positive_voxels"] += int(stats["refined_positive_voxels"])
+        return refined
+    return result_full
 
 
 def _sitk_binary_dilate_native(mask: sitk.Image, radius: int) -> sitk.Image:
@@ -352,8 +474,25 @@ def _sitk_binary_dilate_native(mask: sitk.Image, radius: int) -> sitk.Image:
     return _morphology_safe_crop(dilated, pad)
 
 
-def _sitk_binary_dilate(mask: sitk.Image, radius: int, downsample_factor: int = 1) -> sitk.Image:
-    return _maybe_downsampled_binary_op(mask, radius, downsample_factor, _sitk_binary_dilate_native)
+def _sitk_binary_dilate(
+    mask: sitk.Image,
+    radius: int,
+    downsample_factor: int = 1,
+    refine_edges: bool = False,
+    refine_band_voxels: int = 3,
+    refine_stats: dict[str, dict[str, int]] | None = None,
+    refine_stats_key: str = "binary_dilate",
+) -> sitk.Image:
+    return _maybe_downsampled_binary_op(
+        mask,
+        radius,
+        downsample_factor,
+        _sitk_binary_dilate_native,
+        refine_edges=refine_edges,
+        refine_band_voxels=refine_band_voxels,
+        refine_stats=refine_stats,
+        refine_stats_key=refine_stats_key,
+    )
 
 
 def _sitk_binary_erode_native(mask: sitk.Image, radius: int) -> sitk.Image:
@@ -362,8 +501,88 @@ def _sitk_binary_erode_native(mask: sitk.Image, radius: int) -> sitk.Image:
     return _morphology_safe_crop(eroded, pad)
 
 
-def _sitk_binary_erode(mask: sitk.Image, radius: int, downsample_factor: int = 1) -> sitk.Image:
-    return _maybe_downsampled_binary_op(mask, radius, downsample_factor, _sitk_binary_erode_native)
+def _sitk_binary_erode(
+    mask: sitk.Image,
+    radius: int,
+    downsample_factor: int = 1,
+    refine_edges: bool = False,
+    refine_band_voxels: int = 3,
+    refine_stats: dict[str, dict[str, int]] | None = None,
+    refine_stats_key: str = "binary_erode",
+) -> sitk.Image:
+    return _maybe_downsampled_binary_op(
+        mask,
+        radius,
+        downsample_factor,
+        _sitk_binary_erode_native,
+        refine_edges=refine_edges,
+        refine_band_voxels=refine_band_voxels,
+        refine_stats=refine_stats,
+        refine_stats_key=refine_stats_key,
+    )
+
+
+def _sitk_binary_erode_xy(mask: sitk.Image, radius_xy: int) -> sitk.Image:
+    """Erode in-plane only (x/y), preserving terminal z slices."""
+    radius_xy = int(radius_xy)
+    if radius_xy <= 0:
+        return sitk.Cast(mask > 0, sitk.sitkUInt8)
+    padded = sitk.MirrorPad(sitk.Cast(mask > 0, sitk.sitkUInt8), [radius_xy, radius_xy, 0], [radius_xy, radius_xy, 0])
+    eroded = sitk.BinaryErode(padded, [radius_xy, radius_xy, 0], sitk.sitkBall, 0, 1)
+    return sitk.Crop(sitk.Cast(eroded > 0, sitk.sitkUInt8), [radius_xy, radius_xy, 0], [radius_xy, radius_xy, 0])
+
+
+def _sitk_binary_dilate_xy(mask: sitk.Image, radius_xy: int) -> sitk.Image:
+    radius_xy = int(radius_xy)
+    if radius_xy <= 0:
+        return sitk.Cast(mask > 0, sitk.sitkUInt8)
+    padded = sitk.MirrorPad(sitk.Cast(mask > 0, sitk.sitkUInt8), [radius_xy, radius_xy, 0], [radius_xy, radius_xy, 0])
+    dilated = sitk.BinaryDilate(padded, [radius_xy, radius_xy, 0], sitk.sitkBall, 0, 1)
+    return sitk.Crop(sitk.Cast(dilated > 0, sitk.sitkUInt8), [radius_xy, radius_xy, 0], [radius_xy, radius_xy, 0])
+
+
+def _sitk_binary_opening_xy(mask: sitk.Image, radius_xy: int) -> sitk.Image:
+    radius_xy = int(radius_xy)
+    if radius_xy <= 0:
+        return sitk.Cast(mask > 0, sitk.sitkUInt8)
+    padded = sitk.MirrorPad(sitk.Cast(mask > 0, sitk.sitkUInt8), [radius_xy, radius_xy, 0], [radius_xy, radius_xy, 0])
+    opened = sitk.BinaryMorphologicalOpening(padded, [radius_xy, radius_xy, 0], sitk.sitkBall, 0, 1)
+    return sitk.Crop(sitk.Cast(opened > 0, sitk.sitkUInt8), [radius_xy, radius_xy, 0], [radius_xy, radius_xy, 0])
+
+
+def _sitk_binary_closing_xy(mask: sitk.Image, radius_xy: int) -> sitk.Image:
+    radius_xy = int(radius_xy)
+    if radius_xy <= 0:
+        return sitk.Cast(mask > 0, sitk.sitkUInt8)
+    padded = sitk.MirrorPad(sitk.Cast(mask > 0, sitk.sitkUInt8), [radius_xy, radius_xy, 0], [radius_xy, radius_xy, 0])
+    closed = sitk.BinaryMorphologicalClosing(padded, [radius_xy, radius_xy, 0], sitk.sitkBall, 1)
+    return sitk.Crop(sitk.Cast(closed > 0, sitk.sitkUInt8), [radius_xy, radius_xy, 0], [radius_xy, radius_xy, 0])
+
+
+def _sitk_open_with_connected_components_xy(mask: sitk.Image, radius_xy: int) -> sitk.Image:
+    radius_xy = int(radius_xy)
+    if radius_xy <= 0:
+        return sitk.Cast(mask > 0, sitk.sitkUInt8)
+    eroded = _sitk_binary_erode_xy(mask, radius_xy)
+    eroded = _sitk_largest_connected_component(eroded)
+    return _sitk_binary_dilate_xy(eroded, radius_xy)
+
+
+def _restore_terminal_slices(mask: sitk.Image, seed: sitk.Image) -> sitk.Image:
+    """Restore first/last z slices if morphology removed only terminal support."""
+    mask_xyz = sitk_binary_to_numpy_xyz(mask)
+    seed_xyz = sitk_binary_to_numpy_xyz(seed)
+    if mask_xyz.shape[2] < 2:
+        return sitk.Cast(mask > 0, sitk.sitkUInt8)
+
+    if (not np.any(mask_xyz[:, :, 0])) and np.any(mask_xyz[:, :, 1]) and np.any(seed_xyz[:, :, 0]):
+        mask_xyz[:, :, 0] = seed_xyz[:, :, 0]
+
+    last = mask_xyz.shape[2] - 1
+    if (not np.any(mask_xyz[:, :, last])) and np.any(mask_xyz[:, :, last - 1]) and np.any(seed_xyz[:, :, last]):
+        mask_xyz[:, :, last] = seed_xyz[:, :, last]
+
+    return numpy_xyz_bool_to_sitk(mask_xyz, spacing_xyz=mask.GetSpacing())
 
 
 def _sitk_binary_closing_native(mask: sitk.Image, radius: int) -> sitk.Image:
@@ -372,8 +591,25 @@ def _sitk_binary_closing_native(mask: sitk.Image, radius: int) -> sitk.Image:
     return _morphology_safe_crop(closed, pad)
 
 
-def _sitk_binary_closing(mask: sitk.Image, radius: int, downsample_factor: int = 1) -> sitk.Image:
-    return _maybe_downsampled_binary_op(mask, radius, downsample_factor, _sitk_binary_closing_native)
+def _sitk_binary_closing(
+    mask: sitk.Image,
+    radius: int,
+    downsample_factor: int = 1,
+    refine_edges: bool = False,
+    refine_band_voxels: int = 3,
+    refine_stats: dict[str, dict[str, int]] | None = None,
+    refine_stats_key: str = "binary_closing",
+) -> sitk.Image:
+    return _maybe_downsampled_binary_op(
+        mask,
+        radius,
+        downsample_factor,
+        _sitk_binary_closing_native,
+        refine_edges=refine_edges,
+        refine_band_voxels=refine_band_voxels,
+        refine_stats=refine_stats,
+        refine_stats_key=refine_stats_key,
+    )
 
 
 def _sitk_binary_opening_native(mask: sitk.Image, radius: int) -> sitk.Image:
@@ -382,8 +618,25 @@ def _sitk_binary_opening_native(mask: sitk.Image, radius: int) -> sitk.Image:
     return _morphology_safe_crop(opened, pad)
 
 
-def _sitk_binary_opening(mask: sitk.Image, radius: int, downsample_factor: int = 1) -> sitk.Image:
-    return _maybe_downsampled_binary_op(mask, radius, downsample_factor, _sitk_binary_opening_native)
+def _sitk_binary_opening(
+    mask: sitk.Image,
+    radius: int,
+    downsample_factor: int = 1,
+    refine_edges: bool = False,
+    refine_band_voxels: int = 3,
+    refine_stats: dict[str, dict[str, int]] | None = None,
+    refine_stats_key: str = "binary_opening",
+) -> sitk.Image:
+    return _maybe_downsampled_binary_op(
+        mask,
+        radius,
+        downsample_factor,
+        _sitk_binary_opening_native,
+        refine_edges=refine_edges,
+        refine_band_voxels=refine_band_voxels,
+        refine_stats=refine_stats,
+        refine_stats_key=refine_stats_key,
+    )
 
 
 def _sitk_close_with_connected_components_native(mask: sitk.Image, radius: int) -> sitk.Image:
@@ -396,8 +649,25 @@ def _sitk_close_with_connected_components_native(mask: sitk.Image, radius: int) 
     return _sitk_binary_erode_native(foreground, radius)
 
 
-def _sitk_close_with_connected_components(mask: sitk.Image, radius: int, downsample_factor: int = 1) -> sitk.Image:
-    return _maybe_downsampled_binary_op(mask, radius, downsample_factor, _sitk_close_with_connected_components_native)
+def _sitk_close_with_connected_components(
+    mask: sitk.Image,
+    radius: int,
+    downsample_factor: int = 1,
+    refine_edges: bool = False,
+    refine_band_voxels: int = 3,
+    refine_stats: dict[str, dict[str, int]] | None = None,
+    refine_stats_key: str = "close_with_connected_components",
+) -> sitk.Image:
+    return _maybe_downsampled_binary_op(
+        mask,
+        radius,
+        downsample_factor,
+        _sitk_close_with_connected_components_native,
+        refine_edges=refine_edges,
+        refine_band_voxels=refine_band_voxels,
+        refine_stats=refine_stats,
+        refine_stats_key=refine_stats_key,
+    )
 
 
 def _sitk_open_with_connected_components_native(mask: sitk.Image, radius: int) -> sitk.Image:
@@ -408,8 +678,25 @@ def _sitk_open_with_connected_components_native(mask: sitk.Image, radius: int) -
     return _sitk_binary_dilate_native(eroded, radius)
 
 
-def _sitk_open_with_connected_components(mask: sitk.Image, radius: int, downsample_factor: int = 1) -> sitk.Image:
-    return _maybe_downsampled_binary_op(mask, radius, downsample_factor, _sitk_open_with_connected_components_native)
+def _sitk_open_with_connected_components(
+    mask: sitk.Image,
+    radius: int,
+    downsample_factor: int = 1,
+    refine_edges: bool = False,
+    refine_band_voxels: int = 3,
+    refine_stats: dict[str, dict[str, int]] | None = None,
+    refine_stats_key: str = "open_with_connected_components",
+) -> sitk.Image:
+    return _maybe_downsampled_binary_op(
+        mask,
+        radius,
+        downsample_factor,
+        _sitk_open_with_connected_components_native,
+        refine_edges=refine_edges,
+        refine_band_voxels=refine_band_voxels,
+        refine_stats=refine_stats,
+        refine_stats_key=refine_stats_key,
+    )
 
 
 def _sitk_extract_large_regions(mask: sitk.Image, min_voxels: int) -> sitk.Image:
@@ -556,7 +843,7 @@ def outer_contour(
     spacing_xyz: tuple[float, float, float] | None = None,
     options: dict[str, Any] | None = None,
     verbose: bool = False,
-) -> np.ndarray:
+) -> tuple[np.ndarray, dict[str, Any]]:
     """
     Generate the periosteal / full mask.
 
@@ -571,7 +858,14 @@ def outer_contour(
     started = time.perf_counter()
     nonzero_mask = density_xyz > 0
     if not np.any(nonzero_mask):
-        return np.zeros_like(density_xyz, dtype=bool)
+        return np.zeros_like(density_xyz, dtype=bool), {
+            "enabled": False,
+            "downsample_factor": 1,
+            "band_voxels": 0,
+            "changed_voxels": 0,
+            "refined_positive_voxels": 0,
+            "operations": {},
+        }
 
     bb = _expand_slices(
         _boundingbox_from_mask(nonzero_mask),
@@ -585,6 +879,9 @@ def outer_contour(
 
     image_sitk = numpy_xyz_to_sitk_scalar(density_cropped, spacing_xyz=spacing_xyz)
     morphology_downsample_factor = _normalize_downsample_factor(opt.get("morphology_downsample_factor", 1))
+    morphology_refine_edges = bool(opt.get("morphology_refine_edges", False))
+    morphology_refine_band_voxels = int(opt.get("morphology_refine_band_voxels", 3))
+    morphology_refine_stats: dict[str, dict[str, int]] = {}
     filtered = _sitk_gaussian(
         image_sitk,
         sigma=float(opt["gaussian_sigma"]),
@@ -601,28 +898,58 @@ def outer_contour(
     started = _log_step(verbose, "outer threshold", started)
 
     thresholded = sitk.Mask(thresholded, _sitk_binary_threshold(image_sitk, lower=1.0))
+    thresholded_seed = sitk.Cast(thresholded > 0, sitk.sitkUInt8)
     thresholded = _sitk_largest_connected_component(thresholded)
     thresholded = _sitk_close_with_connected_components(
         thresholded,
         int(opt["periosteal_kernelsize"]),
         downsample_factor=morphology_downsample_factor,
+        refine_edges=morphology_refine_edges,
+        refine_band_voxels=morphology_refine_band_voxels,
+        refine_stats=morphology_refine_stats,
+        refine_stats_key="periosteal_close",
     )
     thresholded = _sitk_binary_opening(
         thresholded,
         int(opt.get("periosteal_open_radius", 0)),
         downsample_factor=morphology_downsample_factor,
+        refine_edges=morphology_refine_edges,
+        refine_band_voxels=morphology_refine_band_voxels,
+        refine_stats=morphology_refine_stats,
+        refine_stats_key="periosteal_open",
     )
     started = _log_step(verbose, "outer morphology", started)
 
     if bool(opt.get("fill_holes", True)):
         thresholded = sitk.BinaryFillhole(thresholded, fullyConnected=True, foregroundValue=1)
+    thresholded = _restore_terminal_slices(thresholded, thresholded_seed)
     started = _log_step(verbose, "outer fill holes", started)
 
     mask_xyz = sitk_binary_to_numpy_xyz(thresholded)
     shapeholder = np.zeros_like(density_xyz, dtype=bool)
     shapeholder[bb] = mask_xyz
+
+    total_band_voxels = int(sum(v["band_voxels"] for v in morphology_refine_stats.values()))
+    total_changed_voxels = int(sum(v["changed_voxels"] for v in morphology_refine_stats.values()))
+    total_refined_positive_voxels = int(sum(v["refined_positive_voxels"] for v in morphology_refine_stats.values()))
+    refine_metadata: dict[str, Any] = {
+        "enabled": bool(morphology_refine_edges and morphology_downsample_factor > 1),
+        "downsample_factor": int(morphology_downsample_factor),
+        "band_voxels": total_band_voxels,
+        "changed_voxels": total_changed_voxels,
+        "refined_positive_voxels": total_refined_positive_voxels,
+        "operations": morphology_refine_stats,
+    }
+
+    if verbose and refine_metadata["enabled"]:
+        print(
+            "[contour] outer edge refinement "
+            f"band={refine_metadata['band_voxels']} "
+            f"changed={refine_metadata['changed_voxels']}"
+        )
+
     _log_step(verbose, "outer total", started)
-    return _ensure_bool(shapeholder)
+    return _ensure_bool(shapeholder), refine_metadata
 
 
 def inner_contour(
@@ -697,11 +1024,7 @@ def inner_contour(
     cortical_mask = sitk.Mask(cortical_mask, peri_mask)
 
     peel = int(opt["peel"])
-    peri_eroded = (
-        _sitk_binary_erode(peri_mask, peel, downsample_factor=morphology_downsample_factor)
-        if peel > 0
-        else peri_mask
-    )
+    peri_eroded = _sitk_binary_erode_xy(peri_mask, peel) if peel > 0 else peri_mask
 
     endo = sitk.Cast(sitk.And(peri_mask > 0, sitk.Not(cortical_mask > 0)), sitk.sitkUInt8)
     endo = sitk.Mask(endo, peri_eroded)
@@ -713,43 +1036,27 @@ def inner_contour(
 
     trab = sitk.Cast(sitk.And(peri_mask > 0, sitk.Not(cortical_region > 0)), sitk.sitkUInt8)
     trab = _sitk_largest_connected_component(trab)
-    trab = _sitk_open_with_connected_components(
-        trab,
-        int(opt["endosteal_kernelsize"]),
-        downsample_factor=morphology_downsample_factor,
-    )
+    trab = _sitk_open_with_connected_components_xy(trab, int(opt["endosteal_kernelsize"]))
     started = _log_step(verbose, "inner trab seed", started)
 
     if trabecular_close_radius > 0:
-        trab = _sitk_binary_closing(
-            trab,
-            trabecular_close_radius,
-            downsample_factor=morphology_downsample_factor,
-        )
-        trab_open = _sitk_binary_opening(
-            trab,
-            trabecular_close_radius,
-            downsample_factor=morphology_downsample_factor,
-        )
+        trab = _sitk_binary_closing_xy(trab, trabecular_close_radius)
+        trab_open = _sitk_binary_opening_xy(trab, trabecular_close_radius)
     else:
         trab_open = trab
     started = _log_step(verbose, "inner trab close/open", started)
 
     corners = sitk.Cast(sitk.And(trab > 0, sitk.Not(trab_open > 0)), sitk.sitkUInt8)
-    corners = _sitk_binary_erode(corners, 3, downsample_factor=morphology_downsample_factor)
+    corners = _sitk_binary_erode_xy(corners, 3)
     corners = _sitk_extract_large_regions(corners, 64)
-    corners = _sitk_binary_dilate(corners, 3, downsample_factor=morphology_downsample_factor)
+    corners = _sitk_binary_dilate_xy(corners, 3)
     corners = _sitk_extract_large_regions(corners, 64)
     started = _log_step(verbose, "inner corners", started)
 
     trab = sitk.Cast(sitk.Or(trab > 0, trab_open > 0), sitk.sitkUInt8)
     trab = sitk.Cast(sitk.Or(trab > 0, corners > 0), sitk.sitkUInt8)
     if trabecular_close_radius > 0:
-        trab = _sitk_binary_closing(
-            trab,
-            trabecular_close_radius,
-            downsample_factor=morphology_downsample_factor,
-        )
+        trab = _sitk_binary_closing_xy(trab, trabecular_close_radius)
     trab = sitk.Mask(trab, peri_eroded)
 
     cort = sitk.Cast(sitk.And(peri_mask > 0, sitk.Not(trab > 0)), sitk.sitkUInt8)
@@ -784,7 +1091,7 @@ def generate_masks_from_image(
     spacing_xyz = tuple(float(v) for v in image.GetSpacing())
     started = _log_step(verbose, "image to numpy", started)
 
-    full_xyz = outer_contour(
+    full_xyz, outer_refine_meta = outer_contour(
         image_xyz,
         spacing_xyz=spacing_xyz,
         options=asdict(params.outer),
@@ -845,6 +1152,7 @@ def generate_masks_from_image(
             "cort": _sitk_binary_sum(cort_sitk),
         },
         "outer_params": asdict(params.outer),
+        "outer_edge_refinement": outer_refine_meta,
         "inner_params": asdict(params.inner),
         "segmentation_params": asdict(params.segmentation),
     }

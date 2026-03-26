@@ -138,6 +138,30 @@ def test_prepare_boundary_slice_registration_inputs_uses_mask_extent_boundaries(
     assert moving_slice.GetDimension() == 2
     assert fixed_mask_slice is not None
     assert moving_mask_slice is not None
+    assert meta["index_convention"] == "zero_based"
+
+
+def test_prepare_boundary_slice_registration_inputs_clamps_out_of_bounds_mask_extent() -> None:
+    fixed = _float_image_with_size((8, 8, 12))
+    moving = _float_image_with_size((8, 8, 12))
+
+    # Deliberately provide masks with a larger z extent than the images.
+    oversize = np.ones((20, 8, 8), dtype=np.uint8)
+    fixed_mask = sitk.GetImageFromArray(oversize)
+    moving_mask = sitk.GetImageFromArray(oversize)
+
+    fixed_slice, moving_slice, _, _, meta = prepare_boundary_slice_registration_inputs(
+        fixed_image=fixed,
+        moving_image=moving,
+        fixed_mask=fixed_mask,
+        moving_mask=moving_mask,
+    )
+
+    assert meta["fixed_z_index"] == 11
+    assert meta["moving_z_index"] == 0
+    assert meta["index_convention"] == "zero_based"
+    assert fixed_slice.GetDimension() == 2
+    assert moving_slice.GetDimension() == 2
 
 
 def test_embed_2d_transform_in_3d_keeps_in_plane_motion_only() -> None:
