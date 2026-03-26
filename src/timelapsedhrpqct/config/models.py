@@ -58,6 +58,7 @@ class OuterContourConfig:
     periosteal_threshold: float = 300.0
     periosteal_kernelsize: int = 5
     periosteal_open_radius: int = 2
+    morphology_downsample_factor: int = 1
     gaussian_sigma: float = 1.5
     gaussian_truncate: float = 1.0
     expansion_depth: list[int] = field(default_factory=lambda: [0, 5])
@@ -71,6 +72,7 @@ class InnerContourConfig:
     site: str = "misc"
     endosteal_threshold: float = 500.0
     endosteal_kernelsize: int = 3
+    morphology_downsample_factor: int = 1
     gaussian_sigma: float = 1.5
     gaussian_truncate: float = 1.0
     peel: int = 3
@@ -116,6 +118,7 @@ class MasksConfig:
                 "inner": {
                     "endosteal_threshold": 450,
                     "endosteal_kernelsize": 3,
+                    "morphology_downsample_factor": 1,
                     "gaussian_sigma": 1.5,
                     "gaussian_truncate": 1.0,
                     "peel": 3,
@@ -128,6 +131,7 @@ class MasksConfig:
                 "inner": {
                     "endosteal_threshold": 450,
                     "endosteal_kernelsize": 3,
+                    "morphology_downsample_factor": 1,
                     "gaussian_sigma": 1.5,
                     "gaussian_truncate": 1.0,
                     "peel": 3,
@@ -140,6 +144,7 @@ class MasksConfig:
                 "inner": {
                     "endosteal_threshold": 450,
                     "endosteal_kernelsize": 3,
+                    "morphology_downsample_factor": 1,
                     "gaussian_sigma": 1.5,
                     "gaussian_truncate": 1.0,
                     "peel": 3,

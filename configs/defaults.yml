@@ -126,6 +126,7 @@ masks:
     site: radius
     endosteal_threshold: 500
     endosteal_kernelsize: 3
+    morphology_downsample_factor: 1
     gaussian_sigma: 1.5
     gaussian_truncate: 1.0
     peel: 3
@@ -133,6 +134,18 @@ masks:
     trabecular_close_radius: null
     init_pad: 30
     use_adaptive_threshold: false
+
+  outer:
+    periosteal_threshold: 300
+    periosteal_kernelsize: 5
+    periosteal_open_radius: 2
+    morphology_downsample_factor: 1
+    gaussian_sigma: 1.5
+    gaussian_truncate: 1.0
+    expansion_depth: [0, 5]
+    init_pad: 15
+    fill_holes: true
+    use_adaptive_threshold: true
 
   segmentation:
     method: global # global | adaptive

@@ -24,6 +24,7 @@ class OuterContourParams:
     periosteal_threshold: float = 300.0
     periosteal_kernelsize: int = 5
     periosteal_open_radius: int = 2
+    morphology_downsample_factor: int = 1
     gaussian_sigma: float = 1.5
     gaussian_truncate: float = 1.0
     expansion_depth: tuple[int, int] = (0, 5)
@@ -37,6 +38,7 @@ class InnerContourParams:
     site: str = "misc"
     endosteal_threshold: float = 500.0
     endosteal_kernelsize: int = 3
+    morphology_downsample_factor: int = 1
     gaussian_sigma: float = 1.5
     gaussian_truncate: float = 1.0
     peel: int = 3
@@ -265,46 +267,149 @@ def _morphology_safe_crop(mask: sitk.Image, pad: list[int]) -> sitk.Image:
     return sitk.Crop(sitk.Cast(mask > 0, sitk.sitkUInt8), pad, pad)
 
 
-def _sitk_binary_dilate(mask: sitk.Image, radius: int) -> sitk.Image:
+def _normalize_downsample_factor(value: int | None) -> int:
+    return max(1, int(value or 1))
+
+
+def _scaled_radius(radius: int, downsample_factor: int) -> int:
+    return max(1, int(np.ceil(float(radius) / float(downsample_factor))))
+
+
+def _binary_resample(mask: sitk.Image, size: list[int], spacing: tuple[float, float, float]) -> sitk.Image:
+    mask_u8 = sitk.Cast(mask > 0, sitk.sitkUInt8)
+    return sitk.Cast(
+        sitk.Resample(
+            mask_u8,
+            [int(v) for v in size],
+            sitk.Transform(),
+            sitk.sitkNearestNeighbor,
+            mask_u8.GetOrigin(),
+            tuple(float(v) for v in spacing),
+            mask_u8.GetDirection(),
+            0,
+            sitk.sitkUInt8,
+        )
+        > 0,
+        sitk.sitkUInt8,
+    )
+
+
+def _downsample_binary_mask(mask: sitk.Image, downsample_factor: int) -> sitk.Image:
+    factor = _normalize_downsample_factor(downsample_factor)
+    mask_u8 = sitk.Cast(mask > 0, sitk.sitkUInt8)
+    if factor <= 1:
+        return mask_u8
+
+    size = list(mask_u8.GetSize())
+    downsampled_size = [max(1, int(np.ceil(float(axis) / float(factor)))) for axis in size]
+    if downsampled_size == size:
+        return mask_u8
+
+    spacing = tuple(float(v) for v in mask_u8.GetSpacing())
+    downsampled_spacing = tuple(
+        spacing[axis] * float(size[axis]) / float(downsampled_size[axis])
+        for axis in range(3)
+    )
+    return _binary_resample(mask_u8, downsampled_size, downsampled_spacing)
+
+
+def _upsample_binary_mask(mask: sitk.Image, reference: sitk.Image) -> sitk.Image:
+    reference_u8 = sitk.Cast(reference > 0, sitk.sitkUInt8)
+    return sitk.Cast(
+        sitk.Resample(
+            sitk.Cast(mask > 0, sitk.sitkUInt8),
+            reference_u8,
+            sitk.Transform(),
+            sitk.sitkNearestNeighbor,
+            0,
+            sitk.sitkUInt8,
+        )
+        > 0,
+        sitk.sitkUInt8,
+    )
+
+
+def _maybe_downsampled_binary_op(
+    mask: sitk.Image,
+    radius: int,
+    downsample_factor: int,
+    operation: Any,
+) -> sitk.Image:
+    factor = _normalize_downsample_factor(downsample_factor)
+    mask_u8 = sitk.Cast(mask > 0, sitk.sitkUInt8)
+    if radius <= 0 or factor <= 1:
+        return operation(mask_u8, int(radius))
+
+    lowres_mask = _downsample_binary_mask(mask_u8, factor)
+    lowres_radius = _scaled_radius(int(radius), factor)
+    result_lowres = operation(lowres_mask, lowres_radius)
+    return _upsample_binary_mask(result_lowres, mask_u8)
+
+
+def _sitk_binary_dilate_native(mask: sitk.Image, radius: int) -> sitk.Image:
     padded, pad = _morphology_safe_pad(mask, radius)
     dilated = sitk.BinaryDilate(padded, [int(radius)] * 3, sitk.sitkBall, 0, 1)
     return _morphology_safe_crop(dilated, pad)
 
 
-def _sitk_binary_erode(mask: sitk.Image, radius: int) -> sitk.Image:
+def _sitk_binary_dilate(mask: sitk.Image, radius: int, downsample_factor: int = 1) -> sitk.Image:
+    return _maybe_downsampled_binary_op(mask, radius, downsample_factor, _sitk_binary_dilate_native)
+
+
+def _sitk_binary_erode_native(mask: sitk.Image, radius: int) -> sitk.Image:
     padded, pad = _morphology_safe_pad(mask, radius)
     eroded = sitk.BinaryErode(padded, [int(radius)] * 3, sitk.sitkBall, 0, 1)
     return _morphology_safe_crop(eroded, pad)
 
 
-def _sitk_binary_closing(mask: sitk.Image, radius: int) -> sitk.Image:
+def _sitk_binary_erode(mask: sitk.Image, radius: int, downsample_factor: int = 1) -> sitk.Image:
+    return _maybe_downsampled_binary_op(mask, radius, downsample_factor, _sitk_binary_erode_native)
+
+
+def _sitk_binary_closing_native(mask: sitk.Image, radius: int) -> sitk.Image:
     padded, pad = _morphology_safe_pad(mask, radius)
     closed = sitk.BinaryMorphologicalClosing(padded, [int(radius)] * 3, sitk.sitkBall, 1)
     return _morphology_safe_crop(closed, pad)
 
 
-def _sitk_binary_opening(mask: sitk.Image, radius: int) -> sitk.Image:
+def _sitk_binary_closing(mask: sitk.Image, radius: int, downsample_factor: int = 1) -> sitk.Image:
+    return _maybe_downsampled_binary_op(mask, radius, downsample_factor, _sitk_binary_closing_native)
+
+
+def _sitk_binary_opening_native(mask: sitk.Image, radius: int) -> sitk.Image:
     padded, pad = _morphology_safe_pad(mask, radius)
     opened = sitk.BinaryMorphologicalOpening(padded, [int(radius)] * 3, sitk.sitkBall, 0, 1)
     return _morphology_safe_crop(opened, pad)
 
 
-def _sitk_close_with_connected_components(mask: sitk.Image, radius: int) -> sitk.Image:
+def _sitk_binary_opening(mask: sitk.Image, radius: int, downsample_factor: int = 1) -> sitk.Image:
+    return _maybe_downsampled_binary_op(mask, radius, downsample_factor, _sitk_binary_opening_native)
+
+
+def _sitk_close_with_connected_components_native(mask: sitk.Image, radius: int) -> sitk.Image:
     if radius <= 0:
         return sitk.Cast(mask > 0, sitk.sitkUInt8)
-    dilated = _sitk_binary_dilate(mask, radius)
+    dilated = _sitk_binary_dilate_native(mask, radius)
     background = _sitk_invert_binary(dilated)
     background = _sitk_largest_connected_component(background)
     foreground = _sitk_invert_binary(background)
-    return _sitk_binary_erode(foreground, radius)
+    return _sitk_binary_erode_native(foreground, radius)
 
 
-def _sitk_open_with_connected_components(mask: sitk.Image, radius: int) -> sitk.Image:
+def _sitk_close_with_connected_components(mask: sitk.Image, radius: int, downsample_factor: int = 1) -> sitk.Image:
+    return _maybe_downsampled_binary_op(mask, radius, downsample_factor, _sitk_close_with_connected_components_native)
+
+
+def _sitk_open_with_connected_components_native(mask: sitk.Image, radius: int) -> sitk.Image:
     if radius <= 0:
         return sitk.Cast(mask > 0, sitk.sitkUInt8)
-    eroded = _sitk_binary_erode(mask, radius)
+    eroded = _sitk_binary_erode_native(mask, radius)
     eroded = _sitk_largest_connected_component(eroded)
-    return _sitk_binary_dilate(eroded, radius)
+    return _sitk_binary_dilate_native(eroded, radius)
+
+
+def _sitk_open_with_connected_components(mask: sitk.Image, radius: int, downsample_factor: int = 1) -> sitk.Image:
+    return _maybe_downsampled_binary_op(mask, radius, downsample_factor, _sitk_open_with_connected_components_native)
 
 
 def _sitk_extract_large_regions(mask: sitk.Image, min_voxels: int) -> sitk.Image:
@@ -479,6 +584,7 @@ def outer_contour(
     started = _log_step(verbose, "outer roi", started)
 
     image_sitk = numpy_xyz_to_sitk_scalar(density_cropped, spacing_xyz=spacing_xyz)
+    morphology_downsample_factor = _normalize_downsample_factor(opt.get("morphology_downsample_factor", 1))
     filtered = _sitk_gaussian(
         image_sitk,
         sigma=float(opt["gaussian_sigma"]),
@@ -496,8 +602,16 @@ def outer_contour(
 
     thresholded = sitk.Mask(thresholded, _sitk_binary_threshold(image_sitk, lower=1.0))
     thresholded = _sitk_largest_connected_component(thresholded)
-    thresholded = _sitk_close_with_connected_components(thresholded, int(opt["periosteal_kernelsize"]))
-    thresholded = _sitk_binary_opening(thresholded, int(opt.get("periosteal_open_radius", 0)))
+    thresholded = _sitk_close_with_connected_components(
+        thresholded,
+        int(opt["periosteal_kernelsize"]),
+        downsample_factor=morphology_downsample_factor,
+    )
+    thresholded = _sitk_binary_opening(
+        thresholded,
+        int(opt.get("periosteal_open_radius", 0)),
+        downsample_factor=morphology_downsample_factor,
+    )
     started = _log_step(verbose, "outer morphology", started)
 
     if bool(opt.get("fill_holes", True)):
@@ -543,6 +657,7 @@ def inner_contour(
         if opt.get("trabecular_close_radius") is not None
         else site_defaults["trabecular_close_radius"]
     )
+    morphology_downsample_factor = _normalize_downsample_factor(opt.get("morphology_downsample_factor", 1))
 
     bb = _expand_slices(
         _boundingbox_from_mask(outer_mask_xyz),
@@ -582,7 +697,11 @@ def inner_contour(
     cortical_mask = sitk.Mask(cortical_mask, peri_mask)
 
     peel = int(opt["peel"])
-    peri_eroded = _sitk_binary_erode(peri_mask, peel) if peel > 0 else peri_mask
+    peri_eroded = (
+        _sitk_binary_erode(peri_mask, peel, downsample_factor=morphology_downsample_factor)
+        if peel > 0
+        else peri_mask
+    )
 
     endo = sitk.Cast(sitk.And(peri_mask > 0, sitk.Not(cortical_mask > 0)), sitk.sitkUInt8)
     endo = sitk.Mask(endo, peri_eroded)
@@ -594,27 +713,43 @@ def inner_contour(
 
     trab = sitk.Cast(sitk.And(peri_mask > 0, sitk.Not(cortical_region > 0)), sitk.sitkUInt8)
     trab = _sitk_largest_connected_component(trab)
-    trab = _sitk_open_with_connected_components(trab, int(opt["endosteal_kernelsize"]))
+    trab = _sitk_open_with_connected_components(
+        trab,
+        int(opt["endosteal_kernelsize"]),
+        downsample_factor=morphology_downsample_factor,
+    )
     started = _log_step(verbose, "inner trab seed", started)
 
     if trabecular_close_radius > 0:
-        trab = _sitk_binary_closing(trab, trabecular_close_radius)
-        trab_open = _sitk_binary_opening(trab, trabecular_close_radius)
+        trab = _sitk_binary_closing(
+            trab,
+            trabecular_close_radius,
+            downsample_factor=morphology_downsample_factor,
+        )
+        trab_open = _sitk_binary_opening(
+            trab,
+            trabecular_close_radius,
+            downsample_factor=morphology_downsample_factor,
+        )
     else:
         trab_open = trab
     started = _log_step(verbose, "inner trab close/open", started)
 
     corners = sitk.Cast(sitk.And(trab > 0, sitk.Not(trab_open > 0)), sitk.sitkUInt8)
-    corners = _sitk_binary_erode(corners, 3)
+    corners = _sitk_binary_erode(corners, 3, downsample_factor=morphology_downsample_factor)
     corners = _sitk_extract_large_regions(corners, 64)
-    corners = _sitk_binary_dilate(corners, 3)
+    corners = _sitk_binary_dilate(corners, 3, downsample_factor=morphology_downsample_factor)
     corners = _sitk_extract_large_regions(corners, 64)
     started = _log_step(verbose, "inner corners", started)
 
     trab = sitk.Cast(sitk.Or(trab > 0, trab_open > 0), sitk.sitkUInt8)
     trab = sitk.Cast(sitk.Or(trab > 0, corners > 0), sitk.sitkUInt8)
     if trabecular_close_radius > 0:
-        trab = _sitk_binary_closing(trab, trabecular_close_radius)
+        trab = _sitk_binary_closing(
+            trab,
+            trabecular_close_radius,
+            downsample_factor=morphology_downsample_factor,
+        )
     trab = sitk.Mask(trab, peri_eroded)
 
     cort = sitk.Cast(sitk.And(peri_mask > 0, sitk.Not(trab > 0)), sitk.sitkUInt8)

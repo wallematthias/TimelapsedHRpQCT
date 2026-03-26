@@ -95,3 +95,18 @@ def test_site_is_inferred_from_source_filename_and_applies_site_defaults(tmp_pat
     assert site == "tibia"
     assert params.inner.site == "tibia"
     assert params.inner.trabecular_close_radius == 25
+
+
+def test_site_defaults_can_override_morphology_downsample_factor() -> None:
+    config = AppConfig()
+    config.masks.site_defaults.setdefault("knee", {}).setdefault("inner", {})[
+        "morphology_downsample_factor"
+    ] = 2
+    config.masks.site_defaults.setdefault("knee", {}).setdefault("outer", {})[
+        "morphology_downsample_factor"
+    ] = 2
+
+    params = _apply_site_defaults(_derive_params(config), config, "knee")
+
+    assert params.inner.morphology_downsample_factor == 2
+    assert params.outer.morphology_downsample_factor == 2
