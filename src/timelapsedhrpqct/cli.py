@@ -626,8 +626,8 @@ def _cmd_import(args: argparse.Namespace) -> int:
 
     config = _load_config_or_die(args.config)
 
-    input_root: Path = args.input_root
-    output_root: Path = args.output_root or _default_output_root(input_root)
+    input_root: Path = args.input_root.resolve()
+    output_root: Path = (args.output_root or _default_output_root(input_root)).resolve()
 
     if not input_root.exists():
         raise FileNotFoundError(f"Input root does not exist: {input_root}")
@@ -811,8 +811,8 @@ def _cmd_analyse(args: argparse.Namespace) -> int:
 
 
 def _cmd_run(args: argparse.Namespace) -> int:
-    input_root: Path = args.input_root
-    output_root: Path = args.output_root or _default_output_root(input_root)
+    input_root: Path = args.input_root.resolve()
+    output_root: Path = (args.output_root or _default_output_root(input_root)).resolve()
     config = _load_config_or_die(args.config)
 
     _print_citation_notice()
