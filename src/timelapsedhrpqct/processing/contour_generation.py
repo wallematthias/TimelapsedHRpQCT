@@ -231,10 +231,18 @@ def _sitk_binary_threshold(image: sitk.Image, lower: float, upper: float = 10000
     )
 
 
+def _sitk_binary_sum(mask: sitk.Image) -> int:
+    mask_u8 = sitk.Cast(mask > 0, sitk.sitkUInt8)
+    stats = sitk.StatisticsImageFilter()
+    stats.Execute(mask_u8)
+    return int(stats.GetSum())
+
+
 def _sitk_largest_connected_component(mask: sitk.Image) -> sitk.Image:
-    if int(sitk.GetArrayViewFromImage(mask > 0).sum()) == 0:
-        return sitk.Cast(mask > 0, sitk.sitkUInt8)
-    connected = sitk.ConnectedComponent(sitk.Cast(mask > 0, sitk.sitkUInt8), True)
+    mask_u8 = sitk.Cast(mask > 0, sitk.sitkUInt8)
+    if _sitk_binary_sum(mask_u8) == 0:
+        return mask_u8
+    connected = sitk.ConnectedComponent(mask_u8, True)
     relabeled = sitk.RelabelComponent(connected, sortByObjectSize=True)
     return sitk.Cast(relabeled == 1, sitk.sitkUInt8)
 
@@ -697,9 +705,9 @@ def generate_masks_from_image(
         "segmentation_method": params.segmentation.method,
         "voxel_counts": {
             "seg": int(seg_xyz.sum()),
-            "full": int(sitk.GetArrayViewFromImage(full_sitk).sum()),
-            "trab": int(sitk.GetArrayViewFromImage(trab_sitk).sum()),
-            "cort": int(sitk.GetArrayViewFromImage(cort_sitk).sum()),
+            "full": _sitk_binary_sum(full_sitk),
+            "trab": _sitk_binary_sum(trab_sitk),
+            "cort": _sitk_binary_sum(cort_sitk),
         },
         "outer_params": asdict(params.outer),
         "inner_params": asdict(params.inner),
