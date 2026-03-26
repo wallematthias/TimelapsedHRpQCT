@@ -137,6 +137,19 @@ def _reset_origin_to_zero(image: sitk.Image) -> sitk.Image:
     return out
 
 
+def _offset_origin_for_stack_index(
+    image: sitk.Image,
+    stack_index: int,
+    stack_depth: int,
+) -> sitk.Image:
+    out = sitk.Image(image)
+    origin = list(out.GetOrigin())
+    spacing = out.GetSpacing()
+    origin[2] += float(max(0, stack_index - 1) * stack_depth) * float(spacing[2])
+    out.SetOrigin(tuple(origin))
+    return out
+
+
 def _largest_components_union_mask(
     image: sitk.Image,
     threshold_bmd: float,
@@ -450,6 +463,27 @@ def import_raw_session(
         provided_masks=provided_masks,
         desired_roles=_configured_mask_roles(config),
     )
+
+    if raw_session.stack_index is not None:
+        image = _offset_origin_for_stack_index(
+            image=image,
+            stack_index=int(raw_session.stack_index),
+            stack_depth=int(config.import_.stack_depth),
+        )
+        resolved_masks = {
+            role: _offset_origin_for_stack_index(
+                image=mask,
+                stack_index=int(raw_session.stack_index),
+                stack_depth=int(config.import_.stack_depth),
+            )
+            for role, mask in resolved_masks.items()
+        }
+        if seg_image is not None:
+            seg_image = _offset_origin_for_stack_index(
+                image=seg_image,
+                stack_index=int(raw_session.stack_index),
+                stack_depth=int(config.import_.stack_depth),
+            )
 
     z_slices = image.GetSize()[2]
     if raw_session.stack_index is not None:
