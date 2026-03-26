@@ -1,0 +1,21 @@
+# Example single-stack configuration.
+#
+# Use this as a starting point when each session already consists of one full
+# volume and multistack correction / filling are not needed.
+
+discovery:
+  session_regex: '(?i)(?P<subject>SAMPLE\d+)_(?P<site>DR|DT|KN)_(?P<session>T\d+)(?:_(?P<role>.*))?\.aim(?:;\d+)?$'
+
+masks:
+  generate: true
+  roles: [full, trab, cort]
+  generate_segmentation: true
+
+multistack_correction:
+  enabled: false
+
+fusion:
+  enable_filling: false
+
+analysis:
+  use_filled_images: false

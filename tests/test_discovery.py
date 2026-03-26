@@ -67,3 +67,22 @@ def test_discover_raw_sessions_extracts_site_and_stack_from_filename(tmp_path: P
     assert sessions[0].site == "tibia"
     assert sessions[0].stack_index == 2
     assert sessions[0].raw_mask_paths["trab"] == trab
+
+
+def test_discover_raw_sessions_accepts_aim_version_suffix(tmp_path: Path) -> None:
+    root = tmp_path / "data"
+    image = root / "SAMPLE337_DT_STACK1_T1.AIM;1"
+    trab = root / "SAMPLE337_DT_STACK1_T1_TRAB_MASK.AIM;1"
+
+    _touch(image)
+    _touch(trab)
+
+    sessions = discover_raw_sessions(root, DiscoveryConfig())
+
+    assert len(sessions) == 1
+    assert sessions[0].subject_id == "SAMPLE337"
+    assert sessions[0].session_id == "T1"
+    assert sessions[0].site == "tibia"
+    assert sessions[0].stack_index == 1
+    assert sessions[0].raw_image_path == image
+    assert sessions[0].raw_mask_paths["trab"] == trab
