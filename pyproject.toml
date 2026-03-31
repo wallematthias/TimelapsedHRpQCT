@@ -7,11 +7,11 @@ name = "timelapsed-hrpqct"
 version = "2.0.0"
 description = "Longitudinal HR-pQCT timelapse analysis workflow with multistack support"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.11,<3.14"
 authors = [{name = "Matthias Walle"}]
 license = "AGPL-3.0-only"
 dependencies = [
-  "aimio-py",
+  "aimio-py; python_version < '3.14'",
   "numpy",
   "pandas",
   "itk-elastix",
