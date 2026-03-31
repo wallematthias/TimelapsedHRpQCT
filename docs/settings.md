@@ -1,8 +1,8 @@
 # Settings Reference
 
-This page describes the main configuration sections used by the pipeline. Example files live in:
+This page describes the main configuration sections used by the pipeline. The bundled default file lives in:
 
-- `configs/defaults.yml`
+- `src/timelapsedhrpqct/configs/defaults.yml`
 
 For a line-by-line walkthrough of the default config, see [Annotated Defaults](./defaults_annotated.md).
 

@@ -15,7 +15,7 @@ Available subcommands:
 - `analyse`
 - `run`
 
-If `--config` is omitted, the CLI uses `configs/defaults.yml`.
+If `--config` is omitted, the CLI uses the bundled package default config (`src/timelapsedhrpqct/configs/defaults.yml`).
 
 ## Typical Workflows
 
@@ -177,7 +177,7 @@ INSR_269_DT_C1_ROI2.AIM
 INSR_269_DT_C1_MASK1.AIM
 ```
 
-The default discovery regex is defined in `configs/defaults.yml`.
+The default discovery regex is defined in `src/timelapsedhrpqct/configs/defaults.yml`.
 
 Role notes:
 

@@ -1,6 +1,6 @@
 # Annotated Defaults
 
-This page summarizes the active settings in `configs/defaults.yml`.
+This page summarizes the active settings in `src/timelapsedhrpqct/configs/defaults.yml`.
 
 ## `import`
 

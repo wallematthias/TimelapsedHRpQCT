@@ -9,7 +9,7 @@ from timelapsedhrpqct.config.loader import load_config
 
 def test_example_configs_exist_and_load() -> None:
     repo_root = Path(__file__).resolve().parents[1]
-    defaults_path = repo_root / "configs" / "defaults.yml"
+    defaults_path = repo_root / "src" / "timelapsedhrpqct" / "configs" / "defaults.yml"
 
     assert defaults_path.is_file()
 

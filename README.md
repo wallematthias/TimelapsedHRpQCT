@@ -89,7 +89,7 @@ conda activate timelapsed-hrpqct
 
 The installable package name is `timelapsed-hrpqct`, and the import package is `timelapsedhrpqct`.
 
-The CLI uses `configs/defaults.yml` automatically if you do not pass `--config`.
+The CLI uses the bundled package default config (`src/timelapsedhrpqct/configs/defaults.yml`) automatically if you do not pass `--config`.
 
 ## Quick Start
 
@@ -227,7 +227,7 @@ Notes:
 - `src/timelapsedhrpqct/processing/`: reusable algorithmic and I/O helpers
 - `src/timelapsedhrpqct/dataset/`: discovery, layout, artifact records, derivative paths
 - `src/timelapsedhrpqct/analysis/`: remodelling analysis logic
-- `configs/`: default and example YAML configurations
+- `src/timelapsedhrpqct/configs/`: bundled default YAML configuration
 - `tests/`: unit, characterization, and end-to-end workflow tests
 
 ## Documentation

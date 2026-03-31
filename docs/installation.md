@@ -34,7 +34,7 @@ Check that the CLI is available:
 timelapse --help
 ```
 
-The CLI uses `configs/defaults.yml` automatically unless you pass `--config /path/to/other.yml`.
+The CLI uses the bundled package default config (`src/timelapsedhrpqct/configs/defaults.yml`) automatically unless you pass `--config /path/to/other.yml`.
 
 Run the test suite:
 

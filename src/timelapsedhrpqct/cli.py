@@ -37,11 +37,8 @@ from timelapsedhrpqct.processing.stacks import compute_stack_ranges
 
 def _resolve_default_config_path() -> Path:
     package_default = Path(__file__).resolve().parent / "configs" / "defaults.yml"
-    repo_default = Path(__file__).resolve().parents[2] / "configs" / "defaults.yml"
     if package_default.is_file():
         return package_default
-    if repo_default.is_file():
-        return repo_default
     return package_default
 
 
