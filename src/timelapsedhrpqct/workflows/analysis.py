@@ -342,7 +342,7 @@ def _compartment_exists(mask_paths: dict[str, Path], compartment: str) -> bool:
         return (
             ("full" in mask_paths and mask_paths["full"].exists())
             or ("regmask" in mask_paths and mask_paths["regmask"].exists())
-            or any(role.startswith("roi") and path.exists() for role, path in mask_paths.items())
+            or any(_is_roi_role(role) and path.exists() for role, path in mask_paths.items())
             or (
                 "trab" in mask_paths
                 and "cort" in mask_paths
@@ -411,22 +411,18 @@ def _baseline_common_outputs(
                 f"site-{site} ses-{s.session_id}: "
                 + ", ".join(sorted(missing_compartments))
             )
+        support_arr = _load_support_mask_array(
+            mask_paths=s.mask_paths,
+            reference_image_path=s.image_path,
+        )
         for role in effective_compartments:
             if role == "full":
-                role_arr = _load_support_mask_array(
-                    mask_paths=s.mask_paths,
-                    reference_image_path=s.image_path,
-                )
+                role_arr = support_arr
             else:
                 role_arr = (image_to_array(load_image(s.mask_paths[role])) > 0).astype(bool, copy=False)
             mask_arrs_by_role[role].append(role_arr)
 
-        mask_arrs_by_role["full"].append(
-            _load_support_mask_array(
-                mask_paths=s.mask_paths,
-                reference_image_path=s.image_path,
-            )
-        )
+        mask_arrs_by_role["full"].append(support_arr)
 
     effective_params = replace(params, compartments=effective_compartments)
     outputs = compute_remodelling_outputs(
