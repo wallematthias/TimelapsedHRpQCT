@@ -291,6 +291,26 @@ def _registration_settings_from_config(config: AppConfig) -> RegistrationSetting
     )
 
 
+def _resolve_baseline_session_id(stack_records, reference_session: str) -> str:
+    if not stack_records:
+        raise ValueError("Cannot resolve baseline session from empty stack records")
+
+    token = (reference_session or "baseline").strip().lower()
+    if token in {"baseline", "first"}:
+        return stack_records[0].session_id
+
+    first_session = stack_records[0].session_id
+    if token == first_session.lower():
+        return first_session
+
+    available = ", ".join(record.session_id for record in stack_records)
+    raise ValueError(
+        "timelapsed_registration.reference_session currently supports only "
+        f"'baseline' (first session, {first_session}). "
+        f"Requested: '{reference_session}'. Stack sessions: {available}"
+    )
+
+
 def _write_baseline_qc(
     dataset_root: Path,
     subject_id: str,
@@ -375,9 +395,17 @@ def run_timelapse_registration(
     grouped = group_imported_stacks_by_subject_site_and_stack(records)
     settings = _registration_settings_from_config(config)
     cfg = config.timelapsed_registration
+    strategy = str(getattr(cfg, "strategy", "sequential_to_baseline")).strip().lower()
+    if strategy not in {"sequential_to_baseline"}:
+        raise ValueError(
+            f"Unsupported timelapsed_registration.strategy: {cfg.strategy}. "
+            "Supported: sequential_to_baseline"
+        )
 
     print(
         "[timelapse] timelapse settings: "
+        f"strategy={strategy}, "
+        f"reference_session={cfg.reference_session}, "
         f"metric={settings.metric}, "
         f"optimizer={settings.optimizer}, "
         f"interpolator={settings.interpolator}, "
@@ -454,7 +482,10 @@ def run_timelapse_registration(
             print(f"[timelapse]   stack-{stack_index:02d}: {len(stack_records)} sessions")
 
             pairwise: list[PairwiseTransform] = []
-            baseline_session = stack_records[0].session_id
+            baseline_session = _resolve_baseline_session_id(
+                stack_records,
+                str(getattr(cfg, "reference_session", "baseline")),
+            )
 
             for prev_record, curr_record in zip(stack_records[:-1], stack_records[1:]):
                 fixed_session = prev_record.session_id

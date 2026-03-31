@@ -165,6 +165,8 @@ class MasksConfig:
 
 @dataclass(slots=True)
 class TimelapsedRegistrationConfig:
+    strategy: str = "sequential_to_baseline"
+    reference_session: str = "baseline"
     transform_type: str = "euler"
     metric: str = "correlation"
     sampling_percentage: float = 0.002
