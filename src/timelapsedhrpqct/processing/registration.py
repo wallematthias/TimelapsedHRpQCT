@@ -50,6 +50,19 @@ def _ensure_itk_elastix() -> None:
         )
 
 
+def _safe_parameter_map_get(parameter_map: Any, key: str, default: Any) -> Any:
+    """
+    Safely read itk/elastix parameter-map keys.
+
+    Some wrapped map-like objects raise IndexError when a missing key is
+    accessed via Mapping.get(), so we avoid direct .get() here.
+    """
+    try:
+        return parameter_map[key]
+    except Exception:
+        return default
+
+
 def _sitk_float_to_itk(image: sitk.Image):
     dim = image.GetDimension()
     arr = sitk.GetArrayFromImage(image).astype(np.float32, copy=False)
@@ -352,7 +365,9 @@ def register_images(
         requested_initial_translation_vox[1] * spacing[1],
         requested_initial_translation_vox[2] * spacing[2],
     )
-    init_transform_parameters = list(init_parameter_map.get("TransformParameters", []))
+    init_transform_parameters = list(
+        _safe_parameter_map_get(init_parameter_map, "TransformParameters", [])
+    )
 
     if settings.debug:
         print(
@@ -415,9 +430,11 @@ def register_images(
             "elastix_init_transform_parameters": init_transform_parameters,
             "fixed_mask_used": use_masks,
             "moving_mask_used": use_masks,
-            "elastix_transform": parameter_map.get("Transform", ["unknown"])[0],
+            "elastix_transform": _safe_parameter_map_get(
+                parameter_map, "Transform", ["unknown"]
+            )[0],
             "elastix_transform_parameters": list(
-                parameter_map.get("TransformParameters", [])
+                _safe_parameter_map_get(parameter_map, "TransformParameters", [])
             ),
         },
     )
