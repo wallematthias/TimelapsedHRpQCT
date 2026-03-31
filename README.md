@@ -89,11 +89,13 @@ Run the default workflow (`regular` mode):
 timelapse run /path/to/raw_data
 ```
 
-Run while reusing pre-existing masks (skip generation):
+Run while reusing pre-existing or custom masks (skip generation):
 
 ```bash
 timelapse run /path/to/raw_data --skip-mask-generation
 ```
+
+Use this when your input already includes valid masks (for example `TRAB_MASK`, `CORT_MASK`, `FULL_MASK`, `REGMASK`, or `ROI*`) and you do not want the pipeline to regenerate them.
 
 Run the full multistack workflow (if needed):
 
