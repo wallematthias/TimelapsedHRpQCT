@@ -18,7 +18,7 @@ import:
 # Discovery
 # -----------------------------------------------------------------------------
 discovery:
-  session_regex: '(?i)(?P<subject>SAMPLE\d+)_(?P<site>DR|DT|KN)(?:_STACK(?P<stack>\d+))?_(?P<session>T\d+)(?:_(?P<role>.*))?\.aim$'
+  session_regex: '(?i)^(?P<subject>.+?)(?:_(?P<site>DR|DT|KN|RADIUS|TIBIA|KNEE))?(?:_STACK(?P<stack>\d+))?_(?P<session>[A-Z]\d+)(?:_(?P<role>.*))?\.aim(?:;\d+)?$'
 
   default_site: tibia
   site_aliases:

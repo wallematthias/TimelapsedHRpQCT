@@ -86,3 +86,43 @@ def test_discover_raw_sessions_accepts_aim_version_suffix(tmp_path: Path) -> Non
     assert sessions[0].stack_index == 1
     assert sessions[0].raw_image_path == image
     assert sessions[0].raw_mask_paths["trab"] == trab
+
+
+def test_discover_raw_sessions_regex_allows_missing_site_and_stack(tmp_path: Path) -> None:
+    root = tmp_path / "data"
+    image = root / "ANYTHING_ABC_C2.AIM"
+    trab = root / "ANYTHING_ABC_C2_TRAB_MASK.AIM"
+    _touch(image)
+    _touch(trab)
+
+    cfg = DiscoveryConfig(
+        session_regex=r"(?i)^(?P<subject>.+?)(?:_(?P<site>DR|DT|KN|RADIUS|TIBIA|KNEE))?(?:_STACK(?P<stack>\d+))?_(?P<session>[A-Z]\d+)(?:_(?P<role>.*))?\.aim(?:;\d+)?$",
+        default_site="tibia",
+    )
+
+    sessions = discover_raw_sessions(root, cfg)
+
+    assert len(sessions) == 1
+    assert sessions[0].subject_id == "ANYTHING_ABC"
+    assert sessions[0].session_id == "C2"
+    assert sessions[0].site == "tibia"
+    assert sessions[0].stack_index is None
+    assert sessions[0].raw_mask_paths["trab"] == trab
+
+
+def test_discover_raw_sessions_regex_accepts_non_t_session_prefix(tmp_path: Path) -> None:
+    root = tmp_path / "data"
+    image = root / "PILOT_SCAN_DR_STACK3_C1.AIM"
+    _touch(image)
+
+    cfg = DiscoveryConfig(
+        session_regex=r"(?i)^(?P<subject>.+?)(?:_(?P<site>DR|DT|KN|RADIUS|TIBIA|KNEE))?(?:_STACK(?P<stack>\d+))?_(?P<session>[A-Z]\d+)(?:_(?P<role>.*))?\.aim(?:;\d+)?$"
+    )
+
+    sessions = discover_raw_sessions(root, cfg)
+
+    assert len(sessions) == 1
+    assert sessions[0].subject_id == "PILOT_SCAN"
+    assert sessions[0].session_id == "C1"
+    assert sessions[0].site == "radius"
+    assert sessions[0].stack_index == 3
