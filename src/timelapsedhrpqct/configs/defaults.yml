@@ -222,7 +222,7 @@ filling:
 # Analysis
 # -----------------------------------------------------------------------------
 analysis:
-  space: baseline_common # baseline_common | pairwise_fixed_t0
+  space: pairwise_fixed_t0 # baseline_common | pairwise_fixed_t0
   method: grayscale_and_binary # grayscale_and_binary | grayscale_delta_only
   # Auto compartment selection priority:
   # 1) ROI masks (roi*) if present in all sessions
