@@ -126,3 +126,20 @@ def test_discover_raw_sessions_regex_accepts_non_t_session_prefix(tmp_path: Path
     assert sessions[0].session_id == "C1"
     assert sessions[0].site == "radius"
     assert sessions[0].stack_index == 3
+
+
+def test_discover_raw_sessions_session_aliases_baseline_followup(tmp_path: Path) -> None:
+    root = tmp_path / "data"
+    baseline = root / "SAMPLE123_DT_BASELINE.AIM"
+    followup = root / "SAMPLE123_DT_FL.AIM"
+    _touch(baseline)
+    _touch(followup)
+
+    cfg = DiscoveryConfig(
+        session_regex=r"(?i)^(?P<subject>.+?)(?:_(?P<site>DR|DT|KN|RADIUS|TIBIA|KNEE))?(?:_STACK(?P<stack>\d+))?_(?P<session>[A-Z][A-Z0-9]*)(?:_(?P<role>.*))?\.aim(?:;\d+)?$"
+    )
+    sessions = discover_raw_sessions(root, cfg)
+
+    assert [s.session_id for s in sessions] == ["T1", "T2"]
+    assert sessions[0].site == "tibia"
+    assert sessions[1].site == "tibia"

@@ -34,6 +34,12 @@ class DiscoveryConfig:
             "knee": ["KN", "KNEE"],
         }
     )
+    session_aliases: dict[str, list[str]] = field(
+        default_factory=lambda: {
+            "T1": ["BASELINE", "BL"],
+            "T2": ["FOLLOWUP", "FOLLOWUP1", "FL", "FU"],
+        }
+    )
     role_aliases: dict[str, list[str]] = field(
         default_factory=lambda: {
             "cort": ["CORT_MASK", "_CORT", "CORTICAL"],

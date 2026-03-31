@@ -117,6 +117,16 @@ def _infer_site_from_name(path: Path, cfg: DiscoveryConfig) -> str:
     return cfg.default_site.lower()
 
 
+def _normalize_session_id(session_text: str, cfg: DiscoveryConfig) -> str:
+    token = session_text.strip()
+    token_upper = token.upper()
+    for canonical_session, aliases in cfg.session_aliases.items():
+        alias_set = {canonical_session.upper(), *(alias.upper() for alias in aliases)}
+        if token_upper in alias_set:
+            return canonical_session
+    return token
+
+
 def _extract_stack_index_default(path: Path) -> int | None:
     stem = _strip_aim_suffix(path.name)
     match = re.search(r"(?i)(?:^|_)STACK[_-]?(\d+)(?:_|$)", stem)
@@ -242,6 +252,7 @@ def discover_raw_sessions(
                 site = _infer_site_from_name(path, discovery_config)
             role = _classify_role_from_name(path, discovery_config)
 
+        session_id = _normalize_session_id(session_id, discovery_config)
         grouped[(subject_id, session_id, site, stack_index)].append((path, role, site))
 
     sessions: list[RawSession] = []

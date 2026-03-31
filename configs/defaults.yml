@@ -18,13 +18,16 @@ import:
 # Discovery
 # -----------------------------------------------------------------------------
 discovery:
-  session_regex: '(?i)^(?P<subject>.+?)(?:_(?P<site>DR|DT|KN|RADIUS|TIBIA|KNEE))?(?:_STACK(?P<stack>\d+))?_(?P<session>[A-Z]\d+)(?:_(?P<role>.*))?\.aim(?:;\d+)?$'
+  session_regex: '(?i)^(?P<subject>.+?)(?:_(?P<site>DR|DT|KN|RADIUS|TIBIA|KNEE))?(?:_STACK(?P<stack>\d+))?_(?P<session>[A-Z][A-Z0-9]*)(?:_(?P<role>.*))?\.aim(?:;\d+)?$'
 
   default_site: tibia
   site_aliases:
     radius: [DR, RADIUS, RAD]
     tibia: [DT, TIBIA, TIB]
     knee: [KN, KNEE]
+  session_aliases:
+    T1: [BASELINE, BL]
+    T2: [FOLLOWUP, FOLLOWUP1, FL, FU]
 
   role_aliases:
     cort: ["CORT_MASK", "_CORT", "CORTICAL"]
