@@ -166,7 +166,7 @@ timelapsed_registration:
   number_of_iterations: 250
   automatic_parameter_estimation: true
   initializer: geometry # geometry
-  number_of_resolutions: 6
+  number_of_resolutions: 4
   use_masks: true
 
 # -----------------------------------------------------------------------------

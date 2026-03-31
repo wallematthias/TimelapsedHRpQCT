@@ -182,7 +182,7 @@ multistack_correction:
   number_of_iterations: 1000
   automatic_parameter_estimation: true
   initializer: geometry # geometry
-  number_of_resolutions: 1
+  number_of_resolutions: 4
   use_masks: true
   debug: false
 
