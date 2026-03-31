@@ -180,6 +180,29 @@ Behavior:
 - If no `ROI*` masks are present, `regmask` is used as analysis ROI.
 - Otherwise analysis uses configured compartments (or available `trab/cort/full` fallbacks).
 
+## Multistack Filename Parsing Notes
+
+If your raw files are already split into physical stacks, include a stack token in the filename:
+
+```text
+SUBJ001_DT_STACK01_T1.AIM
+SUBJ001_DT_STACK01_T1_TRAB_MASK.AIM
+SUBJ001_DT_STACK01_T1_CORT_MASK.AIM
+SUBJ001_DT_STACK02_T1.AIM
+SUBJ001_DT_STACK02_T1_TRAB_MASK.AIM
+SUBJ001_DT_STACK02_T1_CORT_MASK.AIM
+```
+
+Accepted stack token styles include `STACK01`, `STACK_01`, and `STACK-01`.
+
+Notes:
+
+- If `STACK...` is present, files are grouped by that stack index during discovery.
+- If `STACK...` is missing, the image is treated as a single acquisition and import splits by `import.stack_depth` (default `168`).
+- If site token is missing, discovery uses `discovery.default_site` (default `tibia`).
+- `REGMASK` is optional and overrides registration mask selection when present.
+- `ROI*` masks are optional and override analysis compartments when consistently present across sessions.
+
 ## Repository Layout
 
 - `src/timelapsedhrpqct/workflows/`: orchestration for each pipeline stage
