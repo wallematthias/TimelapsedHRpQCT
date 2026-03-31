@@ -145,8 +145,8 @@ masks:
     gaussian_sigma: 0.8
     trab_threshold: 320
     cort_threshold: 450
-    adaptive_low_threshold: 190
-    adaptive_high_threshold: 450
+    adaptive_low_threshold: 100 #original publication is 190
+    adaptive_high_threshold: 300 #original publication is 450
     adaptive_block_size: 13
     min_size_voxels: 64
     keep_largest_component: true
@@ -156,35 +156,39 @@ masks:
 # -----------------------------------------------------------------------------
 timelapsed_registration:
   debug: false
+  strategy: sequential_to_baseline # currently the only supported strategy
+  reference_session: baseline
   transform_type: euler # euler | translation
-  metric: correlation # correlation | mattes
-  sampling_percentage: 0.1
+  metric: mattes # correlation | mattes
+  sampling_percentage: 0.01 #0.01
   interpolator: linear # linear | nearest
   optimizer: adaptive_stochastic_gradient_descent # current supported default
   number_of_iterations: 250
   automatic_parameter_estimation: true
   initializer: geometry # geometry
-  number_of_resolutions: 4
+  number_of_resolutions: 6
   use_masks: true
 
 # -----------------------------------------------------------------------------
 # Multistack correction
 # -----------------------------------------------------------------------------
 multistack_correction:
+  debug: false
   enabled: true
-  method: boundary_2d # superstack | boundary_2d
+  method: superstack # superstack | boundary_2d
   transform_type: euler # euler | translation
   # Mattes is the recommended default for multistack superstack registration.
   metric: mattes # correlation | mattes
-  sampling_percentage: 0.5
+  sampling_percentage: 0.005 #0.005
   interpolator: linear # linear | nearest
   optimizer: adaptive_stochastic_gradient_descent # current supported default
-  number_of_iterations: 1000
+  number_of_iterations: 250
   automatic_parameter_estimation: true
-  initializer: geometry # geometry
-  number_of_resolutions: 1
+  initializer: identity 
+  initial_translation_voxels: [0, 0, -10]
+  overlap_crop_buffer_voxels: 20
+  number_of_resolutions: 4
   use_masks: true
-  debug: false
 
 # -----------------------------------------------------------------------------
 # Transform application
