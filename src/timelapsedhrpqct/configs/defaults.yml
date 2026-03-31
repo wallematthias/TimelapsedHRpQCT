@@ -257,6 +257,6 @@ visualization:
     # Output labels in the exported visualization volume.
     resorption: 1
     demineralisation: 2
-    quiescent: 3
-    formation: 4
-    mineralisation: 5
+    quiescent: 2
+    formation: 3
+    mineralisation: 2
