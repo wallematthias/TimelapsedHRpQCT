@@ -21,6 +21,8 @@ from timelapsedhrpqct.dataset.artifacts import (
 from timelapsedhrpqct.dataset.derivative_paths import (
     analysis_visualize_dir,
     analysis_metadata_path,
+    pairwise_remodelling_csv_path,
+    trajectory_metrics_csv_path,
     filled_image_path,
     filled_seg_path,
     filling_metadata_path,
@@ -571,16 +573,58 @@ def _needs_analysis(
     config: AppConfig,
     args: argparse.Namespace,
 ) -> bool:
-    def _matches_requested_setting(payload: dict, key: str, value: object) -> bool:
+    def _pairwise_fixed_t0_available(subject_id: str, site: str, use_filled_images: bool) -> bool:
+        if use_filled_images:
+            return False
+        imported_by_subject = group_imported_stacks_by_subject_site_and_stack(
+            iter_imported_stack_records(dataset_root)
+        )
+        sessions_by_stack = imported_by_subject.get((subject_id, site), {})
+        if not sessions_by_stack:
+            return False
+        # pairwise_fixed_t0 currently supports single-stack trajectories only
+        return len(sessions_by_stack) == 1
+
+    def _matches_requested_setting(
+        payload: dict,
+        key: str,
+        value: object,
+        *,
+        subject_id: str,
+        site: str,
+        requested: dict[str, object],
+    ) -> bool:
         if key not in payload:
             return True
+        if key == "space":
+            payload_space = str(payload.get("space", ""))
+            requested_space = str(value)
+            if payload_space == requested_space:
+                return True
+            if (
+                requested_space == "pairwise_fixed_t0"
+                and payload_space == "baseline_common"
+                and not _pairwise_fixed_t0_available(
+                    subject_id=subject_id,
+                    site=site,
+                    use_filled_images=bool(requested.get("use_filled_images", False)),
+                )
+            ):
+                # Expected fallback for multi-stack or filled-image analysis.
+                return True
+            return False
         return payload.get(key) == value
 
-    def _analysis_output_exists(path_str: str) -> bool:
+    def _analysis_output_exists(path_str: str, expected_path: Path | None = None) -> bool:
         path = Path(path_str)
         if not path.is_absolute():
             path = dataset_root / path
-        return path.exists()
+        if path.exists():
+            return True
+        # Older metadata may contain absolute paths from a previous dataset root.
+        if expected_path is not None and expected_path.exists():
+            return True
+        return False
 
     if args.thr is not None or args.clusters is not None or args.visualize is not None:
         return True
@@ -603,11 +647,22 @@ def _needs_analysis(
         except Exception:
             return True
         for key, value in requested.items():
-            if not _matches_requested_setting(payload, key, value):
+            if not _matches_requested_setting(
+                payload,
+                key,
+                value,
+                subject_id=subject_id,
+                site=site,
+                requested=requested,
+            ):
                 return True
+        expected_outputs = {
+            "pairwise_csv": pairwise_remodelling_csv_path(dataset_root, subject_id, site),
+            "trajectory_csv": trajectory_metrics_csv_path(dataset_root, subject_id, site),
+        }
         for key in ("pairwise_csv", "trajectory_csv"):
             out = payload.get(key)
-            if not out or not _analysis_output_exists(out):
+            if not out or not _analysis_output_exists(out, expected_path=expected_outputs[key]):
                 return True
         if requested["visualization_enabled"]:
             visualize_dir = analysis_visualize_dir(dataset_root, subject_id, site)
