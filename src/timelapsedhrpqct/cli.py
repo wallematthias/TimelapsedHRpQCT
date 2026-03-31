@@ -54,9 +54,6 @@ def _print_citation_notice() -> None:
         "[timelapse]   Walle M et al. Bone. 2023;172:116780."
     )
     print(
-        "[timelapse]   Whittier DE et al. Bone. 2023;176:116893."
-    )
-    print(
         "[timelapse]   See README.md for the full citation list."
     )
     print()
