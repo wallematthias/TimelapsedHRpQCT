@@ -16,6 +16,8 @@ This page summarizes the active settings in `configs/defaults.yml`.
 - `session_regex`: default filename pattern for subject/site/stack/session/role extraction.
 - `default_site: tibia`: fallback site when no token is matched.
 - `site_aliases` / `role_aliases`: token normalization maps.
+- `role_aliases.regmask`: explicit registration-mask aliases (`REGMASK`, `_REGMASK`, `_REG`).
+- `ROI*` and `MASK*` roles are auto-detected from filename suffixes.
 
 ## `masks`
 
@@ -96,6 +98,13 @@ Spatial/temporal fill controls:
 - `use_filled_images: false`
 - `gaussian_filter: true`, `gaussian_sigma: 1.2`
 - `valid_region.erosion_voxels: 1`
+
+Compartment role resolution at runtime:
+
+1. shared `roi*` roles if present
+2. `regmask` if ROI roles are absent
+3. configured `compartments` filtered by availability
+4. fallback to available `trab/cort/full`
 
 ## `visualization`
 

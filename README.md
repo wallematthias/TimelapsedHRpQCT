@@ -89,6 +89,12 @@ Run the default workflow (`regular` mode):
 timelapse run /path/to/raw_data
 ```
 
+Run while reusing pre-existing masks (skip generation):
+
+```bash
+timelapse run /path/to/raw_data --skip-mask-generation
+```
+
 Run the full multistack workflow (if needed):
 
 ```bash
@@ -130,6 +136,30 @@ The `run` command is incremental:
 - existing analysis is reused unless you pass analysis overrides like `--thr`, `--clusters`, or `--visualize`
 
 This makes it practical to rerun the pipeline after fixing one stage or adding new sessions without recomputing everything else.
+
+## Mask Roles And Naming
+
+Discovery now supports both canonical and generic mask roles from filenames.
+
+Examples:
+
+```text
+TBONE001_DT_T1_FULL_MASK.AIM
+TBONE001_DT_T1_TRAB_MASK.AIM
+TBONE001_DT_T1_CORT_MASK.AIM
+TBONE001_DT_T1_REGMASK.AIM
+TBONE001_DT_T1_ROI1.AIM
+TBONE001_DT_T1_ROI2.AIM
+TBONE001_DT_T1_MASK1.AIM
+```
+
+Behavior:
+
+- `REGMASK` is preferred for registration when present.
+- If no `REGMASK` exists, registration falls back to `trab+cort` union, then `full`, then generic `MASK*` unions.
+- For analysis compartments, `ROI*` masks are preferred when present across sessions.
+- If no `ROI*` masks are present, `regmask` is used as analysis ROI.
+- Otherwise analysis uses configured compartments (or available `trab/cort/full` fallbacks).
 
 ## Repository Layout
 

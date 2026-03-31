@@ -17,9 +17,16 @@ For each subject and session, analysis expects:
 
 - fused transformed grayscale image
 - fused segmentation
-- fused masks for `trab`, `cort`, and `full`
+- fused masks (resolved by priority)
 
 When `analysis.use_filled_images` is enabled, the grayscale and segmentation inputs are taken from the filled outputs instead.
+
+Compartment mask priority:
+
+1. shared `roi*` masks across sessions (for example `roi1`, `roi2`)
+2. `regmask` when no ROI masks are shared
+3. configured `analysis.compartments` filtered by availability
+4. fallback to available `trab/cort/full`
 
 ## Pairing Modes
 
@@ -36,7 +43,7 @@ This choice affects both the pairwise CSV outputs and the trajectory summaries.
 Analysis does not use the union of all support. Instead it builds a common valid region for each compartment:
 
 1. intersect the compartment mask across all sessions
-2. intersect with the full mask across all sessions
+2. intersect with support mask across all sessions (`full`, else `regmask`, else union of ROI, else `trab|cort`)
 3. optionally erode the result to reduce edge/interpolation artifacts
 
 This common region is written to disk for each compartment.

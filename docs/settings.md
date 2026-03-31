@@ -28,6 +28,12 @@ Controls raw AIM session discovery.
 - `site_aliases`: mapping from filename tokens such as `DR`, `DT`, `KN` to canonical sites such as `radius`, `tibia`, `knee`
 - `role_aliases`: mapping from canonical roles to filename aliases
 
+Special role handling from filenames:
+
+- `REGMASK` is treated as explicit registration mask role (`regmask`)
+- `ROI*` suffixes (for example `ROI1`, `ROI2`) are auto-detected as analysis ROI roles
+- `MASK*` suffixes are auto-detected as generic mask roles
+
 This is the main place to adapt the pipeline to your local naming scheme.
 
 ## `masks`
@@ -106,6 +112,13 @@ If registration becomes unstable:
 - try reducing freedom in `transform_type`
 - increase sampling percentage
 - confirm masks are valid before enabling `use_masks`
+
+Registration mask priority:
+
+1. `regmask`
+2. union(`trab`, `cort`) when both exist
+3. `full`
+4. union of generic `mask*` roles
 
 ## `multistack_correction`
 
@@ -190,6 +203,13 @@ Use `space=baseline_common` for the standard fastest analysis path in one shared
 Use `method=grayscale_and_binary` when you have segmentation images and want the full formation, resorption, mineralisation, and demineralisation logic.
 
 Use `method=grayscale_delta_only` when segmentation is unavailable and you only want thresholded grayscale change analysis. In that mode, positive deltas above threshold are reported as formation and negative deltas below threshold are reported as resorption after cluster filtering.
+
+Analysis compartment selection priority:
+
+1. shared `roi*` roles across sessions
+2. `regmask`
+3. configured `analysis.compartments` filtered by availability
+4. fallback to available `trab/cort/full`
 
 ## `visualization`
 

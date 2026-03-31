@@ -25,6 +25,12 @@ If `--config` is omitted, the CLI uses `configs/defaults.yml`.
 timelapse run /path/to/raw_data
 ```
 
+### Default run but skip mask generation
+
+```bash
+timelapse run /path/to/raw_data --skip-mask-generation
+```
+
 ### Full multistack run
 
 ```bash
@@ -165,9 +171,19 @@ INSR_269_DT_C1_CORT_MASK.AIM
 INSR_269_DT_C1_TRAB_MASK.AIM
 INSR_269_DT_C1_FULL_MASK.AIM
 INSR_269_DT_C1_SEG.AIM
+INSR_269_DT_C1_REGMASK.AIM
+INSR_269_DT_C1_ROI1.AIM
+INSR_269_DT_C1_ROI2.AIM
+INSR_269_DT_C1_MASK1.AIM
 ```
 
 The default discovery regex is defined in `configs/defaults.yml`.
+
+Role notes:
+
+- `REGMASK` is used as the preferred registration mask.
+- `ROI*` roles (for example `ROI1`, `ROI2`) are auto-detected from filename suffixes.
+- Generic `MASK*` roles are also auto-detected and can be unioned for registration fallback.
 
 ## Output Layout
 
