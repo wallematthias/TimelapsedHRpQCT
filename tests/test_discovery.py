@@ -143,3 +143,21 @@ def test_discover_raw_sessions_session_aliases_baseline_followup(tmp_path: Path)
     assert [s.session_id for s in sessions] == ["T1", "T2"]
     assert sessions[0].site == "tibia"
     assert sessions[1].site == "tibia"
+
+
+def test_discover_raw_sessions_followup_numbered_aliases(tmp_path: Path) -> None:
+    root = tmp_path / "data"
+    for name in (
+        "SUBJ001_DT_BL.AIM",
+        "SUBJ001_DT_FL1.AIM",
+        "SUBJ001_DT_FL2.AIM",
+        "SUBJ001_DT_FL3.AIM",
+    ):
+        _touch(root / name)
+
+    cfg = DiscoveryConfig(
+        session_regex=r"(?i)^(?P<subject>.+?)(?:_(?P<site>DR|DT|KN|RADIUS|TIBIA|KNEE))?(?:_STACK(?P<stack>\d+))?_(?P<session>[A-Z][A-Z0-9]*)(?:_(?P<role>.*))?\.aim(?:;\d+)?$"
+    )
+    sessions = discover_raw_sessions(root, cfg)
+
+    assert [s.session_id for s in sessions] == ["T1", "T2", "T3", "T4"]

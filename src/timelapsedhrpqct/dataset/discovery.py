@@ -120,6 +120,17 @@ def _infer_site_from_name(path: Path, cfg: DiscoveryConfig) -> str:
 def _normalize_session_id(session_text: str, cfg: DiscoveryConfig) -> str:
     token = session_text.strip()
     token_upper = token.upper()
+
+    # Common longitudinal shorthand: FL1/FL2/... or FU1/FU2/... -> T2/T3/...
+    followup_match = re.fullmatch(r"(?:FL|FU|FOLLOWUP)(\d+)", token_upper)
+    if followup_match:
+        idx = int(followup_match.group(1))
+        return f"T{idx + 1}"
+
+    # BL / BASELINE / BL1 style shorthands -> T1
+    if re.fullmatch(r"(?:BL|BASELINE)(?:1+)?", token_upper):
+        return "T1"
+
     for canonical_session, aliases in cfg.session_aliases.items():
         alias_set = {canonical_session.upper(), *(alias.upper() for alias in aliases)}
         if token_upper in alias_set:
