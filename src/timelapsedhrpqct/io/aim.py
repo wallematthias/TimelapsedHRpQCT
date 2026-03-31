@@ -138,7 +138,11 @@ def read_aim(
     processing_log = str(meta.get("processing_log", ""))
 
     origin = tuple(float(v) for v in meta.get("origin", (0.0, 0.0, 0.0)))
-    spacing = tuple(float(v) for v in meta.get("spacing", (1.0, 1.0, 1.0)))
+    spacing_raw = meta.get("element_size", meta.get("spacing", (1.0, 1.0, 1.0)))
+    if isinstance(spacing_raw, (list, tuple)) and len(spacing_raw) == 3:
+        spacing = tuple(float(v) for v in spacing_raw)
+    else:
+        spacing = (1.0, 1.0, 1.0)
 
     sitk_img = sitk.GetImageFromArray(np_arr)
     sitk_img.SetOrigin(origin)
@@ -154,6 +158,7 @@ def read_aim(
     metadata: dict[str, Any] = {
         "origin": origin,
         "spacing": spacing,
+        "element_size": spacing,
         "dimensions": dimensions_xyz
         if dimensions_xyz is not None
         else (sitk_img.GetSize()[0], sitk_img.GetSize()[1], sitk_img.GetSize()[2]),

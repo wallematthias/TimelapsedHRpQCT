@@ -98,6 +98,26 @@ def test_read_aim_mu_scaling(monkeypatch: pytest.MonkeyPatch) -> None:
     assert out_meta["unit"] == "mu"
 
 
+def test_read_aim_prefers_element_size_for_spacing(monkeypatch: pytest.MonkeyPatch) -> None:
+    arr_native = np.array([[[1, 2]]], dtype=np.int16)
+    meta = {
+        "dimensions": (2, 1, 1),
+        "origin": (0.0, 0.0, 0.0),
+        "spacing": (9.9, 9.9, 9.9),
+        "element_size": (0.082, 0.082, 0.082),
+        "processing_log": "",
+    }
+
+    fake_module = SimpleNamespace(read_aim=lambda *args, **kwargs: (arr_native, meta))
+    monkeypatch.setattr(aim_io.importlib, "import_module", lambda name: fake_module)
+
+    image, out_meta = aim_io.read_aim(Path("dummy.AIM"), scaling="native")
+
+    assert image.GetSpacing() == (0.082, 0.082, 0.082)
+    assert out_meta["spacing"] == (0.082, 0.082, 0.082)
+    assert out_meta["element_size"] == (0.082, 0.082, 0.082)
+
+
 def test_read_aim_invalid_scaling_raises() -> None:
     with pytest.raises(ValueError, match="Unsupported scaling"):
         aim_io._normalize_scaling("invalid")
