@@ -5,6 +5,8 @@
 # TimelapsedHRpQCT v2
 
 [![CI](https://github.com/wallematthias/TimelapsedHRpQCT/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/wallematthias/TimelapsedHRpQCT/actions/workflows/ci.yml)
+[![Coverage](https://img.shields.io/badge/Coverage-72%25-brightgreen)](https://github.com/wallematthias/TimelapsedHRpQCT/actions/workflows/ci.yml)
+[![PyPI](https://img.shields.io/pypi/v/timelapsed-hrpqct)](https://pypi.org/project/timelapsed-hrpqct/)
 
 Quantifying remodelling activity from time-lapsed HR-pQCT images of the distal radius or tibia.
 
