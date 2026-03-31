@@ -157,8 +157,8 @@ masks:
 timelapsed_registration:
   debug: false
   transform_type: euler # euler | translation
-  metric: correlation # correlation | mattes
-  sampling_percentage: 0.1
+  metric: mattes # correlation | mattes
+  sampling_percentage: 0.001
   interpolator: linear # linear | nearest
   optimizer: adaptive_stochastic_gradient_descent # current supported default
   number_of_iterations: 250
@@ -172,11 +172,11 @@ timelapsed_registration:
 # -----------------------------------------------------------------------------
 multistack_correction:
   enabled: true
-  method: boundary_2d # superstack | boundary_2d
+  method: superstack # superstack | boundary_2d
   transform_type: euler # euler | translation
   # Mattes is the recommended default for multistack superstack registration.
   metric: mattes # correlation | mattes
-  sampling_percentage: 0.5
+  sampling_percentage: 0.005
   interpolator: linear # linear | nearest
   optimizer: adaptive_stochastic_gradient_descent # current supported default
   number_of_iterations: 1000
@@ -198,8 +198,8 @@ transform:
 # -----------------------------------------------------------------------------
 fusion:
   save_fused: true
-  save_fusedfilled: true
-  enable_filling: true
+  save_fusedfilled: false
+  enable_filling: false
 
 # -----------------------------------------------------------------------------
 # Filling

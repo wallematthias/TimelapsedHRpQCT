@@ -58,6 +58,35 @@ def _apply_mu_scaling(np_image: np.ndarray, processing_log: str) -> np.ndarray:
     return np_image.astype(np.float32) / float(mu_scaling)
 
 
+def _apply_scaling(np_image: np.ndarray, processing_log: str, scaling: str) -> np.ndarray:
+    scaling = scaling.lower()
+
+    if scaling in {"native", "none"}:
+        return np_image
+
+    mu_scaling, hu_mu_water, hu_mu_air, density_slope, density_intercept = (
+        _get_aim_calibration_constants_from_processing_log(processing_log)
+    )
+
+    if scaling == "mu":
+        return np_image.astype(np.float32) / float(mu_scaling)
+
+    if scaling == "hu":
+        m = 1000.0 / (mu_scaling * (hu_mu_water - hu_mu_air))
+        b = -1000.0 * hu_mu_water / (hu_mu_water - hu_mu_air)
+        return np_image.astype(np.float32) * m + b
+
+    if scaling in {"bmd", "density"}:
+        return (
+            np_image.astype(np.float32) / float(mu_scaling) * float(density_slope)
+            + float(density_intercept)
+        )
+
+    raise ValueError(
+        f"Unsupported scaling '{scaling}'. Use one of: native, none, mu, hu, bmd, density."
+    )
+
+
 def _normalize_scaling(scaling: str) -> str:
     normalized = scaling.lower()
     if normalized in {"none", "native", "mu", "hu", "bmd", "density"}:
@@ -87,17 +116,12 @@ def _as_zyx(array: np.ndarray, dimensions_xyz: tuple[int, int, int] | None) -> n
 
 
 def _read_with_py_aimio(py_aimio: Any, path: Path, scaling: str) -> tuple[np.ndarray, dict[str, Any]]:
-    if scaling in {"native", "none"}:
-        np_arr, meta = py_aimio.read_aim(str(path), density=False, hu=False)
-    elif scaling == "hu":
-        np_arr, meta = py_aimio.read_aim(str(path), density=False, hu=True)
-    elif scaling in {"bmd", "density"}:
-        np_arr, meta = py_aimio.read_aim(str(path), density=True, hu=False)
-    else:  # mu
-        np_arr, meta = py_aimio.read_aim(str(path), density=False, hu=False)
+    # Read native counts and apply legacy scaling math locally to match
+    # historical vtkbone-based imports as closely as possible.
+    np_arr, meta = py_aimio.read_aim(str(path), density=False, hu=False)
 
     meta = dict(meta)
-    processing_log = str(meta.get("processing_log", ""))
+    processing_log = str(meta.get("processing_log_raw") or meta.get("processing_log", ""))
     dims_xyz_raw = meta.get("dimensions")
     dimensions_xyz: tuple[int, int, int] | None
     if isinstance(dims_xyz_raw, (list, tuple)) and len(dims_xyz_raw) == 3:
@@ -106,10 +130,29 @@ def _read_with_py_aimio(py_aimio: Any, path: Path, scaling: str) -> tuple[np.nda
         dimensions_xyz = None
 
     np_arr = _as_zyx(np.asarray(np_arr), dimensions_xyz)
-    if scaling == "mu":
-        np_arr = _apply_mu_scaling(np_arr, processing_log)
+    np_arr = _apply_scaling(np_arr, processing_log, scaling)
 
     return np_arr, meta
+
+
+def _resolve_origin(meta: dict[str, Any], spacing: tuple[float, float, float]) -> tuple[float, float, float]:
+    origin_raw = meta.get("origin")
+    if isinstance(origin_raw, (list, tuple)) and len(origin_raw) == 3:
+        return tuple(float(v) for v in origin_raw)
+
+    # Legacy vtkbone behavior: origin was derived from integer scanner position
+    # in voxel units, located at voxel centers (thus +0.5 voxel shift).
+    position_raw = meta.get("position")
+    if isinstance(position_raw, (list, tuple)) and len(position_raw) == 3:
+        offset_raw = meta.get("offset", (0, 0, 0))
+        if not (isinstance(offset_raw, (list, tuple)) and len(offset_raw) == 3):
+            offset_raw = (0, 0, 0)
+        return tuple(
+            (float(position_raw[i]) + float(offset_raw[i]) + 0.5) * float(spacing[i])
+            for i in range(3)
+        )
+
+    return (0.0, 0.0, 0.0)
 
 
 def read_aim(
@@ -135,14 +178,14 @@ def read_aim(
         dimensions_xyz = tuple(int(v) for v in dims_xyz_raw)
     else:
         dimensions_xyz = None
-    processing_log = str(meta.get("processing_log", ""))
+    processing_log = str(meta.get("processing_log_raw") or meta.get("processing_log", ""))
 
-    origin = tuple(float(v) for v in meta.get("origin", (0.0, 0.0, 0.0)))
     spacing_raw = meta.get("element_size", meta.get("spacing", (1.0, 1.0, 1.0)))
     if isinstance(spacing_raw, (list, tuple)) and len(spacing_raw) == 3:
         spacing = tuple(float(v) for v in spacing_raw)
     else:
         spacing = (1.0, 1.0, 1.0)
+    origin = _resolve_origin(meta, spacing)
 
     sitk_img = sitk.GetImageFromArray(np_arr)
     sitk_img.SetOrigin(origin)
@@ -159,6 +202,8 @@ def read_aim(
         "origin": origin,
         "spacing": spacing,
         "element_size": spacing,
+        "position": meta.get("position"),
+        "offset": meta.get("offset"),
         "dimensions": dimensions_xyz
         if dimensions_xyz is not None
         else (sitk_img.GetSize()[0], sitk_img.GetSize()[1], sitk_img.GetSize()[2]),

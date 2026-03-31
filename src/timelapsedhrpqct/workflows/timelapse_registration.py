@@ -577,6 +577,20 @@ def run_timelapse_registration(
                     f"[timelapse]     {moving_session} -> {fixed_session} "
                     f"(metric=elastix)"
                 )
+                center_alignment = result.metadata.get("center_alignment", {})
+                before_mm = center_alignment.get("center_distance_before_mm")
+                after_mm = center_alignment.get("center_distance_after_mm")
+                improvement_mm = center_alignment.get("center_distance_improvement_mm")
+                if (
+                    before_mm is not None
+                    and after_mm is not None
+                    and improvement_mm is not None
+                ):
+                    print(
+                        "[timelapse]       center distance "
+                        f"{before_mm:.3f} mm -> {after_mm:.3f} mm "
+                        f"(improvement {improvement_mm:+.3f} mm)"
+                    )
 
             baseline_transforms: list[BaselineTransform] = compose_sequential_to_baseline(
                 pairwise_transforms=pairwise,

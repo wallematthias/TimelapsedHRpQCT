@@ -11,20 +11,18 @@ from timelapsedhrpqct.io import aim as aim_io
 
 
 @pytest.mark.parametrize(
-    ("scaling", "expected_density", "expected_hu", "expected_unit"),
+    ("scaling", "expected_unit"),
     [
-        ("native", False, False, "native"),
-        ("none", False, False, "native"),
-        ("hu", False, True, "hu"),
-        ("bmd", True, False, "bmd"),
-        ("density", True, False, "density"),
+        ("native", "native"),
+        ("none", "native"),
+        ("hu", "hu"),
+        ("bmd", "bmd"),
+        ("density", "density"),
     ],
 )
 def test_read_aim_scaling_mode_dispatch(
     monkeypatch: pytest.MonkeyPatch,
     scaling: str,
-    expected_density: bool,
-    expected_hu: bool,
     expected_unit: str,
 ) -> None:
     calls: list[tuple[str, bool, bool]] = []
@@ -46,7 +44,9 @@ def test_read_aim_scaling_mode_dispatch(
 
     image, out_meta = aim_io.read_aim(Path("dummy.AIM"), scaling=scaling)
 
-    assert calls == [("dummy.AIM", expected_density, expected_hu)]
+    # Reader now always requests native counts from aimio-py and applies
+    # legacy scaling locally for compatibility with historical vtkbone output.
+    assert calls == [("dummy.AIM", False, False)]
     assert image.GetSize() == (4, 2, 3)
     assert image.GetOrigin() == (1.0, 2.0, 3.0)
     assert image.GetSpacing() == (0.5, 0.5, 1.5)

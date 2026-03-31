@@ -16,7 +16,7 @@ def test_example_configs_exist_and_load() -> None:
     cfg = load_config(defaults_path)
 
     assert cfg.multistack_correction.enabled is True
-    assert cfg.fusion.enable_filling is True
+    assert cfg.fusion.enable_filling is False
     assert cfg.analysis.use_filled_images is False
 
 

@@ -122,7 +122,7 @@ masks:
         init_pad: 30
         use_adaptive_threshold: false
         morphology_downsample_factor: 3
-        morphology_refine_edges: true
+        morphology_refine_edges: false
         morphology_refine_band_voxels: 3
 
       outer:
@@ -136,7 +136,7 @@ masks:
         fill_holes: true
         use_adaptive_threshold: false  # use fixed threshold like AutocontourKnee
         morphology_downsample_factor: 3
-        morphology_refine_edges: true
+        morphology_refine_edges: false
         morphology_refine_band_voxels: 3
 
   segmentation:
@@ -160,7 +160,7 @@ timelapsed_registration:
   reference_session: baseline
   transform_type: euler # euler | translation
   metric: mattes # correlation | mattes
-  sampling_percentage: 0.01 #0.01
+  sampling_percentage: 0.001
   interpolator: linear # linear | nearest
   optimizer: adaptive_stochastic_gradient_descent # current supported default
   number_of_iterations: 250
@@ -179,7 +179,7 @@ multistack_correction:
   transform_type: euler # euler | translation
   # Mattes is the recommended default for multistack superstack registration.
   metric: mattes # correlation | mattes
-  sampling_percentage: 0.005 #0.005
+  sampling_percentage: 0.005
   interpolator: linear # linear | nearest
   optimizer: adaptive_stochastic_gradient_descent # current supported default
   number_of_iterations: 250
@@ -202,8 +202,8 @@ transform:
 # -----------------------------------------------------------------------------
 fusion:
   save_fused: true
-  save_fusedfilled: true
-  enable_filling: true
+  save_fusedfilled: false
+  enable_filling: false
 
 # -----------------------------------------------------------------------------
 # Filling
