@@ -194,3 +194,19 @@ def test_discovery_regex_fallback_when_decoder_fails(tmp_path: Path) -> None:
     assert sessions[0].subject_id == "INSR269"
     assert sessions[0].session_id == "C1"
     assert sessions[0].site == "tibia"
+
+
+def test_discover_raw_sessions_preserves_generic_mask_roles(tmp_path: Path) -> None:
+    root = tmp_path / "data"
+    image = root / "TBONE001_DT_T1.AIM"
+    mask1 = root / "TBONE001_DT_T1_MASK1.AIM"
+    mask2 = root / "TBONE001_DT_T1_MASK2.AIM"
+    _touch(image)
+    _touch(mask1)
+    _touch(mask2)
+
+    sessions = discover_raw_sessions(root, DiscoveryConfig())
+    assert len(sessions) == 1
+    assert sessions[0].raw_image_path == image
+    assert sessions[0].raw_mask_paths["mask1"] == mask1
+    assert sessions[0].raw_mask_paths["mask2"] == mask2

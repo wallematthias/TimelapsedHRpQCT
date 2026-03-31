@@ -188,6 +188,7 @@ def _extract_subject_session_default(path: Path) -> tuple[str, str, str, int | N
     stem = re.sub(r"(?i)_TRAB$", "", stem)
     stem = re.sub(r"(?i)_CORT$", "", stem)
     stem = re.sub(r"(?i)_FULL$", "", stem)
+    stem = re.sub(r"(?i)_MASK[0-9A-Z]+$", "", stem)
 
     stack_index = _extract_stack_index_default(path)
     stem = re.sub(r"(?i)_STACK[_-]?\d+", "", stem)
@@ -283,12 +284,12 @@ def discover_raw_sessions(
         seg_path: Path | None = None
 
         for path, role, _site in sorted(entries, key=lambda x: str(x[0])):
-            if role not in VALID_ROLES:
+            if role not in VALID_ROLES and not role.startswith("mask"):
                 role = "image"
 
             if role == "image":
                 image_candidates.append(path)
-            elif role in {"cort", "trab", "full"}:
+            elif role in {"cort", "trab", "full"} or role.startswith("mask"):
                 if role in mask_paths:
                     raise ValueError(
                         f"Duplicate {role} mask for {subject_id}/{session_id}/{site_value}: "

@@ -41,6 +41,45 @@ from timelapsedhrpqct.processing.transform_chain import (
 from timelapsedhrpqct.utils.sitk_helpers import load_image, write_image, write_json
 
 
+def _load_union_generic_mask(mask_paths: dict[str, Path]) -> tuple[sitk.Image | None, str | None]:
+    generic_roles = sorted(
+        role for role, path in mask_paths.items() if role.startswith("mask") and path.exists()
+    )
+    if not generic_roles:
+        return None, None
+
+    union_mask: sitk.Image | None = None
+    used_paths: list[str] = []
+    for role in generic_roles:
+        path = mask_paths[role]
+        current = sitk.Cast(load_image(path) > 0, sitk.sitkUInt8)
+        if union_mask is None:
+            union_mask = current
+            used_paths.append(str(path))
+            continue
+        if (
+            current.GetSize() == union_mask.GetSize()
+            and current.GetSpacing() == union_mask.GetSpacing()
+            and current.GetOrigin() == union_mask.GetOrigin()
+            and current.GetDirection() == union_mask.GetDirection()
+        ):
+            union_mask = sitk.Cast(sitk.Or(union_mask > 0, current > 0), sitk.sitkUInt8)
+            used_paths.append(str(path))
+        else:
+            print(f"[timelapse]     warning: skipping generic mask with mismatched geometry: {path}")
+
+    if union_mask is None:
+        return None, None
+    return union_mask, ",".join(used_paths)
+
+
+def _load_registration_mask(record) -> tuple[sitk.Image | None, str | None]:
+    full_path = record.mask_paths.get("full")
+    if full_path is not None and full_path.exists():
+        return load_image(full_path), str(full_path)
+    return _load_union_generic_mask(record.mask_paths)
+
+
 def _write_transform(transform: sitk.Transform, path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     sitk.WriteTransform(flatten_transform(transform), str(path))
@@ -383,13 +422,12 @@ def run_timelapse_registration(
                 # Start without masks by default since your BRAINS tests worked better without them.
                 fixed_mask = None
                 moving_mask = None
+                fixed_mask_ref: str | None = None
+                moving_mask_ref: str | None = None
 
                 if cfg.use_masks:
-                    if "full" in prev_record.mask_paths and prev_record.mask_paths["full"].exists():
-                        fixed_mask = load_image(prev_record.mask_paths["full"])
-
-                    if "full" in curr_record.mask_paths and curr_record.mask_paths["full"].exists():
-                        moving_mask = load_image(curr_record.mask_paths["full"])
+                    fixed_mask, fixed_mask_ref = _load_registration_mask(prev_record)
+                    moving_mask, moving_mask_ref = _load_registration_mask(curr_record)
 
                 print(f"[timelapse]     fixed image:  {prev_record.image_path}")
                 print(f"[timelapse]     moving image: {curr_record.image_path}")
@@ -438,12 +476,12 @@ def run_timelapse_registration(
                         fixed_image=str(prev_record.image_path),
                         moving_image=str(curr_record.image_path),
                         fixed_mask=(
-                            str(prev_record.mask_paths["full"])
+                            fixed_mask_ref
                             if fixed_mask is not None
                             else None
                         ),
                         moving_mask=(
-                            str(curr_record.mask_paths["full"])
+                            moving_mask_ref
                             if moving_mask is not None
                             else None
                         ),

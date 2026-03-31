@@ -279,6 +279,11 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Preview the import stage without writing any files.",
     )
     run_parser.add_argument(
+        "--skip-mask-generation",
+        action="store_true",
+        help="Skip automatic mask/seg generation and continue with existing/provided masks only.",
+    )
+    run_parser.add_argument(
         "--thr",
         type=float,
         nargs="+",
@@ -849,7 +854,9 @@ def _cmd_run(args: argparse.Namespace) -> int:
     dataset_root = output_root
 
     # 2. generate masks / seg where needed
-    if _needs_mask_generation(dataset_root):
+    if args.skip_mask_generation:
+        print("[timelapse] generate-masks: skipped via --skip-mask-generation")
+    elif _needs_mask_generation(dataset_root):
         gm_args = argparse.Namespace(
             dataset_root=dataset_root,
             config=args.config,
