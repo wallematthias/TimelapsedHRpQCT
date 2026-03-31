@@ -85,7 +85,8 @@ def dicttolog(log_dict: Dict[str, Any]) -> str:
         if isinstance(value, (int, float)):
             formatted_line = f"{key.ljust(30)}{value:>23}"
         elif isinstance(value, list):
-            formatted_line = f"{key.ljust(30)}{" ".join([f"{v:>10}" for v in value])}"
+            list_values = " ".join(f"{v:>10}" for v in value)
+            formatted_line = f"{key.ljust(30)}{list_values}"
         else:
             formatted_line = f"{key.ljust(30)}{value}".ljust(80)
         log += formatted_line + "\n"
