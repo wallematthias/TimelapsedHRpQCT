@@ -256,7 +256,7 @@ def _build_parser() -> argparse.ArgumentParser:
     run_parser.add_argument(
         "--mode",
         choices=("regular", "multistack"),
-        default="multistack",
+        default="regular",
         help=(
             "Pipeline mode. "
             "'regular' skips stack correction and filling. "

@@ -11,12 +11,13 @@ This documentation is split into overview material and deeper operational detail
 - [Multistack Algorithm](./multistack_algorithm.md)
 - [Timelapsed Analysis](./analysis.md)
 - [Settings Reference](./settings.md)
+- [API Reference](./api_reference.md)
 
 ## Recommended Reading Order
 
 If you are new to the project:
 
-1. Read the repository [README](/Users/matthias.walle/Documents/GitHub/TimelapsedHRpQCT/README.md).
+1. Read the repository README.
 2. Follow [Installation](./installation.md).
 3. Read [Usage](./usage.md) and run a dry import.
 4. Read [Multistack Algorithm](./multistack_algorithm.md) if you want to understand the transform logic.

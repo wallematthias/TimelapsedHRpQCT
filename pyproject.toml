@@ -7,10 +7,11 @@ name = "timelapsed-hrpqct"
 version = "2.0.0"
 description = "Longitudinal HR-pQCT timelapse analysis workflow with multistack support"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.11"
 authors = [{name = "Matthias Walle"}]
 license = "AGPL-3.0-only"
 dependencies = [
+  "aimio-py",
   "numpy",
   "pandas",
   "itk-elastix",
@@ -18,11 +19,15 @@ dependencies = [
   "scikit-image",
   "scipy",
   "SimpleITK",
-  "vtk",
 ]
 
 [project.optional-dependencies]
-test = ["pytest"]
+test = ["pytest", "pytest-cov"]
+docs = [
+  "mkdocs",
+  "mkdocs-material",
+  "mkdocstrings[python]",
+]
 
 [project.scripts]
 timelapse = "timelapsedhrpqct.cli:main"

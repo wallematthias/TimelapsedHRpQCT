@@ -25,3 +25,10 @@ data/
 *.mha
 *.H5
 *.h5
+
+# MkDocs build output
+site/
+
+# Coverage artifacts
+.coverage
+coverage.xml

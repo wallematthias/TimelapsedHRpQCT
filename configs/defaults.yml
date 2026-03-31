@@ -9,13 +9,6 @@ import:
   stack_depth: 168
   on_incomplete_stack: error # error | drop_last | keep_last
 
-  image_role_patterns:
-    image: [".AIM"]
-    trab: ["TRAB_MASK", "_TRAB"]
-    cort: ["CORT_MASK", "_CORT"]
-    full: ["FULL_MASK", "_FULL"]
-    seg: ["_SEG", "SEG"]
-
   crop_to_subject_box: false
   crop_threshold_bmd: 450.0
   crop_padding_voxels: 5
@@ -47,7 +40,6 @@ masks:
   overwrite: false
   # Typical values: [full, trab, cort] or [full]
   roles: [full, trab, cort]
-  derive_full_from_cort_trab: true
   generate_segmentation: true
   site_selection:
     default_site: tibia
@@ -74,8 +66,6 @@ masks:
         periosteal_threshold: 300
         periosteal_kernelsize: 5
         periosteal_open_radius: 2
-        morphology_refine_edges: true
-        morphology_refine_band_voxels: 3
         gaussian_sigma: 1.5
         gaussian_truncate: 1.0
         expansion_depth: [0, 5]
@@ -160,8 +150,6 @@ masks:
 # -----------------------------------------------------------------------------
 timelapsed_registration:
   debug: false
-  strategy: sequential_to_baseline # currently the only supported strategy
-  reference_session: baseline
   transform_type: euler # euler | translation
   metric: correlation # correlation | mattes
   sampling_percentage: 0.1

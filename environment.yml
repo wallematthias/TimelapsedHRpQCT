@@ -10,10 +10,9 @@ dependencies:
   - scikit-image
   - scipy
   - simpleitk
-  - vtk
-  - vtkbone
   - pytest
   - pip
   - pip:
+      - aimio-py
       - itk-elastix
       - -e .

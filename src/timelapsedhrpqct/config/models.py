@@ -7,15 +7,6 @@ from dataclasses import dataclass, field
 class ImportConfig:
     stack_depth: int = 168
     on_incomplete_stack: str = "error"
-    image_role_patterns: dict[str, list[str]] = field(
-        default_factory=lambda: {
-            "image": [".AIM"],
-            "trab": ["TRAB_MASK", "_TRAB"],
-            "cort": ["CORT_MASK", "_CORT"],
-            "full": ["FULL_MASK", "_FULL"],
-            "seg": ["_SEG", "SEG"],
-        }
-    )
 
     crop_to_subject_box: bool = True
     crop_threshold_bmd: float = 450.0
@@ -160,9 +151,6 @@ class MasksConfig:
         }
     )
 
-    # kept from your earlier mask-resolution logic
-    derive_full_from_cort_trab: bool = True
-
     outer: OuterContourConfig = field(default_factory=OuterContourConfig)
     inner: InnerContourConfig = field(default_factory=InnerContourConfig)
     segmentation: MaskSegmentationConfig = field(default_factory=MaskSegmentationConfig)
@@ -170,9 +158,6 @@ class MasksConfig:
 
 @dataclass(slots=True)
 class TimelapsedRegistrationConfig:
-    strategy: str = "sequential_to_baseline"
-    reference_session: str = "baseline"
-
     transform_type: str = "euler"
     metric: str = "correlation"
     sampling_percentage: float = 0.002

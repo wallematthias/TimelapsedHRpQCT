@@ -12,10 +12,10 @@ Use this first to verify:
 - masks and segmentations are associated with the right sessions
 - stack splitting looks plausible
 
-## Example 2: Full multistack run
+## Example 2: Default pipeline run
 
 ```bash
-timelapse run /data/hrpqct --mode multistack
+timelapse run /data/hrpqct
 ```
 
 This executes:
@@ -23,20 +23,28 @@ This executes:
 1. import
 2. generate masks
 3. timelapsed registration
-4. multistack correction
+4. multistack correction (only when `--mode multistack`)
 5. transform application
 6. filling
 7. analysis
 
-## Example 3: Resume after a previous run
+## Example 3: Full multistack run
 
 ```bash
 timelapse run /data/hrpqct --mode multistack
 ```
 
+Use this when each session contains multiple stacks and you want stack correction + filling.
+
+## Example 4: Resume after a previous run
+
+```bash
+timelapse run /data/hrpqct
+```
+
 Rerunning the same command should now skip completed stages based on existing artifacts and output files.
 
-## Example 4: Re-run analysis with different thresholds
+## Example 5: Re-run analysis with different thresholds
 
 ```bash
 timelapse analyse /data/hrpqct/imported_dataset \
@@ -55,12 +63,12 @@ timelapse run /data/hrpqct \
 
 When overrides are present, analysis reruns even if previous analysis outputs already exist.
 
-## Example 5: Single-stack workflow
+## Example 6: Single-stack workflow
 
 ```bash
-timelapse run /data/hrpqct --config configs/example_single_stack.yml --mode regular
+timelapse run /data/hrpqct --mode regular
 ```
 
-Use this when each session already contains one complete stack and you do not need multistack correction or filling.
+Use this when each session already contains one complete stack and you do not need multistack correction or filling. `regular` is the default mode.
 
 Pass `--config /path/to/other.yml` when you want to use a non-default configuration file.

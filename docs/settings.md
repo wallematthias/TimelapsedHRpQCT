@@ -2,9 +2,7 @@
 
 This page describes the main configuration sections used by the pipeline. Example files live in:
 
-- [configs/defaults.yml](/Users/matthias.walle/Documents/GitHub/TimelapsedHRpQCT/configs/defaults.yml)
-- [configs/example_multistack.yml](/Users/matthias.walle/Documents/GitHub/TimelapsedHRpQCT/configs/example_multistack.yml)
-- [configs/example_single_stack.yml](/Users/matthias.walle/Documents/GitHub/TimelapsedHRpQCT/configs/example_single_stack.yml)
+- `configs/defaults.yml`
 
 For a line-by-line walkthrough of the default config, see [Annotated Defaults](./defaults_annotated.md).
 
@@ -40,7 +38,6 @@ Controls generated mask and segmentation behavior on imported stacks.
 - `overwrite`: regenerate masks even if outputs already exist
 - `roles`: mask roles to keep and use. Typical values are `["full", "trab", "cort"]` or `["full"]`
 - `generate_segmentation`: whether the mask-generation stage should also write segmentation outputs
-- `derive_full_from_cort_trab`: allow reconstruction of the full mask from cortical and trabecular masks
 - `site_selection`: filename-based rules used to infer `radius`, `tibia`, or `knee` per scan
 - `site_defaults`: per-site contour overrides applied after the shared base mask settings
 
@@ -93,8 +90,6 @@ Controls segmentation from stack images and masks.
 
 Controls within-stack longitudinal registration.
 
-- `strategy`: currently sequential-to-baseline composition
-- `reference_session`: nominal baseline label
 - `transform_type`
 - `metric`
 - `sampling_percentage`

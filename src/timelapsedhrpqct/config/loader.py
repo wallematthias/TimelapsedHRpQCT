@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import fields
 from pathlib import Path
 from typing import Any
+import warnings
 
 import yaml
 
@@ -38,6 +39,22 @@ def _filter_dataclass_kwargs(cls: type, values: dict[str, Any]) -> dict[str, Any
     return {k: v for k, v in values.items() if k in allowed}
 
 
+def _warn_unknown_keys(
+    section: str,
+    cls: type,
+    values: dict[str, Any],
+    excluded: set[str] | None = None,
+) -> None:
+    allowed = {f.name for f in fields(cls)}
+    ignored = set(excluded or set())
+    unknown = sorted(k for k in values.keys() if k not in allowed and k not in ignored)
+    if unknown:
+        warnings.warn(
+            f"Ignoring unknown config key(s) in section '{section}': {', '.join(unknown)}",
+            stacklevel=2,
+        )
+
+
 def load_config(path: str | Path) -> AppConfig:
     cfg_path = Path(path)
     raw = _read_yaml(cfg_path)
@@ -57,6 +74,21 @@ def load_config(path: str | Path) -> AppConfig:
     masks_seg_raw = masks_raw.get("segmentation", {})
     analysis_valid_region_raw = analysis_raw.get("valid_region", {})
     visualization_label_map_raw = visualization_raw.get("label_map", {})
+
+    _warn_unknown_keys("import", ImportConfig, import_raw)
+    _warn_unknown_keys("discovery", DiscoveryConfig, discovery_raw)
+    _warn_unknown_keys("masks", MasksConfig, masks_raw, excluded={"outer", "inner", "segmentation"})
+    _warn_unknown_keys("masks.outer", OuterContourConfig, masks_outer_raw)
+    _warn_unknown_keys("masks.inner", InnerContourConfig, masks_inner_raw)
+    _warn_unknown_keys("masks.segmentation", MaskSegmentationConfig, masks_seg_raw)
+    _warn_unknown_keys("timelapsed_registration", TimelapsedRegistrationConfig, timelapsed_raw)
+    _warn_unknown_keys("multistack_correction", MultistackCorrectionConfig, multistack_raw)
+    _warn_unknown_keys("transform", TransformConfig, transform_raw)
+    _warn_unknown_keys("fusion", FusionConfig, fusion_raw)
+    _warn_unknown_keys("analysis", AnalysisConfig, analysis_raw, excluded={"valid_region"})
+    _warn_unknown_keys("analysis.valid_region", AnalysisValidRegionConfig, analysis_valid_region_raw)
+    _warn_unknown_keys("visualization", VisualizationConfig, visualization_raw, excluded={"label_map"})
+    _warn_unknown_keys("visualization.label_map", VisualizationLabelMapConfig, visualization_label_map_raw)
 
     masks_cfg = MasksConfig(
         **_filter_dataclass_kwargs(

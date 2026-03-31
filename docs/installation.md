@@ -2,49 +2,29 @@
 
 ## Requirements
 
-- Python 3.10+
-- Conda or micromamba is strongly recommended
-- `vtk` and `vtkbone` for Scanco AIM import
+- Python 3.11+
+- `pip` (preferred)
 
-`vtkbone` is available from the `numerics88` channel.
+## Recommended Pip Install
 
-## Recommended Conda Install
+```bash
+pip install timelapsed-hrpqct
+```
 
-Use the provided environment file:
+## Development Install
+
+In an existing environment:
+
+```bash
+pip install -e ".[test]"
+```
+
+## Optional Conda Environment (for local dev)
 
 ```bash
 conda env create -f environment.yml
 conda activate timelapsed-hrpqct
 ```
-
-This is the easiest path because it already includes:
-
-- `vtk`
-- `vtkbone`
-- `SimpleITK`
-- scientific Python dependencies
-- `pytest`
-
-## Manual Conda Install
-
-If you prefer to build an environment yourself:
-
-```bash
-conda create -n timelapsed-hrpqct python=3.11
-conda activate timelapsed-hrpqct
-conda install -c numerics88 -c conda-forge vtk vtkbone simpleitk numpy pandas pyyaml scipy scikit-image pytest
-pip install -e .
-```
-
-## Editable Development Install
-
-Inside an already prepared environment:
-
-```bash
-pip install -e .
-```
-
-This also installs the Python-side registration dependency `itk-elastix`.
 
 ## Validate The Install
 
@@ -64,30 +44,23 @@ pytest -q
 
 ## Packaging Notes
 
-- Main package metadata lives in [pyproject.toml](/Users/matthias.walle/Documents/GitHub/TimelapsedHRpQCT/pyproject.toml).
-- The conda recipe lives in [conda-recipe/meta.yaml](/Users/matthias.walle/Documents/GitHub/TimelapsedHRpQCT/conda-recipe/meta.yaml).
+- Main package metadata lives in `pyproject.toml`.
+- The conda recipe lives in `conda-recipe/meta.yaml`.
 
 The conda package name is `timelapsed-hrpqct`. The Python import package is `timelapsedhrpqct`.
-- GitHub Actions uses the same dependency model and includes the `numerics88` channel for `vtkbone`.
+- GitHub Actions validates pip installs across Linux/macOS/Windows.
 
 ## Common Installation Problems
 
-### `vtkbone` cannot be found
+### Native dependency install is slow
 
-Use:
-
-```bash
-conda install -c numerics88 -c conda-forge vtkbone
-```
-
-### AIM reading fails even though the package installs
-
-Make sure both `vtk` and `vtkbone` are present in the same environment.
+This package depends on scientific libraries and can take time on first install.
+Use a fresh virtual environment and ensure `pip` is up to date.
 
 ### `timelapse` command is missing
 
 Reinstall the package in the active environment:
 
 ```bash
-pip install -e .
+pip install --force-reinstall timelapsed-hrpqct
 ```

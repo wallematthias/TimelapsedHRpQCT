@@ -48,24 +48,28 @@ For each subject, the pipeline can:
 
 ## Install
 
-The project depends on `vtk` and `vtkbone` for AIM I/O. `vtkbone` is available from the `numerics88` conda channel.
+Preferred installation:
 
-Create the recommended environment:
+```bash
+pip install timelapsed-hrpqct
+```
+
+This package is pip-first and pulls runtime dependencies (including `aimio-py` and `itk-elastix`) automatically.
+
+Development install:
+
+```bash
+pip install -e ".[test]"
+```
+
+Optional conda environment for local development:
 
 ```bash
 conda env create -f environment.yml
 conda activate timelapsed-hrpqct
 ```
 
-Or install the package in an existing conda environment:
-
-```bash
-conda install -c numerics88 -c conda-forge vtk vtkbone simpleitk numpy pandas pyyaml scipy scikit-image pytest
-pip install -e .
-```
-
-The installable package name is `timelapsed-hrpqct`, and the Python import package is `timelapsedhrpqct`.
-The registration backend also depends on `itk-elastix`, which is installed automatically by `pip install -e .`.
+The installable package name is `timelapsed-hrpqct`, and the import package is `timelapsedhrpqct`.
 
 The CLI uses `configs/defaults.yml` automatically if you do not pass `--config`.
 
@@ -77,7 +81,13 @@ Preview discovery:
 timelapse import /path/to/raw_data --dry-run
 ```
 
-Run the full multistack workflow:
+Run the default workflow (`regular` mode):
+
+```bash
+timelapse run /path/to/raw_data
+```
+
+Run the full multistack workflow (if needed):
 
 ```bash
 timelapse run /path/to/raw_data --mode multistack
@@ -132,14 +142,15 @@ This makes it practical to rerun the pipeline after fixing one stage or adding n
 
 Detailed documentation lives in `docs/`:
 
-- [Documentation Index](/Users/matthias.walle/Documents/GitHub/TimelapsedHRpQCT/docs/index.md)
-- [Installation](/Users/matthias.walle/Documents/GitHub/TimelapsedHRpQCT/docs/installation.md)
-- [Usage](/Users/matthias.walle/Documents/GitHub/TimelapsedHRpQCT/docs/usage.md)
-- [Usage Examples](/Users/matthias.walle/Documents/GitHub/TimelapsedHRpQCT/docs/usage_examples.md)
-- [Annotated Defaults](/Users/matthias.walle/Documents/GitHub/TimelapsedHRpQCT/docs/defaults_annotated.md)
-- [Multistack Algorithm](/Users/matthias.walle/Documents/GitHub/TimelapsedHRpQCT/docs/multistack_algorithm.md)
-- [Timelapsed Analysis](/Users/matthias.walle/Documents/GitHub/TimelapsedHRpQCT/docs/analysis.md)
-- [Settings Reference](/Users/matthias.walle/Documents/GitHub/TimelapsedHRpQCT/docs/settings.md)
+- [Documentation Index](docs/index.md)
+- [Installation](docs/installation.md)
+- [Usage](docs/usage.md)
+- [Usage Examples](docs/usage_examples.md)
+- [Annotated Defaults](docs/defaults_annotated.md)
+- [Multistack Algorithm](docs/multistack_algorithm.md)
+- [Timelapsed Analysis](docs/analysis.md)
+- [Settings Reference](docs/settings.md)
+- [API Reference](docs/api_reference.md)
 
 ## Testing
 
@@ -151,14 +162,13 @@ pytest -q
 
 ## License
 
-This repository is licensed under the GNU Affero General Public License v3.0 only. See [LICENSE](/Users/matthias.walle/Documents/GitHub/TimelapsedHRpQCT/LICENSE).
+This repository is licensed under the GNU Affero General Public License v3.0 only. See [LICENSE](LICENSE).
 
 ## Packaging
 
 The repository includes:
 
 - `environment.yml` for local conda environments
-- `.github/workflows/ci.yml` for GitHub Actions
+- `.github/workflows/ci.yml` for tests and pip install smoke checks
+- `.github/workflows/publish-pypi.yml` for trusted-publisher PyPI releases
 - `conda-recipe/` for conda packaging
-
-`vtkbone` requires the `numerics88` channel in conda-based installs and builds.

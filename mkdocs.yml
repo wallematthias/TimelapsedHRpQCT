@@ -1,0 +1,28 @@
+site_name: TimelapsedHRpQCT
+site_description: TimelapsedHRpQCT documentation
+repo_url: https://github.com/wallematthias/TimelapsedHRpQCT
+
+theme:
+  name: material
+
+plugins:
+  - search
+  - mkdocstrings:
+      handlers:
+        python:
+          options:
+            docstring_style: google
+            show_source: false
+          paths:
+            - src
+
+nav:
+  - Home: index.md
+  - Installation: installation.md
+  - Usage: usage.md
+  - Usage Examples: usage_examples.md
+  - Annotated Defaults: defaults_annotated.md
+  - Multistack Algorithm: multistack_algorithm.md
+  - Timelapsed Analysis: analysis.md
+  - Settings Reference: settings.md
+  - API Reference: api_reference.md

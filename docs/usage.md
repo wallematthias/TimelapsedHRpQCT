@@ -15,9 +15,15 @@ Available subcommands:
 - `analyse`
 - `run`
 
-If `--config` is omitted, the CLI uses [configs/defaults.yml](/Users/matthias.walle/Documents/GitHub/TimelapsedHRpQCT/configs/defaults.yml).
+If `--config` is omitted, the CLI uses `configs/defaults.yml`.
 
 ## Typical Workflows
+
+### Default run (regular mode)
+
+```bash
+timelapse run /path/to/raw_data
+```
 
 ### Full multistack run
 
@@ -161,7 +167,7 @@ INSR_269_DT_C1_FULL_MASK.AIM
 INSR_269_DT_C1_SEG.AIM
 ```
 
-The default discovery regex is defined in [configs/defaults.yml](/Users/matthias.walle/Documents/GitHub/TimelapsedHRpQCT/configs/defaults.yml).
+The default discovery regex is defined in `configs/defaults.yml`.
 
 ## Output Layout
 
