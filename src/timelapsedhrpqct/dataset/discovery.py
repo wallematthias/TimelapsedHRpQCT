@@ -5,6 +5,7 @@ from collections import defaultdict
 from pathlib import Path
 
 from timelapsedhrpqct.config.models import DiscoveryConfig
+from timelapsedhrpqct.dataset.filename_decoder import decode_filename
 from timelapsedhrpqct.dataset.layout import PIPELINE_NAME
 from timelapsedhrpqct.dataset.models import RawSession
 
@@ -239,31 +240,39 @@ def discover_raw_sessions(
         if _is_pipeline_managed_copy(path, root):
             continue
 
-        if discovery_config.session_regex:
-            (
-                subject_id,
-                session_id,
-                role_from_regex,
-                site_from_regex,
-                stack_index,
-            ) = _extract_subject_session_with_regex(path, discovery_config.session_regex)
+        try:
+            decoded = decode_filename(path, discovery_config)
+            subject_id = decoded.subject_id
+            session_id = decoded.session_id
+            site = decoded.site
+            stack_index = decoded.stack_index
+            role = decoded.role
+        except ValueError:
+            if discovery_config.session_regex:
+                (
+                    subject_id,
+                    session_id,
+                    role_from_regex,
+                    site_from_regex,
+                    stack_index,
+                ) = _extract_subject_session_with_regex(path, discovery_config.session_regex)
 
-            site = _normalize_site(site_from_regex, discovery_config)
-            if site is None:
-                site = _infer_site_from_name(path, discovery_config)
+                site = _normalize_site(site_from_regex, discovery_config)
+                if site is None:
+                    site = _infer_site_from_name(path, discovery_config)
 
-            if role_from_regex:
-                role = _classify_role_from_text(role_from_regex, discovery_config)
+                if role_from_regex:
+                    role = _classify_role_from_text(role_from_regex, discovery_config)
+                else:
+                    role = _classify_role_from_name(path, discovery_config)
+                session_id = _normalize_session_id(session_id, discovery_config)
             else:
+                subject_id, session_id, site_token, stack_index = _extract_subject_session_default(path)
+                site = _normalize_site(site_token, discovery_config)
+                if site is None:
+                    site = _infer_site_from_name(path, discovery_config)
                 role = _classify_role_from_name(path, discovery_config)
-        else:
-            subject_id, session_id, site_token, stack_index = _extract_subject_session_default(path)
-            site = _normalize_site(site_token, discovery_config)
-            if site is None:
-                site = _infer_site_from_name(path, discovery_config)
-            role = _classify_role_from_name(path, discovery_config)
-
-        session_id = _normalize_session_id(session_id, discovery_config)
+                session_id = _normalize_session_id(session_id, discovery_config)
         grouped[(subject_id, session_id, site, stack_index)].append((path, role, site))
 
     sessions: list[RawSession] = []

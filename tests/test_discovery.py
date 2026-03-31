@@ -161,3 +161,36 @@ def test_discover_raw_sessions_followup_numbered_aliases(tmp_path: Path) -> None
     sessions = discover_raw_sessions(root, cfg)
 
     assert [s.session_id for s in sessions] == ["T1", "T2", "T3", "T4"]
+
+
+def test_discovery_uses_decoder_before_regex(tmp_path: Path) -> None:
+    root = tmp_path / "data"
+    image = root / "TBONE001_DT_T1.AIM"
+    _touch(image)
+
+    cfg = DiscoveryConfig(
+        # Intentionally incompatible regex; decoder-first should still succeed.
+        session_regex=r"(?P<subject>NOPE)_(?P<session>C\d+)\.AIM"
+    )
+    sessions = discover_raw_sessions(root, cfg)
+
+    assert len(sessions) == 1
+    assert sessions[0].subject_id == "TBONE001"
+    assert sessions[0].session_id == "T1"
+    assert sessions[0].site == "tibia"
+
+
+def test_discovery_regex_fallback_when_decoder_fails(tmp_path: Path) -> None:
+    root = tmp_path / "data"
+    image = root / "INSR269DTC1.AIM"
+    _touch(image)
+
+    cfg = DiscoveryConfig(
+        session_regex=r"(?i)^(?P<subject>INSR\d+)(?P<site>DT)(?P<session>C\d+)\.AIM$"
+    )
+    sessions = discover_raw_sessions(root, cfg)
+
+    assert len(sessions) == 1
+    assert sessions[0].subject_id == "INSR269"
+    assert sessions[0].session_id == "C1"
+    assert sessions[0].site == "tibia"
