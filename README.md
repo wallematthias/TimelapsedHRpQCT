@@ -56,6 +56,22 @@ Preferred installation:
 pip install timelapsed-hrpqct
 ```
 
+Python support: `3.11`, `3.12`, `3.13`.
+
+Minimal setup in a fresh conda environment:
+
+```bash
+conda create -n timelapsed-hrpqct python=3.13 -y
+conda activate timelapsed-hrpqct
+pip install timelapsed-hrpqct
+```
+
+Install into an existing environment:
+
+```bash
+pip install timelapsed-hrpqct
+```
+
 This package is pip-first and pulls runtime dependencies (including `aimio-py` and `itk-elastix`) automatically.
 
 Development install:
