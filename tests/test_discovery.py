@@ -210,3 +210,21 @@ def test_discover_raw_sessions_preserves_generic_mask_roles(tmp_path: Path) -> N
     assert sessions[0].raw_image_path == image
     assert sessions[0].raw_mask_paths["mask1"] == mask1
     assert sessions[0].raw_mask_paths["mask2"] == mask2
+
+
+def test_discover_raw_sessions_detects_regmask_and_roi_roles(tmp_path: Path) -> None:
+    root = tmp_path / "data"
+    image = root / "TBONE001_DT_T1.AIM"
+    regmask = root / "TBONE001_DT_T1_REGMASK.AIM"
+    roi1 = root / "TBONE001_DT_T1_ROI1.AIM"
+    roi2 = root / "TBONE001_DT_T1_ROI2.AIM"
+    _touch(image)
+    _touch(regmask)
+    _touch(roi1)
+    _touch(roi2)
+
+    sessions = discover_raw_sessions(root, DiscoveryConfig())
+    assert len(sessions) == 1
+    assert sessions[0].raw_mask_paths["regmask"] == regmask
+    assert sessions[0].raw_mask_paths["roi1"] == roi1
+    assert sessions[0].raw_mask_paths["roi2"] == roi2

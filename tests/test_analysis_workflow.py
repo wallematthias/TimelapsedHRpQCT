@@ -100,6 +100,43 @@ def _write_analysis_session(
     )
 
 
+def _write_analysis_session_with_custom_masks(
+    dataset_root: Path,
+    subject_id: str,
+    session_id: str,
+    image: np.ndarray,
+    seg: np.ndarray | None,
+    custom_masks: dict[str, np.ndarray],
+) -> None:
+    session_dir = _analysis_session_dir(dataset_root, subject_id, session_id)
+    stem = f"sub-{subject_id}_ses-{session_id}"
+    image_path = session_dir / f"{stem}_image_fused.mha"
+    seg_path = session_dir / f"{stem}_seg_fused.mha" if seg is not None else None
+    meta_path = session_dir / f"{stem}_fused.json"
+    write_image(image_path, image.astype(np.float32))
+    if seg_path is not None:
+        write_image(seg_path, seg.astype(np.uint8))
+
+    mask_paths: dict[str, Path] = {}
+    for role, arr in custom_masks.items():
+        role_path = session_dir / f"{stem}_mask-{role}_fused.mha"
+        write_image(role_path, arr.astype(np.uint8))
+        mask_paths[role] = role_path
+
+    meta_path.write_text("{}", encoding="utf-8")
+    upsert_fused_session_record(
+        dataset_root,
+        FusedSessionRecord(
+            subject_id=subject_id,
+            session_id=session_id,
+            image_path=image_path,
+            mask_paths=mask_paths,
+            seg_path=seg_path,
+            metadata_path=meta_path,
+        ),
+    )
+
+
 def _build_known_remodelling_dataset(dataset_root: Path, subject_id: str = "001") -> Path:
     shape = (5, 5, 5)
     mask_full = np.zeros(shape, dtype=bool)
@@ -746,3 +783,60 @@ def test_run_analysis_respects_threshold_and_cluster_filters(tmp_path: Path) -> 
     assert int(trab_row["resorption_vox"]) == 0
     assert int(trab_row["mineralisation_vox"]) == 0
     assert int(trab_row["demineralisation_vox"]) == 0
+
+
+def test_run_analysis_uses_regmask_as_roi_when_roi_masks_absent(tmp_path: Path) -> None:
+    dataset_root = tmp_path / "dataset"
+    subject_id = "001"
+    shape = (5, 5, 5)
+
+    regmask = np.zeros(shape, dtype=bool)
+    regmask[1:4, 1:4, 1:4] = True
+    c1 = np.zeros(shape, dtype=np.float32)
+    c2 = np.zeros(shape, dtype=np.float32)
+    c1[regmask] = 100.0
+    c2[regmask] = 130.0
+
+    _write_analysis_session_with_custom_masks(
+        dataset_root=dataset_root,
+        subject_id=subject_id,
+        session_id="C1",
+        image=c1,
+        seg=None,
+        custom_masks={"regmask": regmask},
+    )
+    _write_analysis_session_with_custom_masks(
+        dataset_root=dataset_root,
+        subject_id=subject_id,
+        session_id="C2",
+        image=c2,
+        seg=None,
+        custom_masks={"regmask": regmask},
+    )
+
+    config = AppConfig()
+    config.analysis = SimpleNamespace(
+        space="baseline_common",
+        method="grayscale_delta_only",
+        compartments=["trab", "cort", "full"],
+        thresholds=[20.0],
+        cluster_sizes=[1],
+        pair_mode="adjacent",
+        use_filled_images=False,
+        gaussian_filter=False,
+        valid_region=SimpleNamespace(erosion_voxels=0),
+    )
+    config.visualization = SimpleNamespace(enabled=False, threshold=None, cluster_size=None, label_map=None)
+
+    run_analysis(
+        dataset_root=dataset_root,
+        config=config,
+        thresholds=[20.0],
+        clusters=[1],
+    )
+
+    pairwise_df = pd.read_csv(pairwise_remodelling_csv_path(dataset_root, subject_id))
+    assert set(pairwise_df["compartment"].unique()) == {"regmask"}
+
+    meta = json.loads(analysis_metadata_path(dataset_root, subject_id).read_text(encoding="utf-8"))
+    assert meta["compartments"] == ["regmask"]

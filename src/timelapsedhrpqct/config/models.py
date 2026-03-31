@@ -45,6 +45,7 @@ class DiscoveryConfig:
             "cort": ["CORT_MASK", "_CORT", "CORTICAL"],
             "trab": ["TRAB_MASK", "_TRAB", "TRABECULAR"],
             "full": ["FULL_MASK", "_FULL"],
+            "regmask": ["REGMASK", "_REGMASK", "_REG"],
             "seg": ["_SEG", "SEG"],
         }
     )

@@ -43,3 +43,35 @@ def test_load_registration_mask_unions_generic_masks(tmp_path: Path) -> None:
     assert arr[0, 0, 0] == 1
     assert arr[0, 1, 1] == 1
 
+
+def test_load_registration_mask_prefers_regmask(tmp_path: Path) -> None:
+    regmask = tmp_path / "regmask.mha"
+    full = tmp_path / "full.mha"
+    _write_mask(regmask, np.array([[[0, 1], [0, 0]]], dtype=np.uint8))
+    _write_mask(full, np.array([[[1, 0], [0, 0]]], dtype=np.uint8))
+
+    record = SimpleNamespace(mask_paths={"regmask": regmask, "full": full})
+    mask, ref = _load_registration_mask(record)
+    arr = sitk.GetArrayFromImage(mask)
+
+    assert mask is not None
+    assert ref == str(regmask)
+    assert arr[0, 0, 1] == 1
+
+
+def test_load_registration_mask_unions_trab_and_cort_before_full(tmp_path: Path) -> None:
+    trab = tmp_path / "trab.mha"
+    cort = tmp_path / "cort.mha"
+    full = tmp_path / "full.mha"
+    _write_mask(trab, np.array([[[1, 0], [0, 0]]], dtype=np.uint8))
+    _write_mask(cort, np.array([[[0, 0], [0, 1]]], dtype=np.uint8))
+    _write_mask(full, np.array([[[1, 0], [0, 0]]], dtype=np.uint8))
+
+    record = SimpleNamespace(mask_paths={"trab": trab, "cort": cort, "full": full})
+    mask, ref = _load_registration_mask(record)
+    arr = sitk.GetArrayFromImage(mask)
+
+    assert mask is not None
+    assert ref is not None and str(trab) in ref and str(cort) in ref
+    assert arr[0, 0, 0] == 1
+    assert arr[0, 1, 1] == 1

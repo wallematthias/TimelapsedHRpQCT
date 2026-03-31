@@ -65,6 +65,10 @@ def _normalize_mask_roles(raw_masks: dict[str, Path]) -> dict[str, Path]:
             normalized["trab"] = path
         elif role_lower == "full":
             normalized["full"] = path
+        elif role_lower == "regmask":
+            normalized["regmask"] = path
+        elif role_lower.startswith("roi"):
+            normalized[role_lower] = path
         elif role_lower.startswith("mask"):
             normalized[role_lower] = path
 

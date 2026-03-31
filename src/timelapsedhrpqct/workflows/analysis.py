@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import gc
 import math
+from dataclasses import replace
 from pathlib import Path
 from typing import Iterable
 
@@ -269,6 +270,89 @@ def _apply_overrides(
     return params
 
 
+def _is_roi_role(role: str) -> bool:
+    return role.lower().startswith("roi")
+
+
+def _resolve_analysis_compartments(
+    session_mask_paths: list[dict[str, Path]],
+    configured_compartments: list[str],
+) -> tuple[list[str], str]:
+    if not session_mask_paths:
+        return configured_compartments, "configured"
+
+    common_roles = set(session_mask_paths[0].keys())
+    for mask_paths in session_mask_paths[1:]:
+        common_roles &= set(mask_paths.keys())
+
+    roi_roles = sorted(role for role in common_roles if _is_roi_role(role))
+    if roi_roles:
+        return roi_roles, "roi_masks"
+    if "regmask" in common_roles:
+        return ["regmask"], "regmask"
+
+    available_configured = [role for role in configured_compartments if role in common_roles]
+    if available_configured:
+        return available_configured, "configured_available"
+
+    fallback = [role for role in ("trab", "cort", "full") if role in common_roles]
+    if fallback:
+        return fallback, "trab_cort_full_fallback"
+
+    return configured_compartments, "configured"
+
+
+def _load_support_mask_array(
+    *,
+    mask_paths: dict[str, Path],
+    reference_image_path: Path,
+) -> np.ndarray:
+    if "full" in mask_paths and mask_paths["full"].exists():
+        return (image_to_array(load_image(mask_paths["full"])) > 0).astype(bool, copy=False)
+    if "regmask" in mask_paths and mask_paths["regmask"].exists():
+        return (image_to_array(load_image(mask_paths["regmask"])) > 0).astype(bool, copy=False)
+
+    roi_paths = [
+        path for role, path in sorted(mask_paths.items()) if _is_roi_role(role) and path.exists()
+    ]
+    if roi_paths:
+        union: np.ndarray | None = None
+        for path in roi_paths:
+            arr = (image_to_array(load_image(path)) > 0).astype(bool, copy=False)
+            union = arr if union is None else (union | arr)
+        if union is not None:
+            return union
+
+    if (
+        "trab" in mask_paths
+        and "cort" in mask_paths
+        and mask_paths["trab"].exists()
+        and mask_paths["cort"].exists()
+    ):
+        trab = (image_to_array(load_image(mask_paths["trab"])) > 0).astype(bool, copy=False)
+        cort = (image_to_array(load_image(mask_paths["cort"])) > 0).astype(bool, copy=False)
+        return trab | cort
+
+    ref_arr = image_to_array(load_image(reference_image_path))
+    return np.zeros_like(ref_arr, dtype=bool)
+
+
+def _compartment_exists(mask_paths: dict[str, Path], compartment: str) -> bool:
+    if compartment == "full":
+        return (
+            ("full" in mask_paths and mask_paths["full"].exists())
+            or ("regmask" in mask_paths and mask_paths["regmask"].exists())
+            or any(role.startswith("roi") and path.exists() for role, path in mask_paths.items())
+            or (
+                "trab" in mask_paths
+                and "cort" in mask_paths
+                and mask_paths["trab"].exists()
+                and mask_paths["cort"].exists()
+            )
+        )
+    return compartment in mask_paths and mask_paths[compartment].exists()
+
+
 def _baseline_common_outputs(
     dataset_root: Path,
     subject_id: str,
@@ -288,11 +372,15 @@ def _baseline_common_outputs(
             f"Skipping sub-{subject_id} site-{site}: need at least 2 sessions."
         )
 
+    effective_compartments, compartment_source = _resolve_analysis_compartments(
+        [s.mask_paths for s in sessions],
+        params.compartments,
+    )
     print(
         f"[analysis] sub-{subject_id} site-{site}: {len(sessions)} session(s) "
         f"({', '.join(session.session_id for session in sessions)}), "
         f"pair_mode={params.pair_mode}, use_filled_images={params.use_filled_images}, "
-        f"space=baseline_common"
+        f"space=baseline_common, compartments={effective_compartments} ({compartment_source})"
     )
 
     ref_img = load_image(sessions[0].image_path)
@@ -301,9 +389,8 @@ def _baseline_common_outputs(
 
     image_arrs: list[np.ndarray] = []
     seg_arrs: list[np.ndarray] = []
-    mask_arrs_by_role: dict[str, list[np.ndarray]] = {
-        role: [] for role in ("trab", "cort", "full")
-    }
+    mask_arrs_by_role: dict[str, list[np.ndarray]] = {role: [] for role in effective_compartments}
+    mask_arrs_by_role["full"] = []
 
     for s in sessions:
         image_arr = image_to_array(load_image(s.image_path)).astype(np.float32, copy=False)
@@ -316,8 +403,7 @@ def _baseline_common_outputs(
             seg_arrs.append(np.zeros_like(image_arrs[-1], dtype=bool))
 
         missing_compartments = [
-            role for role in params.compartments
-            if role not in s.mask_paths or not s.mask_paths[role].exists()
+            role for role in effective_compartments if not _compartment_exists(s.mask_paths, role)
         ]
         if missing_compartments:
             raise ValueError(
@@ -325,14 +411,24 @@ def _baseline_common_outputs(
                 f"site-{site} ses-{s.session_id}: "
                 + ", ".join(sorted(missing_compartments))
             )
-        for role in ("trab", "cort", "full"):
-            if role in params.compartments:
-                mask_arrs_by_role[role].append(
-                    image_to_array(load_image(s.mask_paths[role])) > 0
+        for role in effective_compartments:
+            if role == "full":
+                role_arr = _load_support_mask_array(
+                    mask_paths=s.mask_paths,
+                    reference_image_path=s.image_path,
                 )
             else:
-                mask_arrs_by_role[role].append(np.zeros_like(image_arrs[-1], dtype=bool))
+                role_arr = (image_to_array(load_image(s.mask_paths[role])) > 0).astype(bool, copy=False)
+            mask_arrs_by_role[role].append(role_arr)
 
+        mask_arrs_by_role["full"].append(
+            _load_support_mask_array(
+                mask_paths=s.mask_paths,
+                reference_image_path=s.image_path,
+            )
+        )
+
+    effective_params = replace(params, compartments=effective_compartments)
     outputs = compute_remodelling_outputs(
         subject_id=subject_id,
         session_ids=session_ids,
@@ -340,7 +436,7 @@ def _baseline_common_outputs(
         image_arrs=image_arrs,
         seg_arrs=seg_arrs,
         mask_arrs_by_role=mask_arrs_by_role,
-        params=params,
+        params=effective_params,
         common_region_path_for=lambda compartment: str(
             common_region_path(
                 dataset_root=dataset_root,
@@ -377,6 +473,10 @@ def _pairwise_fixed_t0_outputs_single_stack(
             f"Skipping sub-{subject_id} site-{site}: need at least 2 sessions."
         )
 
+    effective_compartments, compartment_source = _resolve_analysis_compartments(
+        [r.mask_paths for r in stack_records],
+        params.compartments,
+    )
     require_seg = params.method == "grayscale_and_binary"
     for record in stack_records:
         if require_seg and (record.seg_path is None or not record.seg_path.exists()):
@@ -386,8 +486,8 @@ def _pairwise_fixed_t0_outputs_single_stack(
             )
         missing = [
             role
-            for role in params.compartments
-            if role not in record.mask_paths or not record.mask_paths[role].exists()
+            for role in effective_compartments
+            if not _compartment_exists(record.mask_paths, role)
         ]
         if missing:
             raise ValueError(
@@ -415,10 +515,20 @@ def _pairwise_fixed_t0_outputs_single_stack(
         dtype=bool,
     )
     common_masks_baseline: dict[str, np.ndarray] = {}
-    for role in params.compartments:
+    for role in effective_compartments:
         common_mask_img: sitk.Image | None = None
         for record in stack_records:
-            mask_img = load_image(record.mask_paths[role])
+            if role == "full":
+                mask_img = array_to_image(
+                    _load_support_mask_array(
+                        mask_paths=record.mask_paths,
+                        reference_image_path=record.image_path,
+                    ).astype(np.uint8),
+                    reference=load_image(record.image_path),
+                    pixel_id=sitk.sitkUInt8,
+                )
+            else:
+                mask_img = load_image(record.mask_paths[role])
             mask_tx = _resample_image(
                 sitk.Cast(mask_img > 0, sitk.sitkUInt8),
                 baseline_ref,
@@ -453,10 +563,10 @@ def _pairwise_fixed_t0_outputs_single_stack(
         f"{len(stack_records)} session(s) "
         f"({', '.join(record.session_id for record in stack_records)}), "
         f"pair_mode={params.pair_mode}, use_filled_images={params.use_filled_images}, "
-        f"space=pairwise_fixed_t0"
+        f"space=pairwise_fixed_t0, compartments={effective_compartments} ({compartment_source})"
     )
 
-    for compartment in params.compartments:
+    for compartment in effective_compartments:
         trajectory_event_maps: dict[tuple[float, int], list[dict[str, np.ndarray]]] = {}
         for thr in params.remodeling_thresholds:
             for cluster_size in params.cluster_sizes:
@@ -504,9 +614,19 @@ def _pairwise_fixed_t0_outputs_single_stack(
                 seg0 = np.zeros_like(dens0, dtype=bool)
                 seg1 = np.zeros_like(dens1, dtype=bool)
 
-            full0 = (image_to_array(load_image(rec0.mask_paths["full"])) > 0).astype(bool, copy=False)
+            full0 = _load_support_mask_array(
+                mask_paths=rec0.mask_paths,
+                reference_image_path=rec0.image_path,
+            )
             full1_img = _resample_image(
-                sitk.Cast(load_image(rec1.mask_paths["full"]) > 0, sitk.sitkUInt8),
+                array_to_image(
+                    _load_support_mask_array(
+                        mask_paths=rec1.mask_paths,
+                        reference_image_path=rec1.image_path,
+                    ).astype(np.uint8),
+                    reference=load_image(rec1.image_path),
+                    pixel_id=sitk.sitkUInt8,
+                ),
                 ref_img,
                 t0_to_t1,
                 is_mask=True,
@@ -929,7 +1049,7 @@ def run_analysis(
             subject_id=subject_id,
             site=site,
             use_filled_images=params.use_filled_images,
-            compartments=params.compartments,
+            compartments=list(outputs.common_masks.keys()),
             method=params.method,
             thresholds=params.remodeling_thresholds,
             cluster_sizes=params.cluster_sizes,
@@ -950,7 +1070,7 @@ def run_analysis(
             legacy_meta = dict(analysis_meta)
             legacy_meta["common_regions"] = {
                 comp: str(common_region_path(dataset_root, subject_id, comp))
-                for comp in params.compartments
+                for comp in outputs.common_masks.keys()
             }
             legacy_meta["analysis_dir"] = str(analysis_dir(dataset_root, subject_id))
             legacy_meta["analysis_metadata"] = str(analysis_metadata_path(dataset_root, subject_id))

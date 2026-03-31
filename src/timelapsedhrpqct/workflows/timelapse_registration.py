@@ -73,10 +73,54 @@ def _load_union_generic_mask(mask_paths: dict[str, Path]) -> tuple[sitk.Image | 
     return union_mask, ",".join(used_paths)
 
 
+def _load_union_named_masks(
+    mask_paths: dict[str, Path],
+    roles: list[str],
+) -> tuple[sitk.Image | None, str | None]:
+    existing_roles = [role for role in roles if role in mask_paths and mask_paths[role].exists()]
+    if len(existing_roles) != len(roles):
+        return None, None
+
+    union_mask: sitk.Image | None = None
+    used_paths: list[str] = []
+    for role in existing_roles:
+        path = mask_paths[role]
+        current = sitk.Cast(load_image(path) > 0, sitk.sitkUInt8)
+        if union_mask is None:
+            union_mask = current
+            used_paths.append(str(path))
+            continue
+        if (
+            current.GetSize() == union_mask.GetSize()
+            and current.GetSpacing() == union_mask.GetSpacing()
+            and current.GetOrigin() == union_mask.GetOrigin()
+            and current.GetDirection() == union_mask.GetDirection()
+        ):
+            union_mask = sitk.Cast(sitk.Or(union_mask > 0, current > 0), sitk.sitkUInt8)
+            used_paths.append(str(path))
+        else:
+            print(f"[timelapse]     warning: skipping registration mask with mismatched geometry: {path}")
+    if union_mask is None:
+        return None, None
+    return union_mask, ",".join(used_paths)
+
+
 def _load_registration_mask(record) -> tuple[sitk.Image | None, str | None]:
+    regmask_path = record.mask_paths.get("regmask")
+    if regmask_path is not None and regmask_path.exists():
+        return load_image(regmask_path), str(regmask_path)
+
+    trab_cort_union, trab_cort_ref = _load_union_named_masks(
+        record.mask_paths,
+        roles=["trab", "cort"],
+    )
+    if trab_cort_union is not None:
+        return trab_cort_union, trab_cort_ref
+
     full_path = record.mask_paths.get("full")
     if full_path is not None and full_path.exists():
         return load_image(full_path), str(full_path)
+
     return _load_union_generic_mask(record.mask_paths)
 
 

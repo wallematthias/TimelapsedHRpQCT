@@ -10,7 +10,7 @@ from timelapsedhrpqct.dataset.layout import PIPELINE_NAME
 from timelapsedhrpqct.dataset.models import RawSession
 
 
-VALID_ROLES = {"image", "cort", "trab", "full", "seg"}
+VALID_ROLES = {"image", "cort", "trab", "full", "seg", "regmask"}
 _AIM_WITH_OPTIONAL_VERSION_RE = re.compile(r"(?i)\.aim(?:;\d+)?$")
 
 
@@ -92,6 +92,14 @@ def _classify_role_from_name(path: Path, cfg: DiscoveryConfig) -> str:
         return "cort"
     if "FULL_MASK" in stem_upper or stem_upper.endswith("_FULL"):
         return "full"
+    if "REGMASK" in stem_upper or stem_upper.endswith("_REG"):
+        return "regmask"
+    generic_roi_match = re.search(r"(?i)_(ROI[0-9A-Z]+)$", stem_upper)
+    if generic_roi_match:
+        return generic_roi_match.group(1).lower()
+    generic_mask_match = re.search(r"(?i)_(MASK[0-9A-Z]+)$", stem_upper)
+    if generic_mask_match:
+        return generic_mask_match.group(1).lower()
     if "_SEG" in stem_upper or stem_upper.endswith("SEG"):
         return "seg"
 
@@ -188,6 +196,9 @@ def _extract_subject_session_default(path: Path) -> tuple[str, str, str, int | N
     stem = re.sub(r"(?i)_TRAB$", "", stem)
     stem = re.sub(r"(?i)_CORT$", "", stem)
     stem = re.sub(r"(?i)_FULL$", "", stem)
+    stem = re.sub(r"(?i)_REGMASK$", "", stem)
+    stem = re.sub(r"(?i)_REG$", "", stem)
+    stem = re.sub(r"(?i)_ROI[0-9A-Z]+$", "", stem)
     stem = re.sub(r"(?i)_MASK[0-9A-Z]+$", "", stem)
 
     stack_index = _extract_stack_index_default(path)
@@ -284,12 +295,20 @@ def discover_raw_sessions(
         seg_path: Path | None = None
 
         for path, role, _site in sorted(entries, key=lambda x: str(x[0])):
-            if role not in VALID_ROLES and not role.startswith("mask"):
+            if (
+                role not in VALID_ROLES
+                and not role.startswith("mask")
+                and not role.startswith("roi")
+            ):
                 role = "image"
 
             if role == "image":
                 image_candidates.append(path)
-            elif role in {"cort", "trab", "full"} or role.startswith("mask"):
+            elif (
+                role in {"cort", "trab", "full", "regmask"}
+                or role.startswith("mask")
+                or role.startswith("roi")
+            ):
                 if role in mask_paths:
                     raise ValueError(
                         f"Duplicate {role} mask for {subject_id}/{session_id}/{site_value}: "

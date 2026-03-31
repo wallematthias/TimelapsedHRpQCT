@@ -178,9 +178,6 @@ def compute_remodelling_outputs(
     outputs = RemodellingOutputs(common_masks=common_masks)
 
     for compartment in params.compartments:
-        if compartment not in ("trab", "cort", "full"):
-            continue
-
         valid_mask_series = common_masks[compartment]
         trajectory_event_maps: dict[tuple[float, int], list[dict]] = {}
 

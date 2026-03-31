@@ -62,7 +62,13 @@ def discover_analysis_sessions(
             for role, path in record.mask_paths.items()
             if path.exists()
         }
-        if "full" not in mask_paths:
+        has_support_mask = (
+            ("full" in mask_paths)
+            or ("regmask" in mask_paths)
+            or any(role.startswith("roi") for role in mask_paths)
+            or ("trab" in mask_paths and "cort" in mask_paths)
+        )
+        if not has_support_mask:
             continue
 
         sessions.append(

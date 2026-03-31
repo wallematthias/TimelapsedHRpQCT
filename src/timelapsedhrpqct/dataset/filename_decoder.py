@@ -59,6 +59,11 @@ def classify_role_from_name(path: Path, cfg: DiscoveryConfig) -> str:
         return "cort"
     if "FULL_MASK" in stem_upper or stem_upper.endswith("_FULL"):
         return "full"
+    if "REGMASK" in stem_upper or stem_upper.endswith("_REG"):
+        return "regmask"
+    generic_roi_match = re.search(r"(?i)_(ROI[0-9A-Z]+)$", stem_upper)
+    if generic_roi_match:
+        return generic_roi_match.group(1).lower()
     generic_mask_match = re.search(r"(?i)_(MASK[0-9A-Z]+)$", stem_upper)
     if generic_mask_match:
         return generic_mask_match.group(1).lower()
@@ -137,6 +142,9 @@ def decode_filename(path: Path, cfg: DiscoveryConfig) -> DecodedFilename:
     stem = re.sub(r"(?i)_TRAB$", "", stem)
     stem = re.sub(r"(?i)_CORT$", "", stem)
     stem = re.sub(r"(?i)_FULL$", "", stem)
+    stem = re.sub(r"(?i)_REGMASK$", "", stem)
+    stem = re.sub(r"(?i)_REG$", "", stem)
+    stem = re.sub(r"(?i)_ROI[0-9A-Z]+$", "", stem)
     stem = re.sub(r"(?i)_MASK[0-9A-Z]+$", "", stem)
 
     stack_index = extract_stack_index(path)
