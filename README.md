@@ -91,6 +91,20 @@ The installable package name is `timelapsed-hrpqct`, and the import package is `
 
 The CLI uses the bundled package default config (`src/timelapsedhrpqct/configs/defaults.yml`) automatically if you do not pass `--config`.
 
+## Slicer GUI (Developer Mode)
+
+Until the extension is available in the Slicer Extensions Manager, you can use it in developer mode:
+
+- Slicer extension repository: https://github.com/wallematthias/TimelapsedHRpQCTSlicer
+
+Quick steps:
+
+1. Clone `TimelapsedHRpQCTSlicer`.
+2. In Slicer: `Edit -> Application Settings -> Modules`.
+3. Add module path: `<repo>/TimelapsedHRpQCTSlicer/TimelapsedHRpQCT`.
+4. Restart Slicer and open module `TimelapsedHRpQCT`.
+5. Click `Install / Update timelapsed-hrpqct` inside the module.
+
 ## Quick Start
 
 Preview discovery:
