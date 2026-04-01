@@ -95,7 +95,7 @@ The CLI uses the bundled package default config (`src/timelapsedhrpqct/configs/d
 
 Until the extension is available in the Slicer Extensions Manager, you can use it in developer mode:
 
-- Slicer extension repository: https://github.com/wallematthias/TimelapsedHRpQCTSlicer
+- Slicer extension repository: https://github.com/wallematthias/SlicerTimelapsedHRpQCT
 
 Quick steps:
 
