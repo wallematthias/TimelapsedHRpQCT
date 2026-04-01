@@ -225,8 +225,8 @@ class TransformConfig:
 @dataclass(slots=True)
 class FusionConfig:
     save_fused: bool = True
-    save_fusedfilled: bool = True
-    enable_filling: bool = True
+    save_fusedfilled: bool = False
+    enable_filling: bool = False
 
 
 @dataclass(slots=True)
@@ -236,13 +236,13 @@ class AnalysisValidRegionConfig:
 
 @dataclass(slots=True)
 class AnalysisConfig:
-    space: str = "baseline_common"
+    space: str = "pairwise_fixed_t0"
     method: str = "grayscale_and_binary"
     compartments: list[str] = field(default_factory=lambda: ["trab", "cort", "full"])
     thresholds: list[float] = field(default_factory=lambda: [225.0])
     cluster_sizes: list[int] = field(default_factory=lambda: [12])
     pair_mode: str = "adjacent"
-    use_filled_images: bool = True
+    use_filled_images: bool = False
     gaussian_filter: bool = True
     gaussian_sigma: float = 1.2
     valid_region: AnalysisValidRegionConfig = field(default_factory=AnalysisValidRegionConfig)
@@ -252,16 +252,16 @@ class AnalysisConfig:
 class VisualizationLabelMapConfig:
     resorption: int = 1
     demineralisation: int = 2
-    quiescent: int = 3
-    formation: int = 4
-    mineralisation: int = 5
+    quiescent: int = 2
+    formation: int = 3
+    mineralisation: int = 2
 
 
 @dataclass(slots=True)
 class VisualizationConfig:
-    enabled: bool = False
-    threshold: float | None = None
-    cluster_size: int | None = None
+    enabled: bool = True
+    threshold: float | None = 225.0
+    cluster_size: int | None = 12
     label_map: VisualizationLabelMapConfig = field(default_factory=VisualizationLabelMapConfig)
 
 
