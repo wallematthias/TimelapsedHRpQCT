@@ -228,3 +228,20 @@ def test_discover_raw_sessions_detects_regmask_and_roi_roles(tmp_path: Path) -> 
     assert sessions[0].raw_mask_paths["regmask"] == regmask
     assert sessions[0].raw_mask_paths["roi1"] == roi1
     assert sessions[0].raw_mask_paths["roi2"] == roi2
+
+
+def test_discover_raw_sessions_supports_nested_bids_like_layout(tmp_path: Path) -> None:
+    root = tmp_path / "dataset"
+    image = root / "sub-001" / "ses-T1" / "anat" / "SUBJECT_001_DT_T1.AIM"
+    trab = root / "sub-001" / "ses-T1" / "anat" / "SUBJECT_001_DT_T1_TRAB_MASK.AIM"
+    _touch(image)
+    _touch(trab)
+
+    sessions = discover_raw_sessions(root, DiscoveryConfig())
+
+    assert len(sessions) == 1
+    assert sessions[0].subject_id == "SUBJECT_001"
+    assert sessions[0].session_id == "T1"
+    assert sessions[0].site == "tibia"
+    assert sessions[0].raw_image_path == image
+    assert sessions[0].raw_mask_paths["trab"] == trab

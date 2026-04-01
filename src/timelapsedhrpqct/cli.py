@@ -4,6 +4,7 @@ import argparse
 import faulthandler
 import json
 import os
+import shutil
 from collections import defaultdict
 from pathlib import Path
 from typing import Sequence
@@ -33,6 +34,7 @@ from timelapsedhrpqct.dataset.discovery import discover_raw_sessions
 from timelapsedhrpqct.dataset.layout import (
     get_derivative_session_dir,
     get_derivatives_root,
+    get_site_session_dir,
     get_sourcedata_session_dir,
 )
 from timelapsedhrpqct.processing.stacks import compute_stack_ranges
@@ -108,6 +110,22 @@ def _build_parser() -> argparse.ArgumentParser:
         "--dry-run",
         action="store_true",
         help="Preview what would be imported without writing any files.",
+    )
+    import_parser.add_argument(
+        "--copy-raw-inputs",
+        action="store_true",
+        help=(
+            "Copy raw AIM files into sourcedata/hrpqct. "
+            "By default raw files are not copied."
+        ),
+    )
+    import_parser.add_argument(
+        "--restructure-raw",
+        action="store_true",
+        help=(
+            "Move raw AIM files into dataset_root/sub-*/site-*/ses-* after import. "
+            "By default raw files remain in place."
+        ),
     )
 
     # ------------------------------------------------------------------
@@ -275,6 +293,22 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Preview the import stage without writing any files.",
     )
     run_parser.add_argument(
+        "--copy-raw-inputs",
+        action="store_true",
+        help=(
+            "Copy raw AIM files into sourcedata/hrpqct during import. "
+            "By default raw files are not copied."
+        ),
+    )
+    run_parser.add_argument(
+        "--restructure-raw",
+        action="store_true",
+        help=(
+            "Move raw AIM files into dataset_root/sub-*/site-*/ses-* during import. "
+            "By default raw files remain in place."
+        ),
+    )
+    run_parser.add_argument(
         "--skip-mask-generation",
         action="store_true",
         help="Skip automatic mask/seg generation and continue with existing/provided masks only.",
@@ -302,6 +336,27 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Optional analysis visualization threshold / cluster pair.",
     )
 
+    # ------------------------------------------------------------------
+    # undo-restructure
+    # ------------------------------------------------------------------
+    undo_parser = subparsers.add_parser(
+        "undo-restructure",
+        help=(
+            "Undo raw-file restructuring by moving ingested raw files from "
+            "dataset_root/sub-*/site-*/ses-* back to their original source paths."
+        ),
+    )
+    undo_parser.add_argument(
+        "dataset_root",
+        type=Path,
+        help="Dataset root containing derivatives/TimelapsedHRpQCT metadata.",
+    )
+    undo_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Preview planned reverse moves without changing files.",
+    )
+
     return parser
 
 
@@ -319,6 +374,8 @@ def _print_session_preview(
     session,
     output_root: Path,
     config: AppConfig,
+    copy_raw_inputs: bool = False,
+    restructure_raw: bool = False,
 ) -> None:
     from timelapsedhrpqct.io.aim import read_aim
 
@@ -348,9 +405,21 @@ def _print_session_preview(
     except Exception as exc:
         print(f"    stacks: <unable to inspect: {exc}>")
 
-    sourcedata_dir = get_sourcedata_session_dir(output_root, session)
     derivatives_dir = get_derivative_session_dir(output_root, session)
-    print(f"    sourcedata : {sourcedata_dir}")
+    if copy_raw_inputs:
+        sourcedata_dir = get_sourcedata_session_dir(output_root, session)
+        print(f"    raw ingest : {sourcedata_dir} (copy)")
+    elif restructure_raw:
+        site = session.site or config.discovery.default_site.lower()
+        restructured_dir = get_site_session_dir(
+            output_root,
+            subject_id=session.subject_id,
+            site=site,
+            session_id=session.session_id,
+        )
+        print(f"    raw ingest : {restructured_dir} (move)")
+    else:
+        print("    raw ingest : <disabled>")
     print(f"    derivatives: {derivatives_dir}")
     print()
 
@@ -705,6 +774,11 @@ def _cmd_import(args: argparse.Namespace) -> int:
         print(f"[timelapse] No raw sessions found under: {input_root}")
         return 0
 
+    copy_raw_inputs = bool(getattr(args, "copy_raw_inputs", False))
+    restructure_raw = bool(getattr(args, "restructure_raw", False))
+    if copy_raw_inputs and restructure_raw:
+        raise ValueError("--copy-raw-inputs and --restructure-raw are mutually exclusive.")
+
     if args.dry_run:
         print("[timelapse] DRY RUN")
         print()
@@ -717,6 +791,8 @@ def _cmd_import(args: argparse.Namespace) -> int:
                 session=session,
                 output_root=output_root,
                 config=config,
+                copy_raw_inputs=copy_raw_inputs,
+                restructure_raw=restructure_raw,
             )
 
         print(f"[timelapse] {len(sessions)} session(s) would be imported.")
@@ -754,6 +830,8 @@ def _cmd_import(args: argparse.Namespace) -> int:
             raw_sessions=subject_sessions,
             output_root=output_root,
             config=config,
+            copy_raw_inputs=copy_raw_inputs,
+            restructure_raw=restructure_raw,
         )
         total_stacks += len(subject_artifacts)
 
@@ -874,6 +952,131 @@ def _cmd_analyse(args: argparse.Namespace) -> int:
     return 0
 
 
+def _collect_restructure_reverse_moves(dataset_root: Path) -> list[tuple[Path, Path, str]]:
+    moves_by_moved_path: dict[Path, tuple[Path, str]] = {}
+    dataset_root_resolved = dataset_root.resolve()
+
+    for record in iter_imported_stack_records(dataset_root):
+        metadata_path = record.metadata_path
+        if metadata_path is None or not metadata_path.exists():
+            continue
+
+        try:
+            payload = json.loads(metadata_path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+
+        source_by_role: dict[str, str] = {}
+        source_image = payload.get("source_image")
+        if source_image:
+            source_by_role["image"] = str(source_image)
+        source_seg = payload.get("source_seg")
+        if source_seg:
+            source_by_role["seg"] = str(source_seg)
+        for role, path_str in (payload.get("source_masks") or {}).items():
+            if path_str:
+                source_by_role[f"mask_{role}"] = str(path_str)
+
+        copied_raw_paths = payload.get("copied_raw_paths") or {}
+        for role, moved_str in copied_raw_paths.items():
+            source_str = source_by_role.get(role)
+            if not moved_str or not source_str:
+                continue
+
+            moved_path = Path(moved_str)
+            if not moved_path.is_absolute():
+                moved_path = dataset_root / moved_path
+
+            try:
+                moved_resolved = moved_path.resolve()
+            except Exception:
+                moved_resolved = moved_path
+
+            try:
+                rel = moved_resolved.relative_to(dataset_root_resolved)
+            except ValueError:
+                continue
+            if not rel.parts or not rel.parts[0].startswith("sub-"):
+                # Only undo restructure-style moves, not sourcedata copies.
+                continue
+
+            source_path = Path(source_str)
+            if not source_path.is_absolute():
+                source_path = (dataset_root / source_path).resolve()
+
+            existing = moves_by_moved_path.get(moved_resolved)
+            if existing is not None and existing[0] != source_path:
+                raise ValueError(
+                    f"Conflicting reverse mapping for {moved_resolved}: "
+                    f"{existing[0]} vs {source_path}"
+                )
+            moves_by_moved_path[moved_resolved] = (source_path, role)
+
+    ordered = sorted(moves_by_moved_path.items(), key=lambda item: str(item[0]))
+    return [(moved, source_role[0], source_role[1]) for moved, source_role in ordered]
+
+
+def _prune_empty_parents(path: Path, stop_root: Path) -> None:
+    current = path
+    stop_root_resolved = stop_root.resolve()
+    while True:
+        try:
+            if current.resolve() == stop_root_resolved:
+                return
+        except Exception:
+            return
+        try:
+            current.rmdir()
+        except OSError:
+            return
+        current = current.parent
+
+
+def _cmd_undo_restructure(args: argparse.Namespace) -> int:
+    dataset_root = args.dataset_root.resolve()
+    if not dataset_root.exists():
+        raise FileNotFoundError(f"Dataset root does not exist: {dataset_root}")
+
+    reverse_moves = _collect_restructure_reverse_moves(dataset_root)
+    if not reverse_moves:
+        print("[timelapse] undo-restructure: no restructured raw files found.")
+        return 0
+
+    print(f"[timelapse] undo-restructure: discovered {len(reverse_moves)} mapped raw file(s)")
+
+    moved_count = 0
+    skipped_missing = 0
+    skipped_conflict = 0
+
+    for moved_path, source_path, role in reverse_moves:
+        if not moved_path.exists():
+            skipped_missing += 1
+            print(f"[timelapse] skip missing ({role}): {moved_path}")
+            continue
+        if source_path.exists():
+            skipped_conflict += 1
+            print(f"[timelapse] skip conflict ({role}): destination exists {source_path}")
+            continue
+
+        if args.dry_run:
+            print(f"[timelapse] dry-run move ({role}): {moved_path} -> {source_path}")
+            moved_count += 1
+            continue
+
+        source_path.parent.mkdir(parents=True, exist_ok=True)
+        shutil.move(str(moved_path), str(source_path))
+        _prune_empty_parents(moved_path.parent, dataset_root)
+        print(f"[timelapse] moved ({role}): {moved_path} -> {source_path}")
+        moved_count += 1
+
+    action = "planned" if args.dry_run else "completed"
+    print(
+        f"[timelapse] undo-restructure {action}: {moved_count} move(s), "
+        f"{skipped_missing} missing, {skipped_conflict} conflict(s)"
+    )
+    return 0
+
+
 def _cmd_run(args: argparse.Namespace) -> int:
     input_root: Path = args.input_root.resolve()
     output_root: Path = (args.output_root or _default_output_root(input_root)).resolve()
@@ -895,6 +1098,8 @@ def _cmd_run(args: argparse.Namespace) -> int:
         output_root=output_root,
         config=args.config,
         dry_run=args.dry_run,
+        copy_raw_inputs=bool(getattr(args, "copy_raw_inputs", False)),
+        restructure_raw=bool(getattr(args, "restructure_raw", False)),
     )
     rc = _cmd_import(import_args)
     if rc != 0 or args.dry_run:
@@ -1024,6 +1229,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _cmd_analyse(args)
     if args.command == "run":
         return _cmd_run(args)
+    if args.command == "undo-restructure":
+        return _cmd_undo_restructure(args)
 
     parser.error(f"Unknown command: {args.command}")
     return 2

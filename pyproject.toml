@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "timelapsed-hrpqct"
-version = "2.0.8"
+version = "2.0.9"
 description = "Longitudinal HR-pQCT timelapse analysis workflow with multistack support"
 readme = "README.md"
 requires-python = ">=3.11,<3.14"
@@ -40,3 +40,10 @@ where = ["src"]
 
 [tool.setuptools.package-data]
 timelapsedhrpqct = ["configs/*.yml"]
+
+[tool.pytest.ini_options]
+filterwarnings = [
+  "ignore:builtin type SwigPyPacked has no __module__ attribute:DeprecationWarning",
+  "ignore:builtin type SwigPyObject has no __module__ attribute:DeprecationWarning",
+  "ignore:builtin type swigvarlink has no __module__ attribute:DeprecationWarning",
+]

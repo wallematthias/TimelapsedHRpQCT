@@ -113,6 +113,31 @@ Preview discovery:
 timelapse import /path/to/raw_data --dry-run
 ```
 
+By default raw files are kept in place (no `sourcedata/hrpqct` copy):
+
+```bash
+timelapse run /path/to/raw_data
+```
+
+Enable copying raw files into `sourcedata/hrpqct` only when desired:
+
+```bash
+timelapse run /path/to/raw_data --copy-raw-inputs
+```
+
+Enable moving raw files into dataset root `sub-*/site-*/ses-*` layout only when desired:
+
+```bash
+timelapse run /path/to/raw_data --restructure-raw
+```
+
+Undo restructure moves (preview first):
+
+```bash
+timelapse undo-restructure /path/to/raw_data/imported_dataset --dry-run
+timelapse undo-restructure /path/to/raw_data/imported_dataset
+```
+
 Run the default workflow (`regular` mode):
 
 ```bash
@@ -126,6 +151,8 @@ timelapse run /path/to/raw_data --skip-mask-generation
 ```
 
 Use this when your input already includes valid masks (for example `TRAB_MASK`, `CORT_MASK`, `FULL_MASK`, `REGMASK`, or `ROI*`) and you do not want the pipeline to regenerate them.
+
+Input discovery is recursive, so your source folder can be either flat/unstructured or organized in a BIDS/MIDS-style nested layout.
 
 Run the full multistack workflow (if needed):
 

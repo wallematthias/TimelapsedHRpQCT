@@ -11,6 +11,7 @@ import SimpleITK as sitk
 from timelapsedhrpqct.config.models import AppConfig
 from timelapsedhrpqct.dataset.artifacts import upsert_imported_stack_records
 from timelapsedhrpqct.dataset.layout import (
+    get_site_session_dir,
     get_sourcedata_session_dir,
 )
 from timelapsedhrpqct.dataset.models import (
@@ -124,8 +125,44 @@ def _copy_raw_session_files(raw_session: RawSession, output_root: Path) -> dict[
     return copied
 
 
+def _restructure_raw_session_files(raw_session: RawSession, output_root: Path) -> dict[str, str]:
+    """
+    Move raw AIM inputs into dataset_root/sub-*/site-*/ses-*.
+    Returns a mapping of logical roles to moved paths.
+    """
+    site = raw_session.site or "radius"
+    ingest_dir = get_site_session_dir(
+        output_root,
+        subject_id=raw_session.subject_id,
+        site=site,
+        session_id=raw_session.session_id,
+    )
+    moved: dict[str, str] = {}
+
+    image_dst = ingest_dir / _sanitized_raw_filename(raw_session.raw_image_path)
+    _move_file(raw_session.raw_image_path, image_dst)
+    moved["image"] = str(image_dst)
+
+    for role, src in raw_session.raw_mask_paths.items():
+        dst = ingest_dir / _sanitized_raw_filename(src)
+        _move_file(src, dst)
+        moved[f"mask_{role}"] = str(dst)
+
+    if raw_session.raw_seg_path is not None:
+        seg_dst = ingest_dir / _sanitized_raw_filename(raw_session.raw_seg_path)
+        _move_file(raw_session.raw_seg_path, seg_dst)
+        moved["seg"] = str(seg_dst)
+
+    return moved
+
+
 def _sanitized_raw_filename(path: Path) -> str:
     return re.sub(r"(?i)(\.aim)(;\d+)$", r"\1", path.name)
+
+
+def _move_file(src: Path, dst: Path) -> None:
+    _ensure_parent(dst)
+    shutil.move(str(src), str(dst))
 
 
 def _image_geometry_dict(image: sitk.Image) -> dict:
@@ -362,11 +399,14 @@ def import_raw_session(
     output_root: str | Path,
     config: AppConfig,
     subject_crop_spec: SubjectCropSpec | None = None,
+    copy_raw_inputs: bool = False,
+    restructure_raw: bool = False,
 ) -> list[StackArtifact]:
     """
     Import one raw session and persist per-stack working artifacts.
 
-    - copies raw AIM files into sourcedata/hrpqct/sub-*/ses-*
+    - optionally copies raw AIM files into sourcedata/hrpqct/sub-*/ses-*
+      OR moves raw AIM files into dataset_root/sub-*/site-*/ses-*
     - reads image and masks
     - aligns masks/seg to image grid
     - optionally crops to a subject-wise common crop box
@@ -380,8 +420,6 @@ def import_raw_session(
     output_root = Path(output_root)
 
     ensure_pipeline_dataset_description(output_root)
-    copied_raw_paths = _copy_raw_session_files(raw_session, output_root)
-
     image, image_meta = read_aim(raw_session.raw_image_path, scaling="bmd")
     original_image_geometry = _image_geometry_dict(image)
 
@@ -402,6 +440,15 @@ def import_raw_session(
             label_image=seg_image,
             reference_image=image,
         )
+
+    if copy_raw_inputs and restructure_raw:
+        raise ValueError("copy_raw_inputs and restructure_raw are mutually exclusive.")
+
+    copied_raw_paths: dict[str, str] = {}
+    if copy_raw_inputs:
+        copied_raw_paths = _copy_raw_session_files(raw_session, output_root)
+    elif restructure_raw:
+        copied_raw_paths = _restructure_raw_session_files(raw_session, output_root)
 
     crop_info: dict | None = None
 
@@ -578,6 +625,8 @@ def import_subject_sessions(
     raw_sessions: list[RawSession],
     output_root: str | Path,
     config: AppConfig,
+    copy_raw_inputs: bool = False,
+    restructure_raw: bool = False,
 ) -> list[StackArtifact]:
     if not raw_sessions:
         return []
@@ -605,6 +654,8 @@ def import_subject_sessions(
                     output_root=output_root,
                     config=config,
                     subject_crop_spec=subject_crop_spec,
+                    copy_raw_inputs=copy_raw_inputs,
+                    restructure_raw=restructure_raw,
                 )
             )
 

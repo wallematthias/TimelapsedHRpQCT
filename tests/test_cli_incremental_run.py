@@ -10,6 +10,7 @@ import pytest
 from timelapsedhrpqct.cli import (
     DEFAULT_CONFIG_PATH,
     _build_parser,
+    _cmd_undo_restructure,
     _cmd_run,
     _filling_enabled,
     _needs_analysis,
@@ -50,6 +51,38 @@ def test_parser_uses_repo_default_config_for_commands() -> None:
 
     assert import_args.config == DEFAULT_CONFIG_PATH
     assert run_args.config == DEFAULT_CONFIG_PATH
+    assert import_args.copy_raw_inputs is False
+    assert run_args.copy_raw_inputs is False
+    assert import_args.restructure_raw is False
+    assert run_args.restructure_raw is False
+
+
+def test_parser_accepts_copy_raw_inputs_for_import_and_run() -> None:
+    parser = _build_parser()
+
+    import_args = parser.parse_args(["import", "/tmp/raw", "--copy-raw-inputs"])
+    run_args = parser.parse_args(["run", "/tmp/raw", "--copy-raw-inputs"])
+
+    assert import_args.copy_raw_inputs is True
+    assert run_args.copy_raw_inputs is True
+
+
+def test_parser_accepts_restructure_raw_for_import_and_run() -> None:
+    parser = _build_parser()
+
+    import_args = parser.parse_args(["import", "/tmp/raw", "--restructure-raw"])
+    run_args = parser.parse_args(["run", "/tmp/raw", "--restructure-raw"])
+
+    assert import_args.restructure_raw is True
+    assert run_args.restructure_raw is True
+
+
+def test_parser_accepts_undo_restructure_command() -> None:
+    parser = _build_parser()
+    args = parser.parse_args(["undo-restructure", "/tmp/dataset", "--dry-run"])
+    assert args.command == "undo-restructure"
+    assert args.dataset_root == Path("/tmp/dataset")
+    assert args.dry_run is True
 
 
 def test_sessions_needing_import_skips_already_imported_complete_sessions(tmp_path: Path, monkeypatch) -> None:
@@ -347,3 +380,52 @@ def test_cmd_run_errors_if_fill_disabled_but_analysis_uses_filled(monkeypatch, t
                 visualize=None,
             )
         )
+
+
+def test_cmd_undo_restructure_moves_files_back_to_original_source(tmp_path: Path) -> None:
+    dataset_root = tmp_path / "dataset"
+    moved_path = dataset_root / "sub-001" / "site-tibia" / "ses-T1" / "SUBJECT_001_DT_T1.AIM"
+    moved_path.parent.mkdir(parents=True, exist_ok=True)
+    moved_path.write_text("raw", encoding="utf-8")
+
+    source_path = tmp_path / "raw_input" / "SUBJECT_001_DT_T1.AIM"
+    metadata_path = dataset_root / "derivatives" / "TimelapsedHRpQCT" / "sub-001" / "site-tibia" / "ses-T1" / "stacks" / "meta.json"
+    metadata_path.parent.mkdir(parents=True, exist_ok=True)
+    metadata_path.write_text(
+        json.dumps(
+            {
+                "source_image": str(source_path),
+                "source_masks": {},
+                "source_seg": None,
+                "copied_raw_paths": {"image": str(moved_path)},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    upsert_imported_stack_records(
+        dataset_root,
+        [
+            ImportedStackRecord(
+                "001",
+                "T1",
+                1,
+                image_path=metadata_path,
+                mask_paths={},
+                seg_path=None,
+                metadata_path=metadata_path,
+                slice_range=StackSliceRange(1, 0, 10),
+                site="tibia",
+            )
+        ],
+    )
+
+    rc = _cmd_undo_restructure(argparse.Namespace(dataset_root=dataset_root, dry_run=True))
+    assert rc == 0
+    assert moved_path.exists()
+    assert not source_path.exists()
+
+    rc = _cmd_undo_restructure(argparse.Namespace(dataset_root=dataset_root, dry_run=False))
+    assert rc == 0
+    assert not moved_path.exists()
+    assert source_path.exists()

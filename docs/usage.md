@@ -14,6 +14,7 @@ Available subcommands:
 - `fill`
 - `analyse`
 - `run`
+- `undo-restructure`
 
 If `--config` is omitted, the CLI uses the bundled package default config (`src/timelapsedhrpqct/configs/defaults.yml`).
 
@@ -49,6 +50,31 @@ timelapse run /path/to/raw_data --mode regular
 timelapse import /path/to/raw_data --dry-run
 ```
 
+### Run and keep raw files in place (default)
+
+```bash
+timelapse run /path/to/raw_data
+```
+
+### Run with a sourcedata copy of raw files
+
+```bash
+timelapse run /path/to/raw_data --copy-raw-inputs
+```
+
+### Run with raw restructure (move into dataset root layout)
+
+```bash
+timelapse run /path/to/raw_data --restructure-raw
+```
+
+### Undo raw restructure moves
+
+```bash
+timelapse undo-restructure /path/to/raw_data/imported_dataset --dry-run
+timelapse undo-restructure /path/to/raw_data/imported_dataset
+```
+
 ## Stage-By-Stage Use
 
 ### 1. Import raw AIM sessions
@@ -59,7 +85,8 @@ timelapse import /path/to/raw_data
 
 This creates:
 
-- copied raw AIM files under `sourcedata/hrpqct`
+- optional copied raw AIM files under `sourcedata/hrpqct` (only when `--copy-raw-inputs`)
+- optional moved raw AIM files under `sub-*/site-*/ses-*` (only when `--restructure-raw`)
 - imported stack artifacts under `derivatives/TimelapsedHRpQCT/sub-*/ses-*/stacks`
 - persistent imported-stack records under `derivatives/TimelapsedHRpQCT/_artifacts`
 
@@ -178,6 +205,7 @@ INSR_269_DT_C1_MASK1.AIM
 ```
 
 The default discovery regex is defined in `src/timelapsedhrpqct/configs/defaults.yml`.
+Discovery is recursive, so input files can be in a flat/unstructured folder or nested inside a BIDS/MIDS-style tree.
 
 Role notes:
 
@@ -189,7 +217,8 @@ Role notes:
 
 Important output areas:
 
-- `sourcedata/hrpqct/`: copied raw AIM files
+- `sourcedata/hrpqct/`: optional copied raw AIM files (only when raw copy is enabled)
+- `sub-*/site-*/ses-*/`: optional moved raw AIM files (only when `--restructure-raw`)
 - `derivatives/TimelapsedHRpQCT/_artifacts/`: persistent artifact indices
 - `derivatives/TimelapsedHRpQCT/sub-*/ses-*/stacks/`: imported stacks
 - `derivatives/TimelapsedHRpQCT/sub-*/timelapse_registration/`: within-stack longitudinal transforms
