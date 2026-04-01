@@ -7,7 +7,7 @@
 # -----------------------------------------------------------------------------
 import:
   stack_depth: 168
-  on_incomplete_stack: error # error | drop_last | keep_last
+  on_incomplete_stack: keep_last # error | drop_last | keep_last
 
   crop_to_subject_box: false
   crop_threshold_bmd: 450.0

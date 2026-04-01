@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 @dataclass(slots=True)
 class ImportConfig:
     stack_depth: int = 168
-    on_incomplete_stack: str = "error"
+    on_incomplete_stack: str = "keep_last"
 
     crop_to_subject_box: bool = True
     crop_threshold_bmd: float = 450.0
