@@ -101,7 +101,7 @@ def _build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=None,
         help=(
-            "Output dataset root. Defaults to <input_root>/imported_dataset "
+            "Output dataset root. Defaults to <input_root>/TimelapsedHRpQCT_results "
             "if not provided."
         ),
     )
@@ -280,7 +280,7 @@ def _build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=None,
         help=(
-            "Output dataset root. Defaults to <input_root>/imported_dataset "
+            "Output dataset root. Defaults to <input_root>/TimelapsedHRpQCT_results "
             "if not provided."
         ),
     )
@@ -377,7 +377,7 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def _default_output_root(input_root: Path) -> Path:
-    return input_root / "imported_dataset"
+    return input_root / "TimelapsedHRpQCT_results"
 
 
 def _load_config_or_die(config_path: Path) -> AppConfig:

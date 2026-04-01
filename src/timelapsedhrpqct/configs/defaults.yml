@@ -172,7 +172,7 @@ timelapsed_registration:
   number_of_iterations: 250
   automatic_parameter_estimation: true
   initializer: geometry # geometry
-  number_of_resolutions: 4
+  number_of_resolutions: 6
   use_masks: true
 
 # -----------------------------------------------------------------------------
@@ -191,8 +191,8 @@ multistack_correction:
   number_of_iterations: 250
   automatic_parameter_estimation: true
   initializer: identity 
-  initial_translation_voxels: [0, 0, -10]
-  overlap_crop_buffer_voxels: 20
+  initial_translation_voxels: [0, 0, -20]
+  overlap_crop_buffer_voxels: 40
   number_of_resolutions: 4
   use_masks: true
 

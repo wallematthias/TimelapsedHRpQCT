@@ -187,7 +187,7 @@ class TimelapsedRegistrationConfig:
     number_of_jacobian_measurements: int = 1000
 
     initializer: str = "geometry"
-    number_of_resolutions: int = 4
+    number_of_resolutions: int = 6
     use_masks: bool = True
 
     debug: bool = False
@@ -197,7 +197,7 @@ class TimelapsedRegistrationConfig:
 class MultistackCorrectionConfig:
     enabled: bool = True
     method: str = "superstack"
-    overlap_crop_buffer_voxels: int = 10
+    overlap_crop_buffer_voxels: int = 40
 
     transform_type: str = "euler"
     metric: str = "correlation"
@@ -212,7 +212,7 @@ class MultistackCorrectionConfig:
     number_of_gradient_measurements: int = 0
     number_of_jacobian_measurements: int = 1000
     initial_translation_voxels: list[float] = field(
-        default_factory=lambda: [0.0, 0.0, 0.0]
+        default_factory=lambda: [0.0, 0.0, -20.0]
     )
 
     initializer: str = "geometry"
