@@ -40,7 +40,7 @@ test:
 about:
   home: https://github.com/matthiaswalle/TimelapsedHRpQCT
   summary: {{ project["description"] }}
-  license: AGPL-3.0-only
+  license: MIT
 
 extra:
   recipe-maintainers:

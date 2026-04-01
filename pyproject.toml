@@ -9,7 +9,7 @@ description = "Longitudinal HR-pQCT timelapse analysis workflow with multistack 
 readme = "README.md"
 requires-python = ">=3.11,<3.14"
 authors = [{name = "Matthias Walle"}]
-license = "AGPL-3.0-only"
+license = "MIT"
 dependencies = [
   "aimio-py; python_version < '3.14'",
   "numpy",
