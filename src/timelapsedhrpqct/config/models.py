@@ -32,6 +32,12 @@ class DiscoveryConfig:
             "radius": ["DR", "RADIUS", "RAD"],
             "tibia": ["DT", "TIBIA", "TIB"],
             "knee": ["KN", "KNEE"],
+            "radius_left": ["RL", "RADIUS_LEFT", "RADL", "LEFT_RADIUS"],
+            "radius_right": ["RR", "RADIUS_RIGHT", "RADR", "RIGHT_RADIUS"],
+            "tibia_left": ["TL", "TIBIA_LEFT", "TIBL", "LEFT_TIBIA"],
+            "tibia_right": ["TR", "TIBIA_RIGHT", "TIBR", "RIGHT_TIBIA"],
+            "knee_left": ["KL", "KNL", "KNEE_LEFT", "KNEEL", "LEFT_KNEE"],
+            "knee_right": ["KR", "KNR", "KNEE_RIGHT", "KNEER", "RIGHT_KNEE"],
         }
     )
     session_aliases: dict[str, list[str]] = field(

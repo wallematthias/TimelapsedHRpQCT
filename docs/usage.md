@@ -206,12 +206,14 @@ INSR_269_DT_C1_MASK1.AIM
 
 The default discovery regex is defined in `src/timelapsedhrpqct/configs/defaults.yml`.
 Discovery is recursive, so input files can be in a flat/unstructured folder or nested inside a BIDS/MIDS-style tree.
+If filename parsing fails, discovery falls back to AIM header metadata (`Index Patient`, `Index Measurement`, `Site`) when available.
 
 Role notes:
 
 - `REGMASK` is used as the preferred registration mask.
 - `ROI*` roles (for example `ROI1`, `ROI2`) are auto-detected from filename suffixes.
 - Generic `MASK*` roles are also auto-detected and can be unioned for registration fallback.
+- Left/right site aliases are supported (`RL/RR/TL/TR/KL/KR`) while keeping generic `radius`, `tibia`, `knee` workflows.
 
 ## Output Layout
 
@@ -227,3 +229,8 @@ Important output areas:
 - `derivatives/TimelapsedHRpQCT/sub-*/transformed/`: fused transformed sessions
 - `derivatives/TimelapsedHRpQCT/sub-*/filled/`: filled fused sessions
 - `derivatives/TimelapsedHRpQCT/sub-*/analysis/`: CSV outputs, common regions, visualizations, summary JSON
+
+Analysis CSV notes:
+
+- Pairwise remodelling CSV includes `site`, `scan_date_t0`, `scan_date_t1`, `followup_days`, and `followup_years` when scan dates are available in imported stack metadata.
+- Trajectory CSV includes `site`, `followup_days_total`, and `followup_years_total` over the available series.

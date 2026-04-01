@@ -18,13 +18,19 @@ import:
 # Discovery
 # -----------------------------------------------------------------------------
 discovery:
-  session_regex: '(?i)^(?P<subject>.+?)(?:_(?P<site>DR|DT|KN|RADIUS|TIBIA|KNEE))?(?:_STACK(?P<stack>\d+))?_(?P<session>[A-Z][A-Z0-9]*)(?:_(?P<role>.*))?\.aim(?:;\d+)?$'
+  session_regex: '(?i)^(?P<subject>.+?)(?:_(?P<site>DR|DT|KN|RL|RR|TL|TR|KL|KR|RADIUS|TIBIA|KNEE|RADIUS_LEFT|RADIUS_RIGHT|TIBIA_LEFT|TIBIA_RIGHT|KNEE_LEFT|KNEE_RIGHT))?(?:_STACK(?P<stack>\d+))?_(?P<session>[A-Z][A-Z0-9]*)(?:_(?P<role>.*))?\.aim(?:;\d+)?$'
 
   default_site: tibia
   site_aliases:
     radius: [DR, RADIUS, RAD]
     tibia: [DT, TIBIA, TIB]
     knee: [KN, KNEE]
+    radius_left: [RL, RADIUS_LEFT, RADL, LEFT_RADIUS]
+    radius_right: [RR, RADIUS_RIGHT, RADR, RIGHT_RADIUS]
+    tibia_left: [TL, TIBIA_LEFT, TIBL, LEFT_TIBIA]
+    tibia_right: [TR, TIBIA_RIGHT, TIBR, RIGHT_TIBIA]
+    knee_left: [KL, KNL, KNEE_LEFT, KNEEL, LEFT_KNEE]
+    knee_right: [KR, KNR, KNEE_RIGHT, KNEER, RIGHT_KNEE]
   session_aliases:
     T1: [BASELINE, BL]
     T2: [FOLLOWUP, FOLLOWUP1, FL, FU]

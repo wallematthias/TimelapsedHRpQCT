@@ -110,3 +110,18 @@ def test_site_defaults_can_override_morphology_downsample_factor() -> None:
 
     assert params.inner.morphology_downsample_factor == 2
     assert params.outer.morphology_downsample_factor == 2
+
+
+def test_sided_site_uses_generic_site_defaults() -> None:
+    config = AppConfig()
+
+    params_tibia = _apply_site_defaults(_derive_params(config), config, "tibia_left")
+    params_radius = _apply_site_defaults(_derive_params(config), config, "radius_right")
+    params_knee = _apply_site_defaults(_derive_params(config), config, "knee_left")
+
+    assert params_tibia.inner.site == "tibia_left"
+    assert params_tibia.inner.trabecular_close_radius == 25
+    assert params_radius.inner.site == "radius_right"
+    assert params_radius.inner.trabecular_close_radius == 15
+    assert params_knee.inner.site == "knee_left"
+    assert params_knee.inner.trabecular_close_radius == 25

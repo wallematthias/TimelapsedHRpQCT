@@ -128,6 +128,16 @@ def _apply_site_defaults(
     config: AppConfig,
     site: str,
 ) -> ContourGenerationParams:
+    def _base_site(site_name: str) -> str:
+        site_key = str(site_name).lower()
+        if site_key.startswith("radius_"):
+            return "radius"
+        if site_key.startswith("tibia_"):
+            return "tibia"
+        if site_key.startswith("knee_"):
+            return "knee"
+        return site_key
+
     masks_cfg = getattr(config, "masks", None)
     params.inner.site = site
 
@@ -135,7 +145,7 @@ def _apply_site_defaults(
         return params
 
     site_defaults = getattr(masks_cfg, "site_defaults", {}) or {}
-    site_override = site_defaults.get(site, {}) or {}
+    site_override = site_defaults.get(site, {}) or site_defaults.get(_base_site(site), {}) or {}
     section_map = {
         "outer": params.outer,
         "inner": params.inner,

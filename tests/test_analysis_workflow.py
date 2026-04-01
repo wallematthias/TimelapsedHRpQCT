@@ -755,6 +755,77 @@ def test_run_analysis_pairwise_fixed_t0_uses_baseline_resample_direction(
     assert int(row["resorption_vox"]) == 0
 
 
+def test_run_analysis_adds_site_and_followup_duration_columns(tmp_path: Path) -> None:
+    dataset_root = _build_pairwise_t0_single_stack_dataset(tmp_path / "dataset")
+
+    stack_dir_c1 = (
+        get_derivatives_root(dataset_root) / "sub-001" / "ses-C1" / "stacks"
+    )
+    stack_dir_c2 = (
+        get_derivatives_root(dataset_root) / "sub-001" / "ses-C2" / "stacks"
+    )
+    c1_meta = stack_dir_c1 / "sub-001_ses-C1_stack-01.json"
+    c2_meta = stack_dir_c2 / "sub-001_ses-C2_stack-01.json"
+
+    c1_meta.write_text(
+        json.dumps(
+            {
+                "image_metadata": {
+                    "processing_log": "Original Creation-Date        12-MAY-2016 14:17:12.96"
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    c2_meta.write_text(
+        json.dumps(
+            {
+                "image_metadata": {
+                    "processing_log": "Original Creation-Date        14-MAY-2016 09:00:00.00"
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    config = AppConfig()
+    config.analysis = SimpleNamespace(
+        space="pairwise_fixed_t0",
+        method="grayscale_delta_only",
+        compartments=["full"],
+        pair_mode="adjacent",
+        use_filled_images=False,
+        gaussian_filter=False,
+        valid_region=SimpleNamespace(erosion_voxels=0),
+    )
+    config.visualization = SimpleNamespace(enabled=False, threshold=None, cluster_size=None, label_map=None)
+
+    run_analysis(
+        dataset_root=dataset_root,
+        config=config,
+        thresholds=[225.0],
+        clusters=[1],
+    )
+
+    pairwise_df = pd.read_csv(pairwise_remodelling_csv_path(dataset_root, "001"))
+    trajectory_df = pd.read_csv(trajectory_metrics_csv_path(dataset_root, "001"))
+
+    pair_row = pairwise_df.iloc[0]
+    assert pair_row["site"] == "radius"
+    assert pair_row["session_t0_generic"] == "ses-1"
+    assert pair_row["session_t1_generic"] == "ses-2"
+    assert pair_row["scan_date_t0"] == "2016-05-12"
+    assert pair_row["scan_date_t1"] == "2016-05-14"
+    assert int(pair_row["followup_days"]) == 2
+    assert round(float(pair_row["followup_years"]), 6) == round(2.0 / 365.25, 6)
+
+    traj_row = trajectory_df.iloc[0]
+    assert traj_row["site"] == "radius"
+    assert traj_row["session_first_generic"] == "ses-1"
+    assert traj_row["session_last_generic"] == "ses-2"
+    assert int(traj_row["followup_days_total"]) == 2
+
+
 def test_run_analysis_respects_threshold_and_cluster_filters(tmp_path: Path) -> None:
     dataset_root = _build_known_remodelling_dataset(tmp_path / "dataset")
     config = AppConfig()

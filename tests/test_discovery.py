@@ -245,3 +245,163 @@ def test_discover_raw_sessions_supports_nested_bids_like_layout(tmp_path: Path) 
     assert sessions[0].site == "tibia"
     assert sessions[0].raw_image_path == image
     assert sessions[0].raw_mask_paths["trab"] == trab
+
+
+def test_discover_raw_sessions_supports_sided_site_aliases(tmp_path: Path) -> None:
+    root = tmp_path / "data"
+    image = root / "SUBJECT_001_TR_T1.AIM"
+    _touch(image)
+
+    sessions = discover_raw_sessions(root, DiscoveryConfig())
+
+    assert len(sessions) == 1
+    assert sessions[0].subject_id == "SUBJECT_001"
+    assert sessions[0].session_id == "T1"
+    assert sessions[0].site == "tibia_right"
+
+
+def test_discovery_falls_back_to_header_and_resolves_mask_site_from_image(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    root = tmp_path / "data"
+    image = root / "IMG000.AIM"
+    trab = root / "MASK_TRAB_MASK.AIM"
+    _touch(image)
+    _touch(trab)
+
+    def fake_header(path: Path):
+        if path.name == "IMG000.AIM":
+            return {
+                "processing_log": {
+                    "Index Patient": 482,
+                    "Index Measurement": 2207,
+                    "Site": 38,
+                    "Original Creation-Date": "12-MAY-2016 14:17:12.96",
+                }
+            }
+        return {
+            "processing_log": {
+                "Index Patient": 482,
+                "Index Measurement": 2207,
+                # masks may miss Site in AIM processing log
+                "Original Creation-Date": "12-MAY-2016 14:17:12.96",
+            }
+        }
+
+    monkeypatch.setattr("timelapsedhrpqct.dataset.discovery._read_aim_header", fake_header)
+
+    sessions = discover_raw_sessions(root, DiscoveryConfig())
+
+    assert len(sessions) == 1
+    assert sessions[0].subject_id == "482"
+    assert sessions[0].session_id == "M2207"
+    assert sessions[0].site == "tibia_left"
+    assert sessions[0].raw_image_path == image
+    assert sessions[0].raw_mask_paths["trab"] == trab
+
+
+def test_discovery_force_header_discovery_overrides_filename_parsing(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    root = tmp_path / "data"
+    image = root / "SUBJECT_001_DT_T1.AIM"
+    _touch(image)
+
+    def fake_header(path: Path):
+        return {
+            "processing_log": {
+                "Index Patient": "H482",
+                "Index Measurement": 2207,
+                "Site": 20,
+                "Original Creation-Date": "12-MAY-2016 14:17:12.96",
+            }
+        }
+
+    monkeypatch.setattr("timelapsedhrpqct.dataset.discovery._read_aim_header", fake_header)
+
+    sessions = discover_raw_sessions(
+        root,
+        DiscoveryConfig(),
+        force_header_discovery=True,
+    )
+
+    assert len(sessions) == 1
+    assert sessions[0].subject_id == "H482"
+    assert sessions[0].session_id == "M2207"
+    assert sessions[0].site == "radius_left"
+
+
+def test_discovery_force_header_unknown_numeric_site_falls_back_to_path_context(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    root = tmp_path / "dataset"
+    image = root / "sub-001" / "site-tibia" / "ses-T1" / "IMG000.AIM"
+    _touch(image)
+
+    def fake_header(path: Path):
+        return {
+            "processing_log": {
+                "Index Patient": 482,
+                "Index Measurement": 2207,
+                "Site": 39,
+            }
+        }
+
+    monkeypatch.setattr("timelapsedhrpqct.dataset.discovery._read_aim_header", fake_header)
+
+    sessions = discover_raw_sessions(
+        root,
+        DiscoveryConfig(),
+        force_header_discovery=True,
+    )
+
+    assert len(sessions) == 1
+    assert sessions[0].subject_id == "482"
+    assert sessions[0].session_id == "M2207"
+    assert sessions[0].site == "tibia"
+
+
+def test_discovery_force_header_can_canonicalize_sessions(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    root = tmp_path / "dataset"
+    image1 = root / "sub-001" / "site-tibia" / "ses-X" / "IMG1.AIM"
+    image2 = root / "sub-001" / "site-tibia" / "ses-Y" / "IMG2.AIM"
+    _touch(image1)
+    _touch(image2)
+
+    def fake_header(path: Path):
+        if path.name == "IMG1.AIM":
+            return {
+                "processing_log": {
+                    "Index Patient": 482,
+                    "Index Measurement": 2208,
+                    "Site": 38,
+                    "Original Creation-Date": "14-MAY-2016 09:00:00.00",
+                }
+            }
+        return {
+            "processing_log": {
+                "Index Patient": 482,
+                "Index Measurement": 2207,
+                "Site": 38,
+                "Original Creation-Date": "12-MAY-2016 14:17:12.96",
+            }
+        }
+
+    monkeypatch.setattr("timelapsedhrpqct.dataset.discovery._read_aim_header", fake_header)
+
+    sessions = discover_raw_sessions(
+        root,
+        DiscoveryConfig(),
+        force_header_discovery=True,
+        canonicalize_sessions=True,
+    )
+
+    assert len(sessions) == 2
+    assert [s.session_id for s in sessions] == ["1", "2"]
+    assert [s.source_session_id for s in sessions] == ["M2207", "M2208"]

@@ -55,6 +55,8 @@ def test_parser_uses_repo_default_config_for_commands() -> None:
     assert run_args.copy_raw_inputs is False
     assert import_args.restructure_raw is False
     assert run_args.restructure_raw is False
+    assert import_args.force_header_discovery is False
+    assert run_args.force_header_discovery is False
 
 
 def test_parser_accepts_copy_raw_inputs_for_import_and_run() -> None:
@@ -75,6 +77,16 @@ def test_parser_accepts_restructure_raw_for_import_and_run() -> None:
 
     assert import_args.restructure_raw is True
     assert run_args.restructure_raw is True
+
+
+def test_parser_accepts_force_header_discovery_for_import_and_run() -> None:
+    parser = _build_parser()
+
+    import_args = parser.parse_args(["import", "/tmp/raw", "--force-header-discovery"])
+    run_args = parser.parse_args(["run", "/tmp/raw", "--force-header-discovery"])
+
+    assert import_args.force_header_discovery is True
+    assert run_args.force_header_discovery is True
 
 
 def test_parser_accepts_undo_restructure_command() -> None:
@@ -310,7 +322,9 @@ def test_cmd_run_skips_fill_when_disabled_and_analysis_does_not_require_filled(m
     monkeypatch.setattr("timelapsedhrpqct.cli._load_config_or_die", lambda path: config)
     monkeypatch.setattr(
         "timelapsedhrpqct.cli.discover_raw_sessions",
-        lambda root, discovery_config: [RawSession("001", "C1", Path("/tmp/C1.AIM"))],
+        lambda root, discovery_config, force_header_discovery=False, canonicalize_sessions=False: [
+            RawSession("001", "C1", Path("/tmp/C1.AIM"))
+        ],
     )
     monkeypatch.setattr("timelapsedhrpqct.cli._cmd_import", lambda args: 0)
     monkeypatch.setattr("timelapsedhrpqct.cli._needs_mask_generation", lambda dataset_root: False)
@@ -336,6 +350,7 @@ def test_cmd_run_skips_fill_when_disabled_and_analysis_does_not_require_filled(m
             thr=None,
             clusters=None,
             visualize=None,
+            force_header_discovery=False,
         )
     )
 
@@ -358,7 +373,9 @@ def test_cmd_run_errors_if_fill_disabled_but_analysis_uses_filled(monkeypatch, t
     monkeypatch.setattr("timelapsedhrpqct.cli._load_config_or_die", lambda path: config)
     monkeypatch.setattr(
         "timelapsedhrpqct.cli.discover_raw_sessions",
-        lambda root, discovery_config: [RawSession("001", "C1", Path("/tmp/C1.AIM"))],
+        lambda root, discovery_config, force_header_discovery=False, canonicalize_sessions=False: [
+            RawSession("001", "C1", Path("/tmp/C1.AIM"))
+        ],
     )
     monkeypatch.setattr("timelapsedhrpqct.cli._cmd_import", lambda args: 0)
     monkeypatch.setattr("timelapsedhrpqct.cli._needs_mask_generation", lambda dataset_root: False)
@@ -378,6 +395,7 @@ def test_cmd_run_errors_if_fill_disabled_but_analysis_uses_filled(monkeypatch, t
                 thr=None,
                 clusters=None,
                 visualize=None,
+                force_header_discovery=False,
             )
         )
 

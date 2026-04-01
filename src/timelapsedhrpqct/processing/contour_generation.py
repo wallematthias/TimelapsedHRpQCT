@@ -203,6 +203,12 @@ def _expand_slices(
 
 def _resolve_site_defaults(site: str) -> dict[str, int]:
     site_key = site.lower()
+    if site_key.startswith("radius_"):
+        site_key = "radius"
+    elif site_key.startswith("tibia_"):
+        site_key = "tibia"
+    elif site_key.startswith("knee_"):
+        site_key = "knee"
     if site_key == "radius":
         return {"trabecular_close_radius": 15}
     if site_key == "tibia":

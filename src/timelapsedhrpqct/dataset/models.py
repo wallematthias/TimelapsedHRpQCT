@@ -20,6 +20,7 @@ class RawSession:
     subject_id: str
     session_id: str
     raw_image_path: Path
+    source_session_id: str | None = None
     site: str | None = None
     stack_index: int | None = None
     raw_mask_paths: dict[MaskRole, Path] = field(default_factory=dict)

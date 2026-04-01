@@ -127,6 +127,14 @@ def _build_parser() -> argparse.ArgumentParser:
             "By default raw files remain in place."
         ),
     )
+    import_parser.add_argument(
+        "--force-header-discovery",
+        action="store_true",
+        help=(
+            "Force raw session discovery from AIM header metadata "
+            "(Index Patient / Index Measurement / Site) instead of filename parsing."
+        ),
+    )
 
     # ------------------------------------------------------------------
     # generate-masks
@@ -306,6 +314,14 @@ def _build_parser() -> argparse.ArgumentParser:
         help=(
             "Move raw AIM files into dataset_root/sub-*/site-*/ses-* during import. "
             "By default raw files remain in place."
+        ),
+    )
+    run_parser.add_argument(
+        "--force-header-discovery",
+        action="store_true",
+        help=(
+            "Force raw session discovery from AIM header metadata "
+            "(Index Patient / Index Measurement / Site) instead of filename parsing."
         ),
     )
     run_parser.add_argument(
@@ -755,8 +771,6 @@ def _multistack_correction_enabled(config: AppConfig) -> bool:
 
 
 def _cmd_import(args: argparse.Namespace) -> int:
-    from timelapsedhrpqct.workflows.import_aim import import_subject_sessions
-
     config = _load_config_or_die(args.config)
 
     input_root: Path = args.input_root.resolve()
@@ -768,6 +782,8 @@ def _cmd_import(args: argparse.Namespace) -> int:
     sessions = discover_raw_sessions(
         root=input_root,
         discovery_config=config.discovery,
+        force_header_discovery=bool(getattr(args, "force_header_discovery", False)),
+        canonicalize_sessions=bool(getattr(args, "force_header_discovery", False)),
     )
 
     if not sessions:
@@ -806,6 +822,8 @@ def _cmd_import(args: argparse.Namespace) -> int:
     if not sessions:
         print("[timelapse] All discovered raw sessions already imported -> skip")
         return 0
+
+    from timelapsedhrpqct.workflows.import_aim import import_subject_sessions
 
     output_root.mkdir(parents=True, exist_ok=True)
 
@@ -1088,6 +1106,8 @@ def _cmd_run(args: argparse.Namespace) -> int:
     discovered_sessions = discover_raw_sessions(
         root=input_root,
         discovery_config=config.discovery,
+        force_header_discovery=bool(getattr(args, "force_header_discovery", False)),
+        canonicalize_sessions=bool(getattr(args, "force_header_discovery", False)),
     )
     if not discovered_sessions:
         print(f"[timelapse] No raw sessions found under: {input_root}")
@@ -1100,6 +1120,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
         dry_run=args.dry_run,
         copy_raw_inputs=bool(getattr(args, "copy_raw_inputs", False)),
         restructure_raw=bool(getattr(args, "restructure_raw", False)),
+        force_header_discovery=bool(getattr(args, "force_header_discovery", False)),
     )
     rc = _cmd_import(import_args)
     if rc != 0 or args.dry_run:

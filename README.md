@@ -153,6 +153,8 @@ timelapse run /path/to/raw_data --skip-mask-generation
 Use this when your input already includes valid masks (for example `TRAB_MASK`, `CORT_MASK`, `FULL_MASK`, `REGMASK`, or `ROI*`) and you do not want the pipeline to regenerate them.
 
 Input discovery is recursive, so your source folder can be either flat/unstructured or organized in a BIDS/MIDS-style nested layout.
+When filename parsing is ambiguous, discovery can fall back to AIM header metadata (`Index Patient`, `Index Measurement`, `Site`).
+Left/right site aliases are supported (`RL/RR/TL/TR/KL/KR`) while generic `radius/tibia/knee` remains fully supported.
 
 Run the full multistack workflow (if needed):
 

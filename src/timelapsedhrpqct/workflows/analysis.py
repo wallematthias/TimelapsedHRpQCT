@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import gc
+import json
 import math
+import re
+from datetime import date, datetime
 from dataclasses import replace
 from pathlib import Path
 from typing import Iterable
@@ -46,6 +49,7 @@ from timelapsedhrpqct.processing.analysis_io import (
     discover_analysis_sessions,
     discover_analysis_subject_ids,
 )
+from timelapsedhrpqct.io.metadata import parse_processing_log
 from timelapsedhrpqct.processing.transform_chain import compose_transforms
 from timelapsedhrpqct.utils.sitk_helpers import (
     array_to_image,
@@ -117,6 +121,164 @@ def _maybe_smooth_density(image_arr: np.ndarray, params: AnalysisParams) -> np.n
         sigma=params.gaussian_sigma,
         preserve_range=True,
     ).astype(np.float32, copy=False)
+
+
+def _parse_creation_date(value: object) -> date | None:
+    if value is None:
+        return None
+    text = str(value).strip()
+    if not text:
+        return None
+
+    # AIM processing-log common format: 12-MAY-2016 14:17:12.96
+    for fmt in ("%d-%b-%Y %H:%M:%S.%f", "%d-%b-%Y %H:%M:%S", "%d-%b-%Y"):
+        try:
+            return datetime.strptime(text, fmt).date()
+        except ValueError:
+            continue
+    return None
+
+
+def _extract_creation_date_from_processing_log(processing_log: str) -> date | None:
+    # Prefer direct pattern extraction because generic log parsing can split on
+    # clock colons and corrupt "Original Creation-Date" values.
+    m = re.search(r"(?i)Original Creation-Date\s+([0-9]{1,2}-[A-Z]{3}-[0-9]{4}(?:\s+[0-9:.]+)?)", processing_log)
+    if m:
+        parsed = _parse_creation_date(m.group(1))
+        if parsed is not None:
+            return parsed
+    try:
+        parsed_log = parse_processing_log(processing_log)
+    except Exception:
+        parsed_log = {}
+    return _parse_creation_date(parsed_log.get("Original Creation-Date"))
+
+
+def _extract_session_metadata_maps(
+    dataset_root: Path,
+    subject_id: str,
+    site: str,
+) -> tuple[dict[str, date], dict[str, str]]:
+    grouped = group_imported_stacks_by_subject_site_and_stack(iter_imported_stack_records(dataset_root))
+    stacks_by_index = grouped.get((subject_id, site), {})
+    by_session: dict[str, list[Path]] = {}
+    for stack_records in stacks_by_index.values():
+        for record in stack_records:
+            if record.metadata_path is not None:
+                by_session.setdefault(record.session_id, []).append(record.metadata_path)
+
+    scan_dates: dict[str, date] = {}
+    source_session_ids: dict[str, str] = {}
+    for session_id, meta_paths in by_session.items():
+        for meta_path in sorted(set(meta_paths), key=lambda p: str(p)):
+            if not meta_path.exists():
+                continue
+            try:
+                payload = json.loads(meta_path.read_text(encoding="utf-8"))
+            except Exception:
+                continue
+
+            source_session_id = payload.get("source_session_id")
+            if source_session_id is not None:
+                source_text = str(source_session_id).strip()
+                if source_text:
+                    source_session_ids[session_id] = source_text
+
+            processing_log = (
+                (payload.get("image_metadata") or {}).get("processing_log")
+                if isinstance(payload.get("image_metadata"), dict)
+                else None
+            )
+            if not isinstance(processing_log, str) or not processing_log.strip():
+                continue
+            scan_date = _extract_creation_date_from_processing_log(processing_log)
+            if scan_date is not None:
+                scan_dates[session_id] = scan_date
+                break
+    return scan_dates, source_session_ids
+
+
+def _augment_output_rows_with_site_and_followup(
+    *,
+    dataset_root: Path,
+    subject_id: str,
+    site: str,
+    outputs: RemodellingOutputs,
+) -> None:
+    session_scan_dates, session_source_ids = _extract_session_metadata_maps(
+        dataset_root,
+        subject_id,
+        site,
+    )
+    session_tokens: set[str] = set()
+    for row in outputs.pairwise_rows:
+        t0 = str(row.get("t0", "")).strip()
+        t1 = str(row.get("t1", "")).strip()
+        if t0:
+            session_tokens.add(t0)
+        if t1:
+            session_tokens.add(t1)
+    if not session_tokens:
+        session_tokens = {str(sid).strip() for sid in session_scan_dates.keys() if str(sid).strip()}
+
+    ordered_sessions = sorted(
+        session_tokens,
+        key=lambda sid: (
+            0 if sid in session_scan_dates else 1,
+            session_scan_dates.get(sid, date.max),
+            session_sort_key(sid),
+        ),
+    )
+    generic_session_map = {sid: f"ses-{idx + 1}" for idx, sid in enumerate(ordered_sessions)}
+
+    for row in outputs.pairwise_rows:
+        row["site"] = site
+        t0 = str(row.get("t0", "")).strip()
+        t1 = str(row.get("t1", "")).strip()
+        row["session_t0_original"] = session_source_ids.get(t0, t0 or None)
+        row["session_t1_original"] = session_source_ids.get(t1, t1 or None)
+        row["session_t0_generic"] = generic_session_map.get(t0)
+        row["session_t1_generic"] = generic_session_map.get(t1)
+        d0 = session_scan_dates.get(t0)
+        d1 = session_scan_dates.get(t1)
+        row["scan_date_t0"] = d0.isoformat() if d0 is not None else None
+        row["scan_date_t1"] = d1.isoformat() if d1 is not None else None
+        row["followup_days"] = (
+            int((d1 - d0).days) if d0 is not None and d1 is not None else None
+        )
+        row["followup_years"] = (
+            float((d1 - d0).days) / 365.25 if d0 is not None and d1 is not None else None
+        )
+
+    date_values = sorted(session_scan_dates.values())
+    total_days = (
+        int((date_values[-1] - date_values[0]).days)
+        if len(date_values) >= 2
+        else None
+    )
+    total_years = (
+        float(total_days) / 365.25 if total_days is not None else None
+    )
+    for row in outputs.trajectory_rows:
+        row["site"] = site
+        row["session_first_original"] = (
+            session_source_ids.get(ordered_sessions[0], ordered_sessions[0])
+            if ordered_sessions
+            else None
+        )
+        row["session_last_original"] = (
+            session_source_ids.get(ordered_sessions[-1], ordered_sessions[-1])
+            if ordered_sessions
+            else None
+        )
+        row["session_first_generic"] = (
+            generic_session_map.get(ordered_sessions[0]) if ordered_sessions else None
+        )
+        row["session_last_generic"] = (
+            generic_session_map.get(ordered_sessions[-1]) if ordered_sessions else None
+        )
+        row["followup_days_total"] = total_days
+        row["followup_years_total"] = total_years
 
 
 def _load_session_to_baseline_transform(
@@ -1029,6 +1191,13 @@ def run_analysis(
                     ),
                 )
             del label_img
+
+        _augment_output_rows_with_site_and_followup(
+            dataset_root=dataset_root,
+            subject_id=subject_id,
+            site=site,
+            outputs=outputs,
+        )
 
         pairwise_df = pd.DataFrame(outputs.pairwise_rows)
         trajectory_df = pd.DataFrame(outputs.trajectory_rows)
