@@ -33,6 +33,7 @@ class StackImageInput:
 
 
 def discover_stack_images(dataset_root: Path) -> list[StackImageInput]:
+    """Helper for discover stack images."""
     return [
         StackImageInput(
             subject_id=record.subject_id,
@@ -49,6 +50,7 @@ def discover_stack_images(dataset_root: Path) -> list[StackImageInput]:
 
 
 def _stack_paths(item: StackImageInput) -> dict[str, Path]:
+    """Return stack paths."""
     return {
         "seg": item.stack_dir / f"{item.stem}_seg.mha",
         "full": item.stack_dir / f"{item.stem}_mask-full.mha",
@@ -59,6 +61,7 @@ def _stack_paths(item: StackImageInput) -> dict[str, Path]:
 
 
 def _load_metadata(path: Path) -> dict:
+    """Load metadata."""
     if not path.exists():
         return {}
     try:
@@ -68,10 +71,12 @@ def _load_metadata(path: Path) -> dict:
 
 
 def _write_metadata(path: Path, meta: dict) -> None:
+    """Helper for write metadata."""
     path.write_text(json.dumps(meta, indent=2), encoding="utf-8")
 
 
 def _derive_params(config: AppConfig) -> ContourGenerationParams:
+    """Helper for derive params."""
     params = ContourGenerationParams()
 
     masks_cfg = getattr(config, "masks", None)
@@ -100,6 +105,7 @@ def _derive_params(config: AppConfig) -> ContourGenerationParams:
 
 
 def _infer_scan_site(item: StackImageInput, config: AppConfig, metadata: dict | None = None) -> str:
+    """Helper for infer scan site."""
     masks_cfg = getattr(config, "masks", None)
     if masks_cfg is None:
         return "radius"
@@ -128,7 +134,9 @@ def _apply_site_defaults(
     config: AppConfig,
     site: str,
 ) -> ContourGenerationParams:
+    """Helper for apply site defaults."""
     def _base_site(site_name: str) -> str:
+        """Collapse sided site labels to their base anatomical site."""
         site_key = str(site_name).lower()
         if site_key.startswith("radius_"):
             return "radius"
@@ -163,12 +171,14 @@ def _apply_site_defaults(
 
 
 def _configured_mask_roles(config: AppConfig) -> list[str]:
+    """Helper for configured mask roles."""
     masks_cfg = getattr(config, "masks", None)
     roles = list(getattr(masks_cfg, "roles", ["full", "trab", "cort"]))
     return [role for role in roles if role in {"full", "trab", "cort"}]
 
 
 def _existing_generated_paths(item: StackImageInput, generate_seg: bool) -> tuple[dict[str, Path], Path | None]:
+    """Return existing generated paths."""
     paths = _stack_paths(item)
     mask_paths = {
         role: paths[role]
@@ -186,6 +196,7 @@ def _upsert_generated_outputs(
     generate_seg: bool,
     metadata_path: Path,
 ) -> None:
+    """Helper for upsert generated outputs."""
     mask_paths, seg_path = _existing_generated_paths(item, generate_seg)
     upsert_imported_stack_records(
         dataset_root,
@@ -264,7 +275,8 @@ def run_mask_generation(dataset_root: str | Path, config: AppConfig) -> None:
                 need_generate_seg = generate_seg and ((not has_seg) or need_generate_masks)
             elif seg_method == "adaptive":
                 need_generate_masks = missing_any_mask
-                need_generate_seg = generate_seg and (not has_seg)
+                # Keep seg in sync with regenerated masks for adaptive mode too.
+                need_generate_seg = generate_seg and ((not has_seg) or need_generate_masks)
             else:
                 raise ValueError(f"Unsupported segmentation method: {seg_method}")
 
@@ -315,7 +327,7 @@ def run_mask_generation(dataset_root: str | Path, config: AppConfig) -> None:
                 sitk.WriteImage(result.cort, str(paths["cort"]))
                 wrote.append("cort")
 
-            if generate_seg and (overwrite or not has_seg):
+            if need_generate_seg:
                 print("[timelapse]   writing segmentation")
                 sitk.WriteImage(result.seg, str(paths["seg"]))
                 wrote.append("seg")
@@ -333,7 +345,7 @@ def run_mask_generation(dataset_root: str | Path, config: AppConfig) -> None:
                 "selected_site": site,
                 "segmentation_method": seg_method,
                 "generated_masks_this_run": True,
-                "generated_seg_this_run": bool(generate_seg and (overwrite or not has_seg)),
+                "generated_seg_this_run": bool(need_generate_seg),
                 "configured_mask_roles": sorted(configured_roles),
                 "generate_segmentation": generate_seg,
                 **result.metadata,

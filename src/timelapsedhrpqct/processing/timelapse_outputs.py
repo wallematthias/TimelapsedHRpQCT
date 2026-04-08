@@ -19,6 +19,7 @@ def build_pairwise_registration_metadata(
     fixed_mask_used: bool,
     moving_mask_used: bool,
 ) -> dict:
+    """Build pairwise registration metadata."""
     site_token = f"_site-{site}" if site is not None else ""
     return {
         "subject_id": subject_id,
@@ -57,6 +58,7 @@ def build_baseline_registration_metadata(
     qc_outputs: dict[str, str] | None = None,
     source: str | None = None,
 ) -> dict:
+    """Build baseline registration metadata."""
     site_token = f"_site-{site}" if site is not None else ""
     metadata = {
         "subject_id": subject_id,

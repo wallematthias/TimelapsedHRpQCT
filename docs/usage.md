@@ -87,8 +87,8 @@ This creates:
 
 - optional copied raw AIM files under `sourcedata/hrpqct` (only when `--copy-raw-inputs`)
 - optional moved raw AIM files under `sub-*/site-*/ses-*` (only when `--restructure-raw`)
-- imported stack artifacts under `derivatives/TimelapsedHRpQCT/sub-*/ses-*/stacks`
-- persistent imported-stack records under `derivatives/TimelapsedHRpQCT/_artifacts`
+- imported stack artifacts under `TimelapsedHRpQCT/sub-*/ses-*/stacks`
+- persistent imported-stack records under `TimelapsedHRpQCT/_artifacts`
 
 ### 2. Generate missing masks and segmentation
 
@@ -221,14 +221,14 @@ Important output areas:
 
 - `sourcedata/hrpqct/`: optional copied raw AIM files (only when raw copy is enabled)
 - `sub-*/site-*/ses-*/`: optional moved raw AIM files (only when `--restructure-raw`)
-- `derivatives/TimelapsedHRpQCT/_artifacts/`: persistent artifact indices
-- `derivatives/TimelapsedHRpQCT/sub-*/ses-*/stacks/`: imported stacks
-- `derivatives/TimelapsedHRpQCT/sub-*/timelapse_registration/`: within-stack longitudinal transforms
-- `derivatives/TimelapsedHRpQCT/sub-*/stack_correction/`: multistack correction outputs
-- `derivatives/TimelapsedHRpQCT/sub-*/transforms/final/`: canonical final transforms
-- `derivatives/TimelapsedHRpQCT/sub-*/transformed/`: fused transformed sessions
-- `derivatives/TimelapsedHRpQCT/sub-*/filled/`: filled fused sessions
-- `derivatives/TimelapsedHRpQCT/sub-*/analysis/`: CSV outputs, common regions, visualizations, summary JSON
+- `TimelapsedHRpQCT/_artifacts/`: persistent artifact indices
+- `TimelapsedHRpQCT/sub-*/ses-*/stacks/`: imported stacks
+- `TimelapsedHRpQCT/sub-*/timelapse_registration/`: within-stack longitudinal transforms
+- `TimelapsedHRpQCT/sub-*/stack_correction/`: multistack correction outputs
+- `TimelapsedHRpQCT/sub-*/transforms/final/`: canonical final transforms
+- `TimelapsedHRpQCT/sub-*/transformed/`: fused transformed sessions
+- `TimelapsedHRpQCT/sub-*/filled/`: filled fused sessions
+- `TimelapsedHRpQCT/sub-*/analysis/`: CSV outputs, common regions, visualizations, summary JSON
 
 Analysis CSV notes:
 

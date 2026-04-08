@@ -24,6 +24,7 @@ class BaselineTransform:
 
 
 def identity_transform(dimension: int = 3) -> sitk.Transform:
+    """Helper for identity transform."""
     return sitk.Transform(dimension, sitk.sitkIdentity)
 
 

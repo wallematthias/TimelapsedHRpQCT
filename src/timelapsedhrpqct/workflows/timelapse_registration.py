@@ -42,6 +42,7 @@ from timelapsedhrpqct.utils.sitk_helpers import load_image, write_image, write_j
 
 
 def _load_union_generic_mask(mask_paths: dict[str, Path]) -> tuple[sitk.Image | None, str | None]:
+    """Union available generic `mask*` roles into one registration mask."""
     generic_roles = sorted(
         role for role, path in mask_paths.items() if role.startswith("mask") and path.exists()
     )
@@ -77,6 +78,7 @@ def _load_union_named_masks(
     mask_paths: dict[str, Path],
     roles: list[str],
 ) -> tuple[sitk.Image | None, str | None]:
+    """Union required named mask roles when all are present and compatible."""
     existing_roles = [role for role in roles if role in mask_paths and mask_paths[role].exists()]
     if len(existing_roles) != len(roles):
         return None, None
@@ -106,6 +108,7 @@ def _load_union_named_masks(
 
 
 def _load_registration_mask(record) -> tuple[sitk.Image | None, str | None]:
+    """Select best-available registration mask and provenance for a stack record."""
     regmask_path = record.mask_paths.get("regmask")
     if regmask_path is not None and regmask_path.exists():
         return load_image(regmask_path), str(regmask_path)
@@ -125,11 +128,13 @@ def _load_registration_mask(record) -> tuple[sitk.Image | None, str | None]:
 
 
 def _write_transform(transform: sitk.Transform, path: Path) -> None:
+    """Write a flattened transform to disk, ensuring parent directory exists."""
     path.parent.mkdir(parents=True, exist_ok=True)
     sitk.WriteTransform(flatten_transform(transform), str(path))
 
 
 def _stack_transform_dir(dataset_root: Path, subject_id: str, site: str, stack_index: int) -> Path:
+    """Return transform directory for a subject/site/stack registration run."""
     return timelapse_stack_transform_dir(dataset_root, subject_id, site, stack_index)
 
 
@@ -141,6 +146,7 @@ def _pairwise_transform_path(
     moving_session: str | None = None,
     fixed_session: str | None = None,
 ) -> Path:
+    """Build output path for a pairwise registration transform."""
     if stack_index is None or moving_session is None or fixed_session is None:
         raise ValueError("stack_index, moving_session, and fixed_session are required")
     return timelapse_pairwise_transform_path(
@@ -161,6 +167,7 @@ def _pairwise_metadata_path(
     moving_session: str | None = None,
     fixed_session: str | None = None,
 ) -> Path:
+    """Build output path for pairwise registration metadata."""
     if stack_index is None or moving_session is None or fixed_session is None:
         raise ValueError("stack_index, moving_session, and fixed_session are required")
     return timelapse_pairwise_metadata_path(
@@ -181,6 +188,7 @@ def _baseline_transform_path(
     moving_session: str | None = None,
     baseline_session: str | None = None,
 ) -> Path:
+    """Build output path for baseline-space transform of one moving session."""
     if stack_index is None or moving_session is None or baseline_session is None:
         raise ValueError("stack_index, moving_session, and baseline_session are required")
     return timelapse_baseline_transform_path(
@@ -201,6 +209,7 @@ def _baseline_metadata_path(
     moving_session: str | None = None,
     baseline_session: str | None = None,
 ) -> Path:
+    """Build output path for baseline transform metadata."""
     if stack_index is None or moving_session is None or baseline_session is None:
         raise ValueError("stack_index, moving_session, and baseline_session are required")
     return timelapse_baseline_metadata_path(
@@ -221,6 +230,7 @@ def _baseline_registered_image_path(
     moving_session: str | None = None,
     baseline_session: str | None = None,
 ) -> Path:
+    """Build output path for moving image resampled to baseline space."""
     if stack_index is None or moving_session is None or baseline_session is None:
         raise ValueError("stack_index, moving_session, and baseline_session are required")
     return timelapse_baseline_registered_image_path(
@@ -241,6 +251,7 @@ def _baseline_overlay_path(
     moving_session: str,
     baseline_session: str,
 ) -> Path:
+    """Build output path for baseline QC overlay image."""
     return timelapse_baseline_overlay_path(
         dataset_root,
         subject_id,
@@ -259,6 +270,7 @@ def _baseline_checkerboard_path(
     moving_session: str,
     baseline_session: str,
 ) -> Path:
+    """Build output path for baseline QC checkerboard image."""
     return timelapse_baseline_checkerboard_path(
         dataset_root,
         subject_id,
@@ -270,6 +282,7 @@ def _baseline_checkerboard_path(
 
 
 def _registration_settings_from_config(config: AppConfig) -> RegistrationSettings:
+    """Translate app config into `RegistrationSettings` for registration engine."""
     cfg = config.timelapsed_registration
     return RegistrationSettings(
         transform_type=cfg.transform_type,
@@ -292,6 +305,7 @@ def _registration_settings_from_config(config: AppConfig) -> RegistrationSetting
 
 
 def _resolve_baseline_session_id(stack_records, reference_session: str) -> str:
+    """Resolve configured baseline reference token to a concrete session id."""
     if not stack_records:
         raise ValueError("Cannot resolve baseline session from empty stack records")
 
@@ -322,6 +336,7 @@ def _write_baseline_qc(
     moving_image: sitk.Image,
     transform: sitk.Transform,
 ) -> dict[str, str]:
+    """Write baseline-space QC volumes and return their output paths."""
     reference_image = make_union_reference_image(
         fixed_image=fixed_image,
         moving_image=moving_image,
@@ -390,6 +405,7 @@ def run_timelapse_registration(
     dataset_root: str | Path,
     config: AppConfig,
 ) -> None:
+    """Run sequential timelapse registrations and persist pairwise/baseline outputs."""
     dataset_root = Path(dataset_root)
     records = iter_imported_stack_records(dataset_root)
     grouped = group_imported_stacks_by_subject_site_and_stack(records)

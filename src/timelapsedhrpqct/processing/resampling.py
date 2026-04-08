@@ -5,6 +5,7 @@ import SimpleITK as sitk
 
 
 def image_physical_corners(image: sitk.Image) -> list[tuple[float, float, float]]:
+    """Helper for image physical corners."""
     size = image.GetSize()
     corners_index = [
         (0, 0, 0),
@@ -23,6 +24,7 @@ def transform_points(
     points: list[tuple[float, float, float]],
     transform: sitk.Transform,
 ) -> list[tuple[float, float, float]]:
+    """Helper for transform points."""
     return [transform.TransformPoint(p) for p in points]
 
 
@@ -33,6 +35,7 @@ def make_union_reference_image(
     padding_voxels: int = 4,
     pixel_id: int = sitk.sitkFloat32,
 ) -> sitk.Image:
+    """Helper for make union reference image."""
     fixed_corners = image_physical_corners(fixed_image)
     moving_corners = image_physical_corners(moving_image)
     moving_corners_tx = transform_points(moving_corners, moving_to_fixed_transform)

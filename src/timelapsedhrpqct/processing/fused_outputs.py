@@ -18,6 +18,7 @@ def build_fused_session_metadata(
     fused_seg_path: Path | None,
     fused_mask_paths: dict[str, Path],
 ) -> dict:
+    """Build fused session metadata."""
     site_token = f"_site-{site}" if site is not None else ""
     return {
         "subject_id": subject_id,
@@ -59,6 +60,7 @@ def build_fused_session_record(
     seg_path: Path | None,
     metadata_path: Path,
 ) -> FusedSessionRecord:
+    """Build fused session record."""
     return FusedSessionRecord(
         subject_id=subject_id,
         site=site,

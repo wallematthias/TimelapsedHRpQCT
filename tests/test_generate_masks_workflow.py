@@ -3,6 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 
 import numpy as np
+import pytest
+import SimpleITK as sitk
 
 from timelapsedhrpqct.config.models import AppConfig
 from timelapsedhrpqct.dataset.artifacts import (
@@ -124,4 +126,72 @@ def test_sided_site_uses_generic_site_defaults() -> None:
     assert params_radius.inner.site == "radius_right"
     assert params_radius.inner.trabecular_close_radius == 15
     assert params_knee.inner.site == "knee_left"
-    assert params_knee.inner.trabecular_close_radius == 25
+    assert params_knee.inner.trabecular_close_radius == 36
+
+
+def test_adaptive_mode_regenerates_segmentation_when_masks_change(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    dataset_root = tmp_path / "dataset"
+    stack_dir = get_derivatives_root(dataset_root) / "sub-001" / "site-radius" / "ses-T1" / "stacks"
+    stack_dir.mkdir(parents=True, exist_ok=True)
+
+    stem = "sub-001_site-radius_ses-T1_stack-01"
+    image_path = stack_dir / f"{stem}_image.mha"
+    full_path = stack_dir / f"{stem}_mask-full.mha"
+    trab_path = stack_dir / f"{stem}_mask-trab.mha"
+    cort_path = stack_dir / f"{stem}_mask-cort.mha"
+    seg_path = stack_dir / f"{stem}_seg.mha"
+    metadata_path = stack_dir / f"{stem}.json"
+
+    image = np.zeros((4, 4, 4), dtype=np.float32)
+    mask = np.zeros((4, 4, 4), dtype=np.uint8)
+    mask[1:3, 1:3, 1:3] = 1
+
+    write_image(image_path, image)
+    write_image(full_path, mask)
+    write_image(trab_path, mask)
+    seg_path.write_text("stale-seg", encoding="utf-8")
+    metadata_path.write_text("{}", encoding="utf-8")
+
+    upsert_imported_stack_records(
+        dataset_root,
+        [
+            ImportedStackRecord(
+                subject_id="001",
+                site="radius",
+                session_id="T1",
+                stack_index=1,
+                image_path=image_path,
+                mask_paths={"full": full_path, "trab": trab_path},
+                seg_path=seg_path,
+                metadata_path=metadata_path,
+            )
+        ],
+    )
+
+    class _Result:
+        def __init__(self, img):
+            self.full = img
+            self.trab = img
+            self.cort = img
+            self.seg = img
+            self.mask_provenance = {"full": "generated", "trab": "generated", "cort": "generated"}
+            self.metadata = {"source": "test"}
+
+    monkeypatch.setattr(
+        "timelapsedhrpqct.workflows.generate_masks.generate_masks_from_image",
+        lambda image, params, verbose=False: _Result(sitk.Cast(image > -1, sitk.sitkUInt8)),
+    )
+
+    config = AppConfig()
+    config.masks.generate = True
+    config.masks.generate_segmentation = True
+    config.masks.segmentation.method = "adaptive"
+
+    run_mask_generation(dataset_root, config)
+
+    assert cort_path.exists()
+    assert seg_path.exists()
+    assert "stale-seg" not in seg_path.read_text(encoding="utf-8", errors="ignore")

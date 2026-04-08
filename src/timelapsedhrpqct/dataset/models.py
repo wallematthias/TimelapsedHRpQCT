@@ -27,12 +27,15 @@ class RawSession:
     raw_seg_path: Path | None = None
 
     def get_mask_path(self, role: MaskRole) -> Path | None:
+        """Return mask path for a role when present."""
         return self.raw_mask_paths.get(role)
 
     def has_mask(self, role: MaskRole) -> bool:
+        """Return whether this raw session includes the requested mask role."""
         return role in self.raw_mask_paths
 
     def validate(self) -> None:
+        """Validate raw-session identity and file references."""
         if not self.subject_id:
             raise ValueError("subject_id must not be empty")
         if not self.session_id:
@@ -59,9 +62,11 @@ class StackSliceRange:
 
     @property
     def depth(self) -> int:
+        """Return stack depth in slices."""
         return self.z_stop - self.z_start
 
     def validate(self) -> None:
+        """Validate stack slice index and bounds ordering."""
         if self.stack_index < 1:
             raise ValueError("stack_index must be >= 1")
         if self.z_start < 0:
@@ -89,12 +94,15 @@ class StackArtifact:
     site: str = "radius"
 
     def get_mask_path(self, role: MaskRole) -> Path | None:
+        """Return persisted mask path for a role when available."""
         return self.mask_paths.get(role)
 
     def has_mask(self, role: MaskRole) -> bool:
+        """Return whether this stack artifact has a mask for the given role."""
         return role in self.mask_paths
 
     def validate(self) -> None:
+        """Validate stack artifact metadata and required fields."""
         if not self.subject_id:
             raise ValueError("subject_id must not be empty")
         if not self.site:
@@ -130,6 +138,7 @@ class TransformRecord:
     site: str = "radius"
 
     def validate(self) -> None:
+        """Validate transform record identity, spaces, and transform path."""
         if not self.subject_id:
             raise ValueError("subject_id must not be empty")
         if not self.site:
@@ -160,9 +169,11 @@ class SessionStackCollection:
     site: str = "radius"
 
     def sorted_stacks(self) -> list[StackArtifact]:
+        """Return stacks ordered by numeric stack index."""
         return sorted(self.stacks, key=lambda s: s.stack_index)
 
     def get_stack(self, stack_index: int) -> StackArtifact:
+        """Return a specific stack artifact by stack index."""
         for stack in self.stacks:
             if stack.stack_index == stack_index:
                 return stack
@@ -173,4 +184,5 @@ class SessionStackCollection:
 
     @property
     def num_stacks(self) -> int:
+        """Return number of stacks available for this session."""
         return len(self.stacks)

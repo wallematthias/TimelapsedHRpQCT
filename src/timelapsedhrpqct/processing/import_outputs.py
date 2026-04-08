@@ -36,6 +36,7 @@ def build_stack_output_paths(
     mask_roles: list[str],
     has_seg: bool,
 ) -> dict[str, object]:
+    """Build stack output paths."""
     return {
         "image": imported_stack_image_path(dataset_root, raw_session, stack_index),
         "masks": {
@@ -58,6 +59,7 @@ def build_crop_metadata(
     roi_index_xyz: tuple[int, int, int] | None = None,
     session_key: str | None = None,
 ) -> dict:
+    """Build crop metadata."""
     if subject_crop_spec is None:
         return {
             "applied": False,
@@ -107,6 +109,7 @@ def build_stack_metadata(
     mask_provenance: dict,
     stack_geometry: dict,
 ) -> dict:
+    """Build stack metadata."""
     return {
         "subject_id": raw_session.subject_id,
         "session_id": raw_session.session_id,

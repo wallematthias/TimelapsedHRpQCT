@@ -84,6 +84,7 @@ class GeneratedContours:
 
 
 def _log_step(verbose: bool, label: str, start_time: float) -> float:
+    """Helper for log step."""
     now = time.perf_counter()
     if verbose:
         print(f"[contour] {label}: {now - start_time:.3f}s")
@@ -142,6 +143,7 @@ def numpy_xyz_bool_to_sitk(
 
 
 def _ensure_bool(mask: np.ndarray) -> np.ndarray:
+    """Helper for ensure bool."""
     return np.ascontiguousarray(mask.astype(bool))
 
 
@@ -167,12 +169,14 @@ def _boundingbox_from_mask(mask: np.ndarray, mode: str = "slices") -> tuple[slic
 
 
 def _largest_connected_component(mask: np.ndarray) -> np.ndarray:
+    """Helper for largest connected component."""
     if not np.any(mask):
         return _ensure_bool(mask)
     return sitk_binary_to_numpy_xyz(_sitk_largest_connected_component(numpy_xyz_bool_to_sitk(mask)))
 
 
 def _safe_remove_small_objects(mask: np.ndarray, min_size: int) -> np.ndarray:
+    """Helper for safe remove small objects."""
     if min_size <= 0:
         return _ensure_bool(mask)
     if not np.any(mask):
@@ -187,6 +191,7 @@ def _expand_slices(
     pad_y: int | None = None,
     pad_z: int | None = None,
 ) -> tuple[slice, slice, slice]:
+    """Helper for expand slices."""
     if pad_y is None:
         pad_y = pad_x
     if pad_z is None:
@@ -202,6 +207,7 @@ def _expand_slices(
 
 
 def _resolve_site_defaults(site: str) -> dict[str, int]:
+    """Resolve site defaults."""
     site_key = site.lower()
     if site_key.startswith("radius_"):
         site_key = "radius"
@@ -219,6 +225,7 @@ def _resolve_site_defaults(site: str) -> dict[str, int]:
 
 
 def _sitk_gaussian(image: sitk.Image, sigma: float, truncate: float) -> sitk.Image:
+    """Helper for sitk gaussian."""
     if sigma <= 0:
         return sitk.Cast(image, sitk.sitkFloat32)
     spacing = tuple(float(v) for v in image.GetSpacing())
@@ -234,6 +241,7 @@ def _sitk_gaussian(image: sitk.Image, sigma: float, truncate: float) -> sitk.Ima
 
 
 def _sitk_binary_threshold(image: sitk.Image, lower: float, upper: float = 10000.0) -> sitk.Image:
+    """Helper for sitk binary threshold."""
     return sitk.BinaryThreshold(
         sitk.Cast(image, sitk.sitkFloat32),
         lowerThreshold=float(lower),
@@ -244,6 +252,7 @@ def _sitk_binary_threshold(image: sitk.Image, lower: float, upper: float = 10000
 
 
 def _sitk_binary_sum(mask: sitk.Image) -> int:
+    """Helper for sitk binary sum."""
     mask_u8 = sitk.Cast(mask > 0, sitk.sitkUInt8)
     stats = sitk.StatisticsImageFilter()
     stats.Execute(mask_u8)
@@ -251,6 +260,7 @@ def _sitk_binary_sum(mask: sitk.Image) -> int:
 
 
 def _sitk_largest_connected_component(mask: sitk.Image) -> sitk.Image:
+    """Helper for sitk largest connected component."""
     mask_u8 = sitk.Cast(mask > 0, sitk.sitkUInt8)
     if _sitk_binary_sum(mask_u8) == 0:
         return mask_u8
@@ -260,11 +270,13 @@ def _sitk_largest_connected_component(mask: sitk.Image) -> sitk.Image:
 
 
 def _sitk_invert_binary(mask: sitk.Image) -> sitk.Image:
+    """Helper for sitk invert binary."""
     mask_u8 = sitk.Cast(mask > 0, sitk.sitkUInt8)
     return sitk.Cast(mask_u8 == 0, sitk.sitkUInt8)
 
 
 def _morphology_safe_pad(mask: sitk.Image, radius: int) -> tuple[sitk.Image, list[int]]:
+    """Helper for morphology safe pad."""
     if radius <= 0:
         return sitk.Cast(mask > 0, sitk.sitkUInt8), [0, 0, 0]
     pad = [int(radius)] * 3
@@ -272,20 +284,24 @@ def _morphology_safe_pad(mask: sitk.Image, radius: int) -> tuple[sitk.Image, lis
 
 
 def _morphology_safe_crop(mask: sitk.Image, pad: list[int]) -> sitk.Image:
+    """Helper for morphology safe crop."""
     if not any(pad):
         return sitk.Cast(mask > 0, sitk.sitkUInt8)
     return sitk.Crop(sitk.Cast(mask > 0, sitk.sitkUInt8), pad, pad)
 
 
 def _normalize_downsample_factor(value: int | None) -> int:
+    """Helper for normalize downsample factor."""
     return max(1, int(value or 1))
 
 
 def _scaled_radius(radius: int, downsample_factor: int) -> int:
+    """Helper for scaled radius."""
     return max(1, int(np.ceil(float(radius) / float(downsample_factor))))
 
 
 def _binary_resample(mask: sitk.Image, size: list[int], spacing: tuple[float, float, float]) -> sitk.Image:
+    """Helper for binary resample."""
     mask_u8 = sitk.Cast(mask > 0, sitk.sitkUInt8)
     return sitk.Cast(
         sitk.Resample(
@@ -309,6 +325,7 @@ def _crop_image_from_binary_mask(
     mask: sitk.Image,
     margin: int = 0,
 ) -> tuple[sitk.Image, tuple[int, int, int]] | None:
+    """Helper for crop image from binary mask."""
     mask_xyz = sitk_binary_to_numpy_xyz(mask)
     if not np.any(mask_xyz):
         return None
@@ -335,6 +352,7 @@ def _paste_cropped_region(
     cropped: sitk.Image,
     index: tuple[int, int, int],
 ) -> sitk.Image:
+    """Helper for paste cropped region."""
     return sitk.Paste(
         sitk.Cast(base > 0, sitk.sitkUInt8),
         sitk.Cast(cropped > 0, sitk.sitkUInt8),
@@ -351,6 +369,7 @@ def _refine_downsampled_edges(
     operation: Any,
     band_voxels: int,
 ) -> tuple[sitk.Image, dict[str, int]]:
+    """Helper for refine downsampled edges."""
     radius = int(radius)
     band_voxels = max(1, int(band_voxels))
     coarse_u8 = sitk.Cast(coarse_result > 0, sitk.sitkUInt8)
@@ -395,6 +414,7 @@ def _refine_downsampled_edges(
 
 
 def _downsample_binary_mask(mask: sitk.Image, downsample_factor: int) -> sitk.Image:
+    """Helper for downsample binary mask."""
     factor = _normalize_downsample_factor(downsample_factor)
     mask_u8 = sitk.Cast(mask > 0, sitk.sitkUInt8)
     if factor <= 1:
@@ -414,6 +434,7 @@ def _downsample_binary_mask(mask: sitk.Image, downsample_factor: int) -> sitk.Im
 
 
 def _upsample_binary_mask(mask: sitk.Image, reference: sitk.Image) -> sitk.Image:
+    """Helper for upsample binary mask."""
     reference_u8 = sitk.Cast(reference > 0, sitk.sitkUInt8)
     return sitk.Cast(
         sitk.Resample(
@@ -439,6 +460,7 @@ def _maybe_downsampled_binary_op(
     refine_stats: dict[str, dict[str, int]] | None = None,
     refine_stats_key: str = "operation",
 ) -> sitk.Image:
+    """Helper for maybe downsampled binary op."""
     factor = _normalize_downsample_factor(downsample_factor)
     mask_u8 = sitk.Cast(mask > 0, sitk.sitkUInt8)
     if radius <= 0 or factor <= 1:
@@ -475,6 +497,7 @@ def _maybe_downsampled_binary_op(
 
 
 def _sitk_binary_dilate_native(mask: sitk.Image, radius: int) -> sitk.Image:
+    """Helper for sitk binary dilate native."""
     padded, pad = _morphology_safe_pad(mask, radius)
     dilated = sitk.BinaryDilate(padded, [int(radius)] * 3, sitk.sitkBall, 0, 1)
     return _morphology_safe_crop(dilated, pad)
@@ -489,6 +512,7 @@ def _sitk_binary_dilate(
     refine_stats: dict[str, dict[str, int]] | None = None,
     refine_stats_key: str = "binary_dilate",
 ) -> sitk.Image:
+    """Helper for sitk binary dilate."""
     return _maybe_downsampled_binary_op(
         mask,
         radius,
@@ -502,6 +526,7 @@ def _sitk_binary_dilate(
 
 
 def _sitk_binary_erode_native(mask: sitk.Image, radius: int) -> sitk.Image:
+    """Helper for sitk binary erode native."""
     padded, pad = _morphology_safe_pad(mask, radius)
     eroded = sitk.BinaryErode(padded, [int(radius)] * 3, sitk.sitkBall, 0, 1)
     return _morphology_safe_crop(eroded, pad)
@@ -516,6 +541,7 @@ def _sitk_binary_erode(
     refine_stats: dict[str, dict[str, int]] | None = None,
     refine_stats_key: str = "binary_erode",
 ) -> sitk.Image:
+    """Helper for sitk binary erode."""
     return _maybe_downsampled_binary_op(
         mask,
         radius,
@@ -539,6 +565,7 @@ def _sitk_binary_erode_xy(mask: sitk.Image, radius_xy: int) -> sitk.Image:
 
 
 def _sitk_binary_dilate_xy(mask: sitk.Image, radius_xy: int) -> sitk.Image:
+    """Helper for sitk binary dilate xy."""
     radius_xy = int(radius_xy)
     if radius_xy <= 0:
         return sitk.Cast(mask > 0, sitk.sitkUInt8)
@@ -548,6 +575,7 @@ def _sitk_binary_dilate_xy(mask: sitk.Image, radius_xy: int) -> sitk.Image:
 
 
 def _sitk_binary_opening_xy(mask: sitk.Image, radius_xy: int) -> sitk.Image:
+    """Helper for sitk binary opening xy."""
     radius_xy = int(radius_xy)
     if radius_xy <= 0:
         return sitk.Cast(mask > 0, sitk.sitkUInt8)
@@ -557,6 +585,7 @@ def _sitk_binary_opening_xy(mask: sitk.Image, radius_xy: int) -> sitk.Image:
 
 
 def _sitk_binary_closing_xy(mask: sitk.Image, radius_xy: int) -> sitk.Image:
+    """Helper for sitk binary closing xy."""
     radius_xy = int(radius_xy)
     if radius_xy <= 0:
         return sitk.Cast(mask > 0, sitk.sitkUInt8)
@@ -566,6 +595,7 @@ def _sitk_binary_closing_xy(mask: sitk.Image, radius_xy: int) -> sitk.Image:
 
 
 def _sitk_open_with_connected_components_xy(mask: sitk.Image, radius_xy: int) -> sitk.Image:
+    """Helper for sitk open with connected components xy."""
     radius_xy = int(radius_xy)
     if radius_xy <= 0:
         return sitk.Cast(mask > 0, sitk.sitkUInt8)
@@ -592,6 +622,7 @@ def _restore_terminal_slices(mask: sitk.Image, seed: sitk.Image) -> sitk.Image:
 
 
 def _sitk_binary_closing_native(mask: sitk.Image, radius: int) -> sitk.Image:
+    """Helper for sitk binary closing native."""
     padded, pad = _morphology_safe_pad(mask, radius)
     closed = sitk.BinaryMorphologicalClosing(padded, [int(radius)] * 3, sitk.sitkBall, 1)
     return _morphology_safe_crop(closed, pad)
@@ -606,6 +637,7 @@ def _sitk_binary_closing(
     refine_stats: dict[str, dict[str, int]] | None = None,
     refine_stats_key: str = "binary_closing",
 ) -> sitk.Image:
+    """Helper for sitk binary closing."""
     return _maybe_downsampled_binary_op(
         mask,
         radius,
@@ -619,6 +651,7 @@ def _sitk_binary_closing(
 
 
 def _sitk_binary_opening_native(mask: sitk.Image, radius: int) -> sitk.Image:
+    """Helper for sitk binary opening native."""
     padded, pad = _morphology_safe_pad(mask, radius)
     opened = sitk.BinaryMorphologicalOpening(padded, [int(radius)] * 3, sitk.sitkBall, 0, 1)
     return _morphology_safe_crop(opened, pad)
@@ -633,6 +666,7 @@ def _sitk_binary_opening(
     refine_stats: dict[str, dict[str, int]] | None = None,
     refine_stats_key: str = "binary_opening",
 ) -> sitk.Image:
+    """Helper for sitk binary opening."""
     return _maybe_downsampled_binary_op(
         mask,
         radius,
@@ -646,6 +680,7 @@ def _sitk_binary_opening(
 
 
 def _sitk_close_with_connected_components_native(mask: sitk.Image, radius: int) -> sitk.Image:
+    """Helper for sitk close with connected components native."""
     if radius <= 0:
         return sitk.Cast(mask > 0, sitk.sitkUInt8)
     dilated = _sitk_binary_dilate_native(mask, radius)
@@ -664,6 +699,7 @@ def _sitk_close_with_connected_components(
     refine_stats: dict[str, dict[str, int]] | None = None,
     refine_stats_key: str = "close_with_connected_components",
 ) -> sitk.Image:
+    """Helper for sitk close with connected components."""
     return _maybe_downsampled_binary_op(
         mask,
         radius,
@@ -677,6 +713,7 @@ def _sitk_close_with_connected_components(
 
 
 def _sitk_open_with_connected_components_native(mask: sitk.Image, radius: int) -> sitk.Image:
+    """Helper for sitk open with connected components native."""
     if radius <= 0:
         return sitk.Cast(mask > 0, sitk.sitkUInt8)
     eroded = _sitk_binary_erode_native(mask, radius)
@@ -693,6 +730,7 @@ def _sitk_open_with_connected_components(
     refine_stats: dict[str, dict[str, int]] | None = None,
     refine_stats_key: str = "open_with_connected_components",
 ) -> sitk.Image:
+    """Helper for sitk open with connected components."""
     return _maybe_downsampled_binary_op(
         mask,
         radius,
@@ -706,6 +744,7 @@ def _sitk_open_with_connected_components(
 
 
 def _sitk_extract_large_regions(mask: sitk.Image, min_voxels: int) -> sitk.Image:
+    """Helper for sitk extract large regions."""
     if min_voxels <= 0:
         return sitk.Cast(mask > 0, sitk.sitkUInt8)
     connected = sitk.ConnectedComponent(sitk.Cast(mask > 0, sitk.sitkUInt8), True)
@@ -719,6 +758,7 @@ def _smooth_density_xyz(
     truncate: float = 4.0,
     spacing_xyz: tuple[float, float, float] | None = None,
 ) -> np.ndarray:
+    """Helper for smooth density xyz."""
     return sitk_to_numpy_xyz(
         _sitk_gaussian(
             numpy_xyz_to_sitk_scalar(image_xyz, spacing_xyz=spacing_xyz),
@@ -808,6 +848,7 @@ def _segment_bone_xyz(
     params: SegmentationParams,
     spacing_xyz: tuple[float, float, float] | None = None,
 ) -> np.ndarray:
+    """Helper for segment bone xyz."""
     if not params.enabled:
         return _ensure_bool(full_mask_xyz)
 

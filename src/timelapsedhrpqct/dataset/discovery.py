@@ -25,10 +25,12 @@ _HEADER_SITE_CODE_MAP = {
 
 
 def _is_aim_file(path: Path) -> bool:
+    """Return whether aim file."""
     return path.is_file() and _AIM_WITH_OPTIONAL_VERSION_RE.search(path.name) is not None
 
 
 def _is_pipeline_managed_copy(path: Path, root: Path) -> bool:
+    """Return whether pipeline managed copy."""
     try:
         rel_parts = path.relative_to(root).parts
     except ValueError:
@@ -47,10 +49,12 @@ def _is_pipeline_managed_copy(path: Path, root: Path) -> bool:
 
 
 def _strip_aim_suffix(name: str) -> str:
+    """Helper for strip aim suffix."""
     return _AIM_WITH_OPTIONAL_VERSION_RE.sub("", name)
 
 
 def _normalize_role(role: str) -> str:
+    """Helper for normalize role."""
     role_lower = role.strip().lower()
     if role_lower in {"cort", "cortical", "cort_mask"}:
         return "cort"
@@ -117,6 +121,7 @@ def _classify_role_from_name(path: Path, cfg: DiscoveryConfig) -> str:
 
 
 def _normalize_site(site_text: str | None, cfg: DiscoveryConfig) -> str | None:
+    """Helper for normalize site."""
     if not site_text:
         return None
     token = site_text.strip().upper()
@@ -128,6 +133,7 @@ def _normalize_site(site_text: str | None, cfg: DiscoveryConfig) -> str | None:
 
 
 def _infer_site_from_name(path: Path, cfg: DiscoveryConfig) -> str:
+    """Helper for infer site from name."""
     stem_upper = _strip_aim_suffix(path.name).upper()
     for canonical_site, aliases in cfg.site_aliases.items():
         for alias in aliases:
@@ -137,6 +143,7 @@ def _infer_site_from_name(path: Path, cfg: DiscoveryConfig) -> str:
 
 
 def _infer_site_from_path_context(path: Path, cfg: DiscoveryConfig) -> str | None:
+    """Return infer site from path context."""
     for part in reversed(path.parts):
         token_upper = part.upper()
         for canonical_site, aliases in cfg.site_aliases.items():
@@ -147,6 +154,7 @@ def _infer_site_from_path_context(path: Path, cfg: DiscoveryConfig) -> str | Non
 
 
 def _normalize_session_id(session_text: str, cfg: DiscoveryConfig) -> str:
+    """Helper for normalize session id."""
     token = session_text.strip()
     token_upper = token.upper()
 
@@ -168,6 +176,7 @@ def _normalize_session_id(session_text: str, cfg: DiscoveryConfig) -> str:
 
 
 def _extract_stack_index_default(path: Path) -> int | None:
+    """Helper for extract stack index default."""
     stem = _strip_aim_suffix(path.name)
     match = re.search(r"(?i)(?:^|_)STACK[_-]?(\d+)(?:_|$)", stem)
     if match is None:
@@ -179,6 +188,7 @@ def _extract_subject_session_with_regex(
     path: Path,
     session_regex: str,
 ) -> tuple[str, str, str | None, str | None, int | None]:
+    """Helper for extract subject session with regex."""
     sanitized_name = re.sub(r"(?i)(\.aim)(;\d+)$", r"\1", path.name)
     match = re.search(session_regex, sanitized_name)
     if match is None:
@@ -243,6 +253,7 @@ def _extract_subject_session_default(path: Path) -> tuple[str, str, str, int | N
 
 
 def _read_aim_header(path: Path) -> dict[str, Any]:
+    """Helper for read aim header."""
     try:
         import py_aimio  # type: ignore
     except Exception as exc:
@@ -255,6 +266,7 @@ def _read_aim_header(path: Path) -> dict[str, Any]:
 
 
 def _as_log_dict(header_meta: dict[str, Any]) -> dict[str, Any]:
+    """Helper for as log dict."""
     log = header_meta.get("processing_log_raw", header_meta.get("processing_log", ""))
     if isinstance(log, dict):
         return dict(log)
@@ -267,6 +279,7 @@ def _as_log_dict(header_meta: dict[str, Any]) -> dict[str, Any]:
 
 
 def _as_clean_token(value: Any) -> str | None:
+    """Helper for as clean token."""
     if value is None:
         return None
     token = str(value).strip()
@@ -274,6 +287,7 @@ def _as_clean_token(value: Any) -> str | None:
 
 
 def _session_from_header(measurement: Any, creation_date: Any) -> str | None:
+    """Helper for session from header."""
     measurement_token = _as_clean_token(measurement)
     if measurement_token is not None:
         return f"M{measurement_token}"
@@ -311,6 +325,7 @@ def _session_from_header(measurement: Any, creation_date: Any) -> str | None:
 
 
 def _site_from_header(site_raw: Any, cfg: DiscoveryConfig) -> str | None:
+    """Helper for site from header."""
     token = _as_clean_token(site_raw)
     if token is None:
         return None
@@ -324,6 +339,7 @@ def _site_from_header(site_raw: Any, cfg: DiscoveryConfig) -> str | None:
 
 
 def _creation_date_from_session_header(path: Path) -> tuple[int, date | None]:
+    """Helper for creation date from session header."""
     try:
         meta = _read_aim_header(path)
         log = _as_log_dict(meta)
@@ -346,6 +362,7 @@ def _creation_date_from_session_header(path: Path) -> tuple[int, date | None]:
 def _canonicalize_session_ids(
     sessions: list[RawSession],
 ) -> list[RawSession]:
+    """Helper for canonicalize session ids."""
     grouped: dict[tuple[str, str], list[RawSession]] = defaultdict(list)
     for session in sessions:
         grouped[(session.subject_id, session.site or "radius")].append(session)
@@ -364,6 +381,7 @@ def _canonicalize_session_ids(
             for session_id in unique_session_ids
         }
         def _session_order_key(sid: str) -> tuple:
+            """Build stable session sort key preferring header-derived creation date."""
             image_path = per_session_image.get(sid)
             date_rank, creation_date = (
                 _creation_date_from_session_header(image_path)
@@ -389,6 +407,7 @@ def _extract_subject_session_from_header(
     path: Path,
     cfg: DiscoveryConfig,
 ) -> tuple[str, str, str, str | None, int | None]:
+    """Helper for extract subject session from header."""
     header_meta = _read_aim_header(path)
     log = _as_log_dict(header_meta)
 
@@ -418,6 +437,7 @@ def _resolve_missing_sites_from_group_context(
     grouped: dict[tuple[str, str, str | None, int | None], list[tuple[Path, str, str | None]]],
     cfg: DiscoveryConfig,
 ) -> dict[tuple[str, str, str, int | None], list[tuple[Path, str, str]]]:
+    """Resolve missing sites from group context."""
     known_sites: dict[tuple[str, str, int | None], set[str]] = defaultdict(set)
     for (subject_id, session_id, site, stack_index), _entries in grouped.items():
         if site is not None:

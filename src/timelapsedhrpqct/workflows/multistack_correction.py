@@ -47,27 +47,33 @@ from timelapsedhrpqct.utils.sitk_helpers import load_image, write_image, write_j
 
 
 def _load_transform(path: Path) -> sitk.Transform:
+    """Load transform."""
     return sitk.ReadTransform(str(path))
 
 
 def _write_transform(transform: sitk.Transform, path: Path) -> None:
+    """Helper for write transform."""
     path.parent.mkdir(parents=True, exist_ok=True)
     sitk.WriteTransform(transform, str(path))
 
 
 def _free_memory() -> None:
+    """Helper for free memory."""
     gc.collect()
 
 
 def _stack_correction_dir(dataset_root: Path, subject_id: str, site: str) -> Path:
+    """Helper for stack correction dir."""
     return stack_correction_dir(dataset_root, subject_id, site)
 
 
 def _transforms_dir(dataset_root: Path, subject_id: str, site: str) -> Path:
+    """Helper for transforms dir."""
     return transforms_dir(dataset_root, subject_id, site)
 
 
 def _final_transform_dir(dataset_root: Path, subject_id: str, site: str) -> Path:
+    """Helper for final transform dir."""
     return _transforms_dir(dataset_root, subject_id, site) / "final"
 
 
@@ -77,6 +83,7 @@ def _stack_correction_transform_path(
     site: str = "radius",
     stack_index: int | None = None,
 ) -> Path:
+    """Return stack correction transform path."""
     if stack_index is None:
         raise ValueError("stack_index is required")
     return stack_correction_transform_path(dataset_root, subject_id, site, stack_index)
@@ -88,6 +95,7 @@ def _stack_correction_metadata_path(
     site: str = "radius",
     stack_index: int | None = None,
 ) -> Path:
+    """Return stack correction metadata path."""
     if stack_index is None:
         raise ValueError("stack_index is required")
     return stack_correction_metadata_path(dataset_root, subject_id, site, stack_index)
@@ -101,6 +109,7 @@ def _final_transform_path(
     moving_session: str | None = None,
     baseline_session: str | None = None,
 ) -> Path:
+    """Return final transform path."""
     if stack_index is None or moving_session is None or baseline_session is None:
         raise ValueError("stack_index, moving_session, and baseline_session are required")
     return final_transform_path(
@@ -121,6 +130,7 @@ def _final_transform_metadata_path(
     moving_session: str | None = None,
     baseline_session: str | None = None,
 ) -> Path:
+    """Return final transform metadata path."""
     if stack_index is None or moving_session is None or baseline_session is None:
         raise ValueError("stack_index, moving_session, and baseline_session are required")
     return final_transform_metadata_path(
@@ -134,6 +144,7 @@ def _final_transform_metadata_path(
 
 
 def _superstack_dir(dataset_root: Path, subject_id: str, site: str, stack_index: int) -> Path:
+    """Helper for superstack dir."""
     return (
         _stack_correction_dir(dataset_root, subject_id, site)
         / "superstacks"
@@ -147,6 +158,7 @@ def _superstack_image_path(
     site: str,
     stack_index: int,
 ) -> Path:
+    """Return superstack image path."""
     return _superstack_dir(dataset_root, subject_id, site, stack_index) / (
         f"sub-{subject_id}_site-{site}_stack-{stack_index:02d}_superstack.mha"
     )
@@ -158,6 +170,7 @@ def _superstack_mask_path(
     site: str,
     stack_index: int,
 ) -> Path:
+    """Return superstack mask path."""
     return _superstack_dir(dataset_root, subject_id, site, stack_index) / (
         f"sub-{subject_id}_site-{site}_stack-{stack_index:02d}_superstack_mask-full.mha"
     )
@@ -169,6 +182,7 @@ def _superstack_reference_path(
     site: str,
     stack_index: int,
 ) -> Path:
+    """Return superstack reference path."""
     return _superstack_dir(dataset_root, subject_id, site, stack_index) / (
         f"sub-{subject_id}_site-{site}_stack-{stack_index:02d}_superstack_reference.mha"
     )
@@ -180,12 +194,14 @@ def _superstack_metadata_path(
     site: str,
     stack_index: int,
 ) -> Path:
+    """Return superstack metadata path."""
     return _superstack_dir(dataset_root, subject_id, site, stack_index) / (
         f"sub-{subject_id}_site-{site}_stack-{stack_index:02d}_superstack.json"
     )
 
 
 def _qc_common_dir(dataset_root: Path, subject_id: str, site: str) -> Path:
+    """Helper for qc common dir."""
     return _stack_correction_dir(dataset_root, subject_id, site) / "qc_common"
 
 
@@ -195,18 +211,21 @@ def _qc_corrected_superstack_path(
     site: str,
     stack_index: int,
 ) -> Path:
+    """Return qc corrected superstack path."""
     return _qc_common_dir(dataset_root, subject_id, site) / (
         f"sub-{subject_id}_site-{site}_stack-{stack_index:02d}_corrected_superstack.mha"
     )
 
 
 def _qc_overlay_path(dataset_root: Path, subject_id: str, site: str) -> Path:
+    """Return qc overlay path."""
     return _qc_common_dir(dataset_root, subject_id, site) / (
         f"sub-{subject_id}_site-{site}_corrected_superstacks_overlay.mha"
     )
 
 
 def _common_reference_path(dataset_root: Path, subject_id: str, site: str) -> Path:
+    """Return common reference path."""
     return common_reference_path(dataset_root, subject_id, site)
 
 
@@ -217,6 +236,7 @@ def _pairwise_crop_debug_dir(
     moving_stack_index: int,
     fixed_stack_index: int,
 ) -> Path:
+    """Helper for pairwise crop debug dir."""
     return (
         _stack_correction_dir(dataset_root, subject_id, site)
         / "debug_pairwise_crops"
@@ -225,6 +245,7 @@ def _pairwise_crop_debug_dir(
 
 
 def _default_stack_correction_settings(config: AppConfig) -> RegistrationSettings:
+    """Helper for default stack correction settings."""
     cfg = config.multistack_correction
     return RegistrationSettings(
         transform_type=cfg.transform_type,
@@ -250,10 +271,12 @@ def _default_stack_correction_settings(config: AppConfig) -> RegistrationSetting
 
 
 def _stack_correction_method(config: AppConfig) -> str:
+    """Helper for stack correction method."""
     return str(getattr(config.multistack_correction, "method", "superstack"))
 
 
 def _baseline_record_for_stack(records: list, baseline_session: str):
+    """Helper for baseline record for stack."""
     for record in records:
         if record.session_id == baseline_session:
             return record
@@ -263,6 +286,7 @@ def _baseline_record_for_stack(records: list, baseline_session: str):
 
 
 def _print_image_info(name: str, image: sitk.Image) -> None:
+    """Helper for print image info."""
     corners = image_physical_corners(image)
     mins = [min(p[i] for p in corners) for i in range(3)]
     maxs = [max(p[i] for p in corners) for i in range(3)]
@@ -280,6 +304,7 @@ def _make_subject_common_reference(
     baseline_session: str,
     padding_voxels: int = 4,
 ) -> sitk.Image:
+    """Helper for make subject common reference."""
     stack_indices = sorted(stacks_by_index)
     if not stack_indices:
         raise ValueError("No stacks found for subject.")
@@ -321,6 +346,7 @@ def _build_stack_superstack_in_common_reference(
     common_reference: sitk.Image,
     debug_save: bool,
 ) -> tuple[sitk.Image, sitk.Image | None, dict]:
+    """Build stack superstack in common reference."""
     session_ids: list[str] = []
 
     any_masks_present = any(
@@ -442,6 +468,7 @@ def _build_all_superstacks(
     common_reference: sitk.Image,
     debug_save: bool,
 ) -> dict[int, dict]:
+    """Build all superstacks."""
     superstacks: dict[int, dict] = {}
 
     for stack_index, stack_records in sorted(stacks_by_index.items()):
@@ -475,6 +502,7 @@ def _write_pairwise_crop_debug(
     fixed_mask: sitk.Image | None,
     moving_mask: sitk.Image | None,
 ) -> None:
+    """Helper for write pairwise crop debug."""
     debug_dir = _pairwise_crop_debug_dir(
         dataset_root=dataset_root,
         subject_id=subject_id,
@@ -501,6 +529,7 @@ def _estimate_stack_corrections_from_superstacks(
     settings: RegistrationSettings,
     overlap_crop_buffer_voxels: int = 10,
 ) -> dict[int, sitk.Transform]:
+    """Helper for estimate stack corrections from superstacks."""
     adjacent_corrections: dict[int, sitk.Transform] = {
         1: sitk.Transform(3, sitk.sitkIdentity)
     }
@@ -659,6 +688,7 @@ def _estimate_stack_corrections_from_boundary_slices(
     baseline_session: str,
     settings: RegistrationSettings,
 ) -> dict[int, sitk.Transform]:
+    """Helper for estimate stack corrections from boundary slices."""
     adjacent_corrections: dict[int, sitk.Transform] = {
         1: sitk.Transform(3, sitk.sitkIdentity)
     }
@@ -825,6 +855,7 @@ def _write_identity_stack_correction_for_single_stack(
     stack_index: int,
     baseline_session: str,
 ) -> None:
+    """Helper for write identity stack correction for single stack."""
     identity = sitk.Transform(3, sitk.sitkIdentity)
     _write_transform(
         identity,
@@ -863,6 +894,7 @@ def _write_corrected_superstack_qc(
     common_reference: sitk.Image,
     cumulative_corrections: dict[int, sitk.Transform],
 ) -> None:
+    """Helper for write corrected superstack qc."""
     corrected_union_by_stack, overlay = build_corrected_superstack_qc_outputs(
         superstacks=superstacks,
         common_reference=common_reference,
@@ -886,6 +918,7 @@ def run_stack_correction(
     dataset_root: str | Path,
     config: AppConfig,
 ) -> None:
+    """Run stack correction."""
     dataset_root = Path(dataset_root)
     records = iter_imported_stack_records(dataset_root)
     grouped = group_imported_stacks_by_subject_site_and_stack(records)

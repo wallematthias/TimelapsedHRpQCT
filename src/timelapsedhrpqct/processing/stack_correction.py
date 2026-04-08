@@ -13,6 +13,7 @@ from timelapsedhrpqct.processing.transform_chain import (
 
 
 def image_physical_corners(image: sitk.Image) -> list[tuple[float, float, float]]:
+    """Helper for image physical corners."""
     size = image.GetSize()
     corners_index = [
         (0, 0, 0),
@@ -31,6 +32,7 @@ def transform_points(
     points: list[tuple[float, float, float]],
     transform: sitk.Transform,
 ) -> list[tuple[float, float, float]]:
+    """Helper for transform points."""
     return [transform.TransformPoint(p) for p in points]
 
 
@@ -40,6 +42,7 @@ def make_multi_union_reference_image(
     moving_to_reference_transforms: list[sitk.Transform],
     padding_voxels: int = 4,
 ) -> sitk.Image:
+    """Helper for make multi union reference image."""
     all_points = image_physical_corners(reference_image)
 
     for moving_image, transform in zip(moving_images, moving_to_reference_transforms):
@@ -66,6 +69,7 @@ def make_multi_union_reference_image(
 
 
 def mask_support_from_contributors(mask_cnt: sitk.Image, reference: sitk.Image) -> sitk.Image:
+    """Helper for mask support from contributors."""
     supermask = sitk.Cast(mask_cnt > 0, sitk.sitkUInt8)
     supermask.CopyInformation(reference)
     return supermask
@@ -74,6 +78,7 @@ def mask_support_from_contributors(mask_cnt: sitk.Image, reference: sitk.Image) 
 def compose_corrections_to_stack01(
     adjacent_corrections: dict[int, sitk.Transform],
 ) -> dict[int, sitk.Transform]:
+    """Helper for compose corrections to stack01."""
     cumulative: dict[int, sitk.Transform] = {}
 
     for stack_index in sorted(adjacent_corrections):
@@ -90,6 +95,7 @@ def compose_corrections_to_stack01(
 
 
 def binary_mask_bbox(mask: sitk.Image) -> tuple[int, int, int, int, int, int] | None:
+    """Helper for binary mask bbox."""
     mask_u8 = sitk.Cast(mask > 0, sitk.sitkUInt8)
     stats = sitk.LabelShapeStatisticsImageFilter()
     stats.Execute(mask_u8)
@@ -103,6 +109,7 @@ def overlap_z_crop_range_from_masks(
     moving_mask: sitk.Image,
     buffer_voxels: int,
 ) -> tuple[int, int] | None:
+    """Helper for overlap z crop range from masks."""
     fixed_bbox = binary_mask_bbox(fixed_mask)
     moving_bbox = binary_mask_bbox(moving_mask)
 
@@ -133,6 +140,7 @@ def crop_image_full_xy_z_range(
     z0: int,
     z1: int,
 ) -> sitk.Image:
+    """Helper for crop image full xy z range."""
     size = list(image.GetSize())
     index = [0, 0, int(z0)]
     size[2] = int(z1 - z0 + 1)
@@ -146,6 +154,7 @@ def prepare_pairwise_registration_inputs(
     moving_mask: sitk.Image | None,
     z_buffer_voxels: int = 10,
 ) -> tuple[sitk.Image, sitk.Image, sitk.Image | None, sitk.Image | None, dict]:
+    """Helper for prepare pairwise registration inputs."""
     crop_meta: dict = {
         "cropped": False,
         "z_overlap_range": None,
@@ -185,6 +194,7 @@ def prepare_pairwise_registration_inputs(
 
 
 def identity_registration_result(settings: RegistrationSettings) -> RegistrationResult:
+    """Helper for identity registration result."""
     return RegistrationResult(
         transform=sitk.Transform(3, sitk.sitkIdentity),
         metric_value=float("nan"),
@@ -200,6 +210,7 @@ def identity_registration_result(settings: RegistrationSettings) -> Registration
 
 
 def boundary_slice_index(mask: sitk.Image | None, which: str) -> int:
+    """Helper for boundary slice index."""
     if which not in {"first", "last"}:
         raise ValueError("which must be 'first' or 'last'")
 
@@ -213,6 +224,7 @@ def boundary_slice_index(mask: sitk.Image | None, which: str) -> int:
 
 
 def extract_2d_slice(image: sitk.Image, z_index: int) -> sitk.Image:
+    """Helper for extract 2d slice."""
     size = list(image.GetSize())
     if z_index < 0:
         z_index = size[2] + z_index
@@ -227,6 +239,7 @@ def extract_2d_slice(image: sitk.Image, z_index: int) -> sitk.Image:
 
 
 def _clamp_z_index_to_image(image: sitk.Image, z_index: int) -> int:
+    """Helper for clamp z index to image."""
     z_size = int(image.GetSize()[2])
     if z_size <= 0:
         raise ValueError("Image must have at least one z slice")
@@ -239,6 +252,7 @@ def prepare_boundary_slice_registration_inputs(
     fixed_mask: sitk.Image | None,
     moving_mask: sitk.Image | None,
 ) -> tuple[sitk.Image, sitk.Image, sitk.Image | None, sitk.Image | None, dict]:
+    """Helper for prepare boundary slice registration inputs."""
     fixed_z = boundary_slice_index(fixed_mask, "last")
     moving_z = boundary_slice_index(moving_mask, "first")
 
@@ -281,6 +295,7 @@ def embed_2d_transform_in_3d(
     transform_2d: sitk.Transform,
     fixed_z_physical: float,
 ) -> sitk.Transform:
+    """Helper for embed 2d transform in 3d."""
     if isinstance(transform_2d, sitk.Euler2DTransform):
         center_xy = transform_2d.GetCenter()
         translation_xy = transform_2d.GetTranslation()

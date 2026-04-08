@@ -29,7 +29,7 @@ def test_build_stack_output_paths_matches_existing_layout() -> None:
     )
 
     assert str(paths["image"]).endswith(
-        "derivatives/TimelapsedHRpQCT/sub-001/ses-baseline/stacks/sub-001_ses-baseline_stack-02_image.mha"
+        "TimelapsedHRpQCT/sub-001/ses-baseline/stacks/sub-001_ses-baseline_stack-02_image.mha"
     )
     assert str(paths["masks"]["full"]).endswith("_mask-full.mha")
     assert str(paths["seg"]).endswith("_seg.mha")

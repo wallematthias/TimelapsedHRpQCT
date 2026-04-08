@@ -44,10 +44,12 @@ from timelapsedhrpqct.utils.sitk_helpers import (
 
 
 def _free_memory() -> None:
+    """Helper for free memory."""
     gc.collect()
 
 
 def _get_filling_params(config: AppConfig) -> FillingParams:
+    """Helper for get filling params."""
     params = FillingParams()
     cfg = getattr(config, "filling", None)
     if cfg is None:
@@ -72,6 +74,7 @@ def run_filling(
     dataset_root: str | Path,
     config: AppConfig,
 ) -> None:
+    """Run filling."""
     dataset_root = Path(dataset_root)
     params = _get_filling_params(config)
 

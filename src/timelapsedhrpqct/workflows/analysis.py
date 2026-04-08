@@ -12,16 +12,21 @@ from typing import Iterable
 import numpy as np
 import pandas as pd
 import SimpleITK as sitk
-from skimage.filters import gaussian
 
 from timelapsedhrpqct.analysis.remodelling import (
     AnalysisParams,
     RemodellingOutputs,
     build_label_image,
+    build_pair_valid_mask,
+    compute_pair_trajectory_summary,
+    compute_pair_remodelling_preview,
     component_stats,
     compute_remodelling_outputs,
+    dilate_mask_xy,
     erode_mask,
+    maybe_smooth_density,
     pair_indices,
+    propagate_seed_masks_to_support,
     remove_small,
     safe_corr,
     safe_frac,
@@ -62,6 +67,7 @@ from timelapsedhrpqct.utils.session_ids import session_sort_key
 
 
 def _free_memory() -> None:
+    """Trigger Python garbage collection after large temporary allocations."""
     gc.collect()
 
 
@@ -72,6 +78,7 @@ def _resample_image(
     *,
     is_mask: bool,
 ) -> sitk.Image:
+    """Resample an image into `reference` space with mask-aware interpolation."""
     interpolator = sitk.sitkNearestNeighbor if is_mask else sitk.sitkLinear
     pixel_id = sitk.sitkUInt8 if is_mask else sitk.sitkFloat32
     out = sitk.Resample(
@@ -114,16 +121,21 @@ def _compose_resample_transform_between_sessions(
 
 
 def _maybe_smooth_density(image_arr: np.ndarray, params: AnalysisParams) -> np.ndarray:
-    if not params.gaussian_filter:
-        return image_arr.astype(np.float32, copy=False)
-    return gaussian(
+    """Apply analysis-configured density smoothing to an image array."""
+    return maybe_smooth_density(
         image_arr,
-        sigma=params.gaussian_sigma,
-        preserve_range=True,
-    ).astype(np.float32, copy=False)
+        gaussian_filter=params.gaussian_filter,
+        gaussian_sigma=params.gaussian_sigma,
+    )
+
+
+def _analysis_requires_seg(method: str) -> bool:
+    """Return whether a remodelling method requires segmentation arrays."""
+    return method in {"grayscale_and_binary", "grayscale_marrow_mask"}
 
 
 def _parse_creation_date(value: object) -> date | None:
+    """Parse an AIM-style creation date string into a `date`."""
     if value is None:
         return None
     text = str(value).strip()
@@ -140,6 +152,7 @@ def _parse_creation_date(value: object) -> date | None:
 
 
 def _extract_creation_date_from_processing_log(processing_log: str) -> date | None:
+    """Extract original creation date from a processing log payload."""
     # Prefer direct pattern extraction because generic log parsing can split on
     # clock colons and corrupt "Original Creation-Date" values.
     m = re.search(r"(?i)Original Creation-Date\s+([0-9]{1,2}-[A-Z]{3}-[0-9]{4}(?:\s+[0-9:.]+)?)", processing_log)
@@ -159,6 +172,7 @@ def _extract_session_metadata_maps(
     subject_id: str,
     site: str,
 ) -> tuple[dict[str, date], dict[str, str]]:
+    """Collect scan dates and source session ids from imported metadata files."""
     grouped = group_imported_stacks_by_subject_site_and_stack(iter_imported_stack_records(dataset_root))
     stacks_by_index = grouped.get((subject_id, site), {})
     by_session: dict[str, list[Path]] = {}
@@ -205,6 +219,7 @@ def _augment_output_rows_with_site_and_followup(
     site: str,
     outputs: RemodellingOutputs,
 ) -> None:
+    """Add site/session harmonization and follow-up timing columns to outputs."""
     session_scan_dates, session_source_ids = _extract_session_metadata_maps(
         dataset_root,
         subject_id,
@@ -289,6 +304,7 @@ def _load_session_to_baseline_transform(
     session_id: str,
     baseline_session: str,
 ) -> sitk.Transform:
+    """Load a session-to-baseline transform with backward-compatible fallbacks."""
     final_path = final_transform_path(
         dataset_root=dataset_root,
         subject_id=subject_id,
@@ -337,6 +353,7 @@ def _load_session_to_baseline_transform(
 
 
 def _get_analysis_params(config: AppConfig) -> AnalysisParams:
+    """Build analysis parameters from config with defaults and visualization settings."""
     cfg = getattr(config, "analysis", None)
 
     space = "baseline_common"
@@ -349,6 +366,8 @@ def _get_analysis_params(config: AppConfig) -> AnalysisParams:
     use_filled_images = False
     gaussian_filter = True
     gaussian_sigma = 1.2
+    full_mask_dilation_voxels = 2
+    marrow_mask_erosion_voxels = 2
 
     if cfg is not None:
         space = str(getattr(cfg, "space", space))
@@ -363,6 +382,12 @@ def _get_analysis_params(config: AppConfig) -> AnalysisParams:
         use_filled_images = bool(getattr(cfg, "use_filled_images", use_filled_images))
         gaussian_filter = bool(getattr(cfg, "gaussian_filter", gaussian_filter))
         gaussian_sigma = float(getattr(cfg, "gaussian_sigma", gaussian_sigma))
+        full_mask_dilation_voxels = int(
+            getattr(cfg, "full_mask_dilation_voxels", full_mask_dilation_voxels)
+        )
+        marrow_mask_erosion_voxels = int(
+            getattr(cfg, "marrow_mask_erosion_voxels", marrow_mask_erosion_voxels)
+        )
 
     vis_cfg = getattr(config, "visualization", None)
     visualize_enabled = False
@@ -408,6 +433,9 @@ def _get_analysis_params(config: AppConfig) -> AnalysisParams:
         use_filled_images=use_filled_images,
         gaussian_filter=gaussian_filter,
         gaussian_sigma=gaussian_sigma,
+        full_mask_dilation_voxels=full_mask_dilation_voxels,
+        marrow_mask_erosion_voxels=marrow_mask_erosion_voxels,
+        trajectory_selected_adjacent_pairs=None,
         visualize_enabled=visualize_enabled,
         visualize_threshold=visualize_threshold,
         visualize_cluster_size=visualize_cluster_size,
@@ -421,6 +449,7 @@ def _apply_overrides(
     clusters: Iterable[int] | None,
     visualize: tuple[float, int] | None,
 ) -> AnalysisParams:
+    """Apply CLI/runtime threshold, cluster, and visualization overrides."""
     if thresholds is not None:
         params.remodeling_thresholds = [float(x) for x in thresholds]
     if clusters is not None:
@@ -433,6 +462,7 @@ def _apply_overrides(
 
 
 def _is_roi_role(role: str) -> bool:
+    """Return whether a mask role key represents a generic ROI mask."""
     return role.lower().startswith("roi")
 
 
@@ -440,6 +470,7 @@ def _resolve_analysis_compartments(
     session_mask_paths: list[dict[str, Path]],
     configured_compartments: list[str],
 ) -> tuple[list[str], str]:
+    """Resolve effective compartments and annotate how they were selected."""
     if not session_mask_paths:
         return configured_compartments, "configured"
 
@@ -469,6 +500,7 @@ def _load_support_mask_array(
     mask_paths: dict[str, Path],
     reference_image_path: Path,
 ) -> np.ndarray:
+    """Load or derive a support mask used as `full` analysis region."""
     if "full" in mask_paths and mask_paths["full"].exists():
         return (image_to_array(load_image(mask_paths["full"])) > 0).astype(bool, copy=False)
     if "regmask" in mask_paths and mask_paths["regmask"].exists():
@@ -500,6 +532,7 @@ def _load_support_mask_array(
 
 
 def _compartment_exists(mask_paths: dict[str, Path], compartment: str) -> bool:
+    """Check if a required compartment can be sourced from available masks."""
     if compartment == "full":
         return (
             ("full" in mask_paths and mask_paths["full"].exists())
@@ -515,13 +548,38 @@ def _compartment_exists(mask_paths: dict[str, Path], compartment: str) -> bool:
     return compartment in mask_paths and mask_paths[compartment].exists()
 
 
+def _repartition_compartment_masks_to_support(
+    compartment_masks: dict[str, np.ndarray],
+    support_mask: np.ndarray,
+) -> dict[str, np.ndarray]:
+    """Repartition non-full compartments to match an expanded support mask."""
+    support = np.asarray(support_mask, dtype=bool)
+    remapped: dict[str, np.ndarray] = {
+        role: np.asarray(mask, dtype=bool) for role, mask in compartment_masks.items()
+    }
+    remapped["full"] = support
+
+    non_full_roles = [role for role in remapped.keys() if role != "full"]
+    if not non_full_roles:
+        return remapped
+
+    seed_masks = {
+        role: remapped[role] & support for role in non_full_roles
+    }
+    propagated = propagate_seed_masks_to_support(support, seed_masks)
+    for role in non_full_roles:
+        remapped[role] = propagated.get(role, np.zeros_like(support, dtype=bool))
+    return remapped
+
+
 def _baseline_common_outputs(
     dataset_root: Path,
     subject_id: str,
     site: str,
     params: AnalysisParams,
 ) -> tuple[RemodellingOutputs, sitk.Image]:
-    require_seg = params.method == "grayscale_and_binary"
+    """Run analysis in shared baseline-common space across all sessions."""
+    require_seg = _analysis_requires_seg(params.method)
     sessions = discover_analysis_sessions(
         dataset_root=dataset_root,
         subject_id=subject_id,
@@ -557,7 +615,7 @@ def _baseline_common_outputs(
     for s in sessions:
         image_arr = image_to_array(load_image(s.image_path)).astype(np.float32, copy=False)
         image_arrs.append(_maybe_smooth_density(image_arr, params))
-        if require_seg:
+        if s.seg_path is not None and s.seg_path.exists():
             seg_arrs.append(
                 (image_to_array(load_image(s.seg_path)) > 0).astype(bool, copy=False)
             )
@@ -577,12 +635,24 @@ def _baseline_common_outputs(
             mask_paths=s.mask_paths,
             reference_image_path=s.image_path,
         )
+        if params.full_mask_dilation_voxels > 0:
+            support_arr = dilate_mask_xy(support_arr, params.full_mask_dilation_voxels)
+        session_compartment_masks: dict[str, np.ndarray] = {"full": support_arr}
         for role in effective_compartments:
             if role == "full":
                 role_arr = support_arr
             else:
                 role_arr = (image_to_array(load_image(s.mask_paths[role])) > 0).astype(bool, copy=False)
-            mask_arrs_by_role[role].append(role_arr)
+            session_compartment_masks[role] = role_arr
+
+        if params.full_mask_dilation_voxels > 0:
+            session_compartment_masks = _repartition_compartment_masks_to_support(
+                session_compartment_masks,
+                support_arr,
+            )
+
+        for role in effective_compartments:
+            mask_arrs_by_role[role].append(session_compartment_masks[role])
 
         mask_arrs_by_role["full"].append(support_arr)
 
@@ -613,6 +683,7 @@ def _pairwise_fixed_t0_outputs_single_stack(
     site: str,
     params: AnalysisParams,
 ) -> tuple[RemodellingOutputs, sitk.Image]:
+    """Run pairwise analysis in each t0 session space for single-stack subjects."""
     if params.use_filled_images:
         raise ValueError("pairwise_fixed_t0 analysis does not support use_filled_images=true")
 
@@ -635,7 +706,7 @@ def _pairwise_fixed_t0_outputs_single_stack(
         [r.mask_paths for r in stack_records],
         params.compartments,
     )
-    require_seg = params.method == "grayscale_and_binary"
+    require_seg = _analysis_requires_seg(params.method)
     for record in stack_records:
         if require_seg and (record.seg_path is None or not record.seg_path.exists()):
             raise ValueError(
@@ -677,11 +748,14 @@ def _pairwise_fixed_t0_outputs_single_stack(
         common_mask_img: sitk.Image | None = None
         for record in stack_records:
             if role == "full":
+                full_arr = _load_support_mask_array(
+                    mask_paths=record.mask_paths,
+                    reference_image_path=record.image_path,
+                )
+                if params.full_mask_dilation_voxels > 0:
+                    full_arr = dilate_mask_xy(full_arr, params.full_mask_dilation_voxels)
                 mask_img = array_to_image(
-                    _load_support_mask_array(
-                        mask_paths=record.mask_paths,
-                        reference_image_path=record.image_path,
-                    ).astype(np.uint8),
+                    full_arr.astype(np.uint8),
                     reference=load_image(record.image_path),
                     pixel_id=sitk.sitkUInt8,
                 )
@@ -747,7 +821,7 @@ def _pairwise_fixed_t0_outputs_single_stack(
             params,
         )
 
-        if require_seg:
+        if rec0.seg_path is not None and rec0.seg_path.exists() and rec1.seg_path is not None and rec1.seg_path.exists():
             seg0 = (image_to_array(load_image(rec0.seg_path)) > 0).astype(bool, copy=False)
             seg1_img = _resample_image(
                 sitk.Cast(load_image(rec1.seg_path) > 0, sitk.sitkUInt8),
@@ -764,11 +838,16 @@ def _pairwise_fixed_t0_outputs_single_stack(
             mask_paths=rec0.mask_paths,
             reference_image_path=rec0.image_path,
         )
+        if params.full_mask_dilation_voxels > 0:
+            full0 = dilate_mask_xy(full0, params.full_mask_dilation_voxels)
         full1_img = _resample_image(
             array_to_image(
-                _load_support_mask_array(
-                    mask_paths=rec1.mask_paths,
-                    reference_image_path=rec1.image_path,
+                dilate_mask_xy(
+                    _load_support_mask_array(
+                        mask_paths=rec1.mask_paths,
+                        reference_image_path=rec1.image_path,
+                    ),
+                    params.full_mask_dilation_voxels,
                 ).astype(np.uint8),
                 reference=load_image(rec1.image_path),
                 pixel_id=sitk.sitkUInt8,
@@ -778,6 +857,33 @@ def _pairwise_fixed_t0_outputs_single_stack(
             is_mask=True,
         )
         full1 = (image_to_array(full1_img) > 0).astype(bool, copy=False)
+
+        non_full_roles = [role for role in effective_compartments if role != "full"]
+        comp_masks_t0: dict[str, np.ndarray] = {}
+        comp_masks_t1: dict[str, np.ndarray] = {}
+        for role in non_full_roles:
+            comp_masks_t0[role] = (
+                image_to_array(load_image(rec0.mask_paths[role])) > 0
+            ).astype(bool, copy=False)
+            comp1_img = _resample_image(
+                sitk.Cast(load_image(rec1.mask_paths[role]) > 0, sitk.sitkUInt8),
+                ref_img,
+                t0_to_t1,
+                is_mask=True,
+            )
+            comp_masks_t1[role] = (image_to_array(comp1_img) > 0).astype(bool, copy=False)
+
+        if params.full_mask_dilation_voxels > 0 and non_full_roles:
+            comp_masks_t0 = _repartition_compartment_masks_to_support(
+                {"full": full0, **comp_masks_t0},
+                full0,
+            )
+            comp_masks_t1 = _repartition_compartment_masks_to_support(
+                {"full": full1, **comp_masks_t1},
+                full1,
+            )
+            comp_masks_t0 = {role: comp_masks_t0[role] for role in non_full_roles}
+            comp_masks_t1 = {role: comp_masks_t1[role] for role in non_full_roles}
 
         support_t0_img = _resample_image(
             array_to_image(
@@ -807,13 +913,15 @@ def _pairwise_fixed_t0_outputs_single_stack(
                 "seg1": seg1,
                 "full0": full0,
                 "full1": full1,
+                "comp_masks_t0": comp_masks_t0,
+                "comp_masks_t1": comp_masks_t1,
                 "support_t0": support_t0,
                 "delta": dens1 - dens0,
             }
         )
 
     for compartment in effective_compartments:
-        trajectory_event_maps: dict[tuple[float, int], list[dict[str, np.ndarray]]] = {}
+        trajectory_event_maps: dict[tuple[float, int], list[tuple[str, str, np.ndarray, np.ndarray]]] = {}
         for thr in params.remodeling_thresholds:
             for cluster_size in params.cluster_sizes:
                 trajectory_event_maps[(float(thr), int(cluster_size))] = []
@@ -827,6 +935,10 @@ def _pairwise_fixed_t0_outputs_single_stack(
             t1 = str(base["t1"])
             ref_img = base["ref_img"]
             t0_to_t1 = base["t0_to_t1"]
+            full0 = base["full0"]
+            full1 = base["full1"]
+            comp_masks_t0 = base["comp_masks_t0"]
+            comp_masks_t1 = base["comp_masks_t1"]
 
             print(
                 f"[analysis] sub-{subject_id} site-{site} stack-{stack_index:02d}: "
@@ -834,14 +946,12 @@ def _pairwise_fixed_t0_outputs_single_stack(
                 f"(space=pairwise_fixed_t0)"
             )
 
-            comp0 = (image_to_array(load_image(rec0.mask_paths[compartment])) > 0).astype(bool, copy=False)
-            comp1_img = _resample_image(
-                sitk.Cast(load_image(rec1.mask_paths[compartment]) > 0, sitk.sitkUInt8),
-                ref_img,
-                t0_to_t1,
-                is_mask=True,
-            )
-            comp1 = (image_to_array(comp1_img) > 0).astype(bool, copy=False)
+            if compartment == "full":
+                comp0 = np.asarray(full0, dtype=bool)
+                comp1 = np.asarray(full1, dtype=bool)
+            else:
+                comp0 = np.asarray(comp_masks_t0[compartment], dtype=bool)
+                comp1 = np.asarray(comp_masks_t1[compartment], dtype=bool)
 
             common_t0_img = _resample_image(
                 array_to_image(
@@ -859,8 +969,6 @@ def _pairwise_fixed_t0_outputs_single_stack(
             dens1 = base["dens1"]
             seg0 = base["seg0"]
             seg1 = base["seg1"]
-            full0 = base["full0"]
-            full1 = base["full1"]
             support_t0 = base["support_t0"]
             delta = base["delta"]
 
@@ -875,40 +983,38 @@ def _pairwise_fixed_t0_outputs_single_stack(
                         f"t0-{t0} -> t1-{t1} (space=pairwise_fixed_t0)"
                     )
 
-                    valid = common_t0
-                    if params.method == "grayscale_and_binary":
-                        b0 = seg0 & valid
-                        b1 = seg1 & valid
-                        formation_raw = (~b0) & b1 & (delta > thr) & valid
-                        resorption_raw = b0 & (~b1) & (delta < -thr) & valid
-                        mineralisation_raw = b0 & b1 & (delta > thr) & valid
-                        demineralisation_raw = b0 & b1 & (delta < -thr) & valid
-                        quiescent_support = b0 & b1
-                    elif params.method == "grayscale_delta_only":
-                        b0 = valid
-                        b1 = valid
-                        formation_raw = (delta > thr) & valid
-                        resorption_raw = (delta < -thr) & valid
-                        mineralisation_raw = np.zeros_like(valid, dtype=bool)
-                        demineralisation_raw = np.zeros_like(valid, dtype=bool)
-                        quiescent_support = valid
-                    else:
-                        raise ValueError(f"Unsupported analysis method: {params.method}")
-
-                    formation = remove_small(formation_raw, cluster_size)
-                    resorption = remove_small(resorption_raw, cluster_size)
-                    mineralisation = remove_small(mineralisation_raw, cluster_size)
-                    demineralisation = remove_small(demineralisation_raw, cluster_size)
-                    quiescent = quiescent_support & ~(formation | resorption | mineralisation | demineralisation)
-
-                    bv0 = int(np.count_nonzero(b0))
-                    bv1 = int(np.count_nonzero(b1))
+                    preview = compute_pair_remodelling_preview(
+                        image_arr_t0=dens0,
+                        image_arr_t1=dens1,
+                        seg_arr_t0=seg0 if np.any(seg0) else None,
+                        seg_arr_t1=seg1 if np.any(seg1) else None,
+                        valid_mask=common_t0,
+                        threshold=thr,
+                        cluster_size=cluster_size,
+                        method=params.method,
+                        gaussian_filter=False,
+                        gaussian_sigma=params.gaussian_sigma,
+                        label_map=params.visualize_label_map,
+                        support_mask_t0=full0,
+                        support_mask_t1=full1,
+                        marrow_mask_erosion_voxels=params.marrow_mask_erosion_voxels,
+                    )
+                    valid = preview.valid_mask
+                    formation = preview.formation
+                    resorption = preview.resorption
+                    mineralisation = preview.mineralisation
+                    demineralisation = preview.demineralisation
+                    quiescent = preview.quiescent
+                    b0 = (seg0 & valid) if np.any(seg0) else valid
+                    b1 = (seg1 & valid) if np.any(seg1) else valid
+                    bv0 = preview.bv0_vox
+                    bv1 = preview.bv1_vox
                     tv_valid = int(np.count_nonzero(valid))
                     real_overlap = int(np.count_nonzero(full0 & full1 & comp0 & comp1 & valid))
                     union_real = int(np.count_nonzero(((full0 & comp0) | (full1 & comp1)) & valid))
 
-                    formation_vox = int(np.count_nonzero(formation))
-                    resorption_vox = int(np.count_nonzero(resorption))
+                    formation_vox = preview.formation_vox
+                    resorption_vox = preview.resorption_vox
                     mineralisation_vox = int(np.count_nonzero(mineralisation))
                     demineralisation_vox = int(np.count_nonzero(demineralisation))
                     quiescent_vox = int(np.count_nonzero(quiescent))
@@ -934,8 +1040,8 @@ def _pairwise_fixed_t0_outputs_single_stack(
                             "threshold": thr,
                             "cluster_min_size": cluster_size,
                             "common_region_path": str(common_region_path(dataset_root, subject_id, site, compartment)),
-                            "binary_source_t0": str(rec0.seg_path) if require_seg and rec0.seg_path is not None else None,
-                            "binary_source_t1": str(rec1.seg_path) if require_seg and rec1.seg_path is not None else None,
+                            "binary_source_t0": str(rec0.seg_path) if rec0.seg_path is not None and rec0.seg_path.exists() else None,
+                            "binary_source_t1": str(rec1.seg_path) if rec1.seg_path is not None and rec1.seg_path.exists() else None,
                             "BV0_vox": bv0,
                             "BV1_vox": bv1,
                             "TV_valid_vox": tv_valid,
@@ -989,10 +1095,12 @@ def _pairwise_fixed_t0_outputs_single_stack(
                             is_mask=True,
                         )
                         trajectory_event_maps[(thr, cluster_size)].append(
-                            {
-                                "formation": (image_to_array(formation_base_img) > 0).astype(bool, copy=False),
-                                "resorption": (image_to_array(resorption_base_img) > 0).astype(bool, copy=False),
-                            }
+                            (
+                                t0,
+                                t1,
+                                (image_to_array(formation_base_img) > 0).astype(bool, copy=False),
+                                (image_to_array(resorption_base_img) > 0).astype(bool, copy=False),
+                            )
                         )
 
                     if (
@@ -1002,15 +1110,7 @@ def _pairwise_fixed_t0_outputs_single_stack(
                         and math.isclose(thr, params.visualize_threshold)
                         and cluster_size == params.visualize_cluster_size
                     ):
-                        label_t0 = build_label_image(
-                            valid_mask=valid,
-                            quiescent=quiescent,
-                            resorption=resorption,
-                            demineralisation=demineralisation,
-                            formation=formation,
-                            mineralisation=mineralisation,
-                            label_map=params.visualize_label_map,
-                        )
+                        label_t0 = preview.label_image
                         label_baseline_img = _resample_image(
                             array_to_image(label_t0, ref_img, pixel_id=sitk.sitkUInt8),
                             baseline_ref,
@@ -1027,41 +1127,18 @@ def _pairwise_fixed_t0_outputs_single_stack(
             thr = float(thr)
             for cluster_size in params.cluster_sizes:
                 cluster_size = int(cluster_size)
-                events = trajectory_event_maps[(thr, cluster_size)]
-                formation_union = np.zeros_like(common_masks_baseline[compartment], dtype=bool)
-                resorption_union = np.zeros_like(common_masks_baseline[compartment], dtype=bool)
-                formed_then_resorbed = np.zeros_like(common_masks_baseline[compartment], dtype=bool)
-                resorbed_then_formed = np.zeros_like(common_masks_baseline[compartment], dtype=bool)
-
-                for a in range(len(events)):
-                    formation_union |= events[a]["formation"]
-                    resorption_union |= events[a]["resorption"]
-                    later_res = np.zeros_like(common_masks_baseline[compartment], dtype=bool)
-                    later_form = np.zeros_like(common_masks_baseline[compartment], dtype=bool)
-                    for b in range(a + 1, len(events)):
-                        later_res |= events[b]["resorption"]
-                        later_form |= events[b]["formation"]
-                    formed_then_resorbed |= events[a]["formation"] & later_res
-                    resorbed_then_formed |= events[a]["resorption"] & later_form
-
-                formation_total_series = int(np.count_nonzero(formation_union))
-                resorption_total_series = int(np.count_nonzero(resorption_union))
-                ftr_vox = int(np.count_nonzero(formed_then_resorbed))
-                rtf_vox = int(np.count_nonzero(resorbed_then_formed))
                 outputs.trajectory_rows.append(
                     {
                         "subject_id": subject_id,
-                        "compartment": compartment,
-                        "threshold": thr,
-                        "cluster_min_size": cluster_size,
-                        "common_region_path": str(common_region_path(dataset_root, subject_id, site, compartment)),
-                        "formation_total_vox_series": formation_total_series,
-                        "resorption_total_vox_series": resorption_total_series,
-                        "formed_then_resorbed_vox": ftr_vox,
-                        "resorbed_then_formed_vox": rtf_vox,
-                        "formed_then_resorbed_frac_of_formation": safe_frac(ftr_vox, formation_total_series),
-                        "resorbed_then_formed_frac_of_resorption": safe_frac(rtf_vox, resorption_total_series),
-                        "trajectory_basis": "adjacent_intervals_only",
+                        **compute_pair_trajectory_summary(
+                            compartment=compartment,
+                            threshold=thr,
+                            cluster_size=cluster_size,
+                            common_region_path=str(common_region_path(dataset_root, subject_id, site, compartment)),
+                            valid_shape=common_masks_baseline[compartment].shape,
+                            adjacent_events=trajectory_event_maps[(thr, cluster_size)],
+                            selected_adjacent_pairs=params.trajectory_selected_adjacent_pairs,
+                        ),
                     }
                 )
 
@@ -1074,7 +1151,10 @@ def run_analysis(
     thresholds: Iterable[float] | None = None,
     clusters: Iterable[int] | None = None,
     visualize: tuple[float, int] | None = None,
+    subject_id_filter: str | None = None,
+    site_filter: str | None = None,
 ) -> None:
+    """Execute remodelling analysis and persist CSV/metadata outputs."""
     dataset_root = Path(dataset_root)
     params = _apply_overrides(
         _get_analysis_params(config),
@@ -1088,11 +1168,19 @@ def run_analysis(
         print(f"[analysis] No subject/site groups found under: {dataset_root}")
         return
 
+    requested_subject = str(subject_id_filter).strip() if subject_id_filter is not None else None
+    requested_site = str(site_filter).strip().lower() if site_filter is not None else None
+    processed_any = False
+
     for item in subject_site_keys:
         if isinstance(item, tuple):
             subject_id, site = item
         else:
             subject_id, site = item, "radius"
+        if requested_subject is not None and str(subject_id).strip() != requested_subject:
+            continue
+        if requested_site is not None and str(site).strip().lower() != requested_site:
+            continue
         effective_space = params.space
         try:
             if params.space == "pairwise_fixed_t0":
@@ -1226,6 +1314,9 @@ def run_analysis(
             erosion_voxels=params.erosion_voxels,
             gaussian_filter=params.gaussian_filter,
             gaussian_sigma=params.gaussian_sigma,
+            full_mask_dilation_voxels=params.full_mask_dilation_voxels,
+            marrow_mask_erosion_voxels=params.marrow_mask_erosion_voxels,
+            trajectory_selected_adjacent_pairs=params.trajectory_selected_adjacent_pairs,
             visualization_enabled=params.visualize_enabled,
             visualization_threshold=params.visualize_threshold,
             visualization_cluster_size=params.visualize_cluster_size,
@@ -1251,6 +1342,15 @@ def run_analysis(
             f"[analysis] sub-{subject_id} site-{site}: wrote "
             f"{len(pairwise_df)} pairwise row(s) and {len(trajectory_df)} trajectory row(s)"
         )
+        processed_any = True
 
         del pairwise_df, trajectory_df, outputs, ref_img
         _free_memory()
+
+    if not processed_any and (requested_subject is not None or requested_site is not None):
+        subject_label = requested_subject if requested_subject is not None else "*"
+        site_label = requested_site if requested_site is not None else "*"
+        print(
+            "[analysis] No subject/site groups matched requested filters: "
+            f"subject={subject_label}, site={site_label}"
+        )

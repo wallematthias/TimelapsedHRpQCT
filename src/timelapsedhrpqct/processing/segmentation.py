@@ -4,4 +4,5 @@ import SimpleITK as sitk
 
 
 def generate_bone_segmentation(image: sitk.Image, threshold: float) -> sitk.Image:
+    """Helper for generate bone segmentation."""
     return sitk.Cast(image >= float(threshold), sitk.sitkUInt8)

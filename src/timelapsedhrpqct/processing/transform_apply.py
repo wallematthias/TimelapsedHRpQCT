@@ -4,6 +4,7 @@ import SimpleITK as sitk
 
 
 def _interpolator(name: str) -> int:
+    """Helper for interpolator."""
     if name == "nearest":
         return sitk.sitkNearestNeighbor
     return sitk.sitkLinear
@@ -16,6 +17,7 @@ def apply_transform(
     interpolator: str = "linear",
     default_value: float = 0.0,
 ) -> sitk.Image:
+    """Helper for apply transform."""
     return sitk.Resample(
         image,
         reference,

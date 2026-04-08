@@ -34,20 +34,24 @@ from timelapsedhrpqct.utils.paths import append_session_to_index
 
 
 def _ensure_parent(path: Path) -> None:
+    """Create parent directory for a target file path."""
     path.parent.mkdir(parents=True, exist_ok=True)
 
 
 def _write_image(image: sitk.Image, path: Path) -> None:
+    """Write a SimpleITK image to disk, creating parent directories as needed."""
     _ensure_parent(path)
     sitk.WriteImage(image, str(path))
 
 
 def _copy_file(src: Path, dst: Path) -> None:
+    """Copy a file while preserving metadata and ensuring destination parent exists."""
     _ensure_parent(dst)
     shutil.copy2(src, dst)
 
 
 def _slice_image(image: sitk.Image, slice_range: StackSliceRange) -> sitk.Image:
+    """Extract a z-range stack slab from a full-session image volume."""
     size = list(image.GetSize())
     index = [0, 0, 0]
     index[2] = slice_range.z_start
@@ -56,6 +60,7 @@ def _slice_image(image: sitk.Image, slice_range: StackSliceRange) -> sitk.Image:
 
 
 def _normalize_mask_roles(raw_masks: dict[str, Path]) -> dict[str, Path]:
+    """Normalize incoming mask role aliases to canonical internal role names."""
     normalized: dict[str, Path] = {}
 
     for role, path in raw_masks.items():
@@ -77,6 +82,7 @@ def _normalize_mask_roles(raw_masks: dict[str, Path]) -> dict[str, Path]:
 
 
 def _configured_mask_roles(config: AppConfig) -> list[str]:
+    """Return requested canonical mask roles from config."""
     masks_cfg = getattr(config, "masks", None)
     roles = list(getattr(masks_cfg, "roles", ["full", "trab", "cort"]))
     return [role for role in roles if role in {"full", "trab", "cort"}]
@@ -86,6 +92,7 @@ def _align_label_image_to_reference(
     label_image: sitk.Image,
     reference_image: sitk.Image,
 ) -> sitk.Image:
+    """Align label image geometry to a reference grid via nearest-neighbor resampling."""
     if same_geometry(label_image, reference_image):
         return label_image
 
@@ -157,15 +164,18 @@ def _restructure_raw_session_files(raw_session: RawSession, output_root: Path) -
 
 
 def _sanitized_raw_filename(path: Path) -> str:
+    """Strip AIM version suffixes from raw file names for stable dataset naming."""
     return re.sub(r"(?i)(\.aim)(;\d+)$", r"\1", path.name)
 
 
 def _move_file(src: Path, dst: Path) -> None:
+    """Move a file to destination, creating parent folders first."""
     _ensure_parent(dst)
     shutil.move(str(src), str(dst))
 
 
 def _image_geometry_dict(image: sitk.Image) -> dict:
+    """Serialize image geometry fields used in stack metadata."""
     return {
         "origin": list(image.GetOrigin()),
         "spacing": list(image.GetSpacing()),
@@ -175,6 +185,7 @@ def _image_geometry_dict(image: sitk.Image) -> dict:
 
 
 def _reset_origin_to_zero(image: sitk.Image) -> sitk.Image:
+    """Return a copy of an image with zeroed origin."""
     out = sitk.Image(image)
     out.SetOrigin((0.0,) * image.GetDimension())
     return out
@@ -185,6 +196,7 @@ def _offset_origin_for_stack_index(
     stack_index: int,
     stack_depth: int,
 ) -> sitk.Image:
+    """Offset z-origin by stack index so independent stacks remain spatially ordered."""
     out = sitk.Image(image)
     origin = list(out.GetOrigin())
     spacing = out.GetSpacing()
@@ -198,6 +210,7 @@ def _largest_components_union_mask(
     threshold_bmd: float,
     num_largest_components: int,
 ) -> sitk.Image:
+    """Build a binary keep-mask from the largest thresholded connected components."""
     binary = sitk.BinaryThreshold(
         image,
         lowerThreshold=float(threshold_bmd),
@@ -223,6 +236,7 @@ def _bbox_from_binary_mask(
     mask: sitk.Image,
     padding_voxels: int,
 ) -> tuple[tuple[int, int, int], tuple[int, int, int]]:
+    """Return padded bounding-box `(index, size)` from a non-empty binary mask."""
     stats = sitk.LabelShapeStatisticsImageFilter()
     stats.Execute(sitk.Cast(mask, sitk.sitkUInt8))
 
@@ -252,6 +266,7 @@ def _detect_crop_from_image(
     padding_voxels: int,
     num_largest_components: int,
 ) -> CropDetection:
+    """Detect subject crop box and center from intensity threshold components."""
     keep_mask = _largest_components_union_mask(
         image=image,
         threshold_bmd=threshold_bmd,
@@ -288,6 +303,7 @@ def _resolve_subject_crop_session_key(
     raw_session: RawSession,
     subject_crop_spec: SubjectCropSpec,
 ) -> str:
+    """Resolve the crop-spec session key for a raw session across key formats."""
     preferred_key = _raw_session_crop_key(raw_session)
     if preferred_key in subject_crop_spec.per_session_center_index_xyz:
         return preferred_key
@@ -304,6 +320,7 @@ def _compute_subject_crop_spec(
     raw_sessions: list[RawSession],
     config: AppConfig,
 ) -> SubjectCropSpec | None:
+    """Compute per-subject common crop specification across sessions."""
     if not config.import_.crop_to_subject_box:
         return None
 
@@ -345,6 +362,7 @@ def _centered_roi_index_for_target_size(
     center_index_xyz: tuple[float, float, float],
     target_size_xyz: tuple[int, int, int],
 ) -> tuple[int, int, int]:
+    """Convert ROI center and target size into integer ROI start index."""
     start = []
     for i in range(3):
         size_i = int(target_size_xyz[i])
@@ -414,7 +432,7 @@ def import_raw_session(
     - resolves masks from available combinations
     - splits to per-stack .mha artifacts
     - writes metadata JSON
-    - appends session info to derivatives/TimelapsedHRpQCT/index.csv
+    - appends session info to TimelapsedHRpQCT/index.csv
     """
     raw_session.validate()
     output_root = Path(output_root)
@@ -628,6 +646,7 @@ def import_subject_sessions(
     copy_raw_inputs: bool = False,
     restructure_raw: bool = False,
 ) -> list[StackArtifact]:
+    """Import all sessions for one subject, grouped by site, with shared crop spec."""
     if not raw_sessions:
         return []
 

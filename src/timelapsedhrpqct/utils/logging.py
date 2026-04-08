@@ -11,7 +11,7 @@ from timelapsedhrpqct.dataset.layout import (
 
 def ensure_pipeline_dataset_description(dataset_root: str | Path) -> None:
     """
-    Create derivatives/TimelapsedHRpQCT/dataset_description.json if it does not exist.
+    Create TimelapsedHRpQCT/dataset_description.json if it does not exist.
     """
     path = get_pipeline_dataset_description_path(dataset_root)
     if path.exists():

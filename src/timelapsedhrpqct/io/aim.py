@@ -9,6 +9,7 @@ import SimpleITK as sitk
 
 
 def _load_py_aimio():
+    """Load py aimio."""
     try:
         return importlib.import_module("py_aimio")
     except ImportError as exc:
@@ -20,6 +21,7 @@ def _load_py_aimio():
 def _get_aim_calibration_constants_from_processing_log(
     processing_log: str,
 ) -> tuple[int, float, float, float, float]:
+    """Helper for get aim calibration constants from processing log."""
     import re
 
     mu_scaling_match = re.search(r"Mu_Scaling\s+(\d+)", processing_log)
@@ -52,6 +54,7 @@ def _get_aim_calibration_constants_from_processing_log(
 
 
 def _apply_mu_scaling(np_image: np.ndarray, processing_log: str) -> np.ndarray:
+    """Helper for apply mu scaling."""
     mu_scaling, _hu_mu_water, _hu_mu_air, _density_slope, _density_intercept = (
         _get_aim_calibration_constants_from_processing_log(processing_log)
     )
@@ -59,6 +62,7 @@ def _apply_mu_scaling(np_image: np.ndarray, processing_log: str) -> np.ndarray:
 
 
 def _apply_scaling(np_image: np.ndarray, processing_log: str, scaling: str) -> np.ndarray:
+    """Helper for apply scaling."""
     scaling = scaling.lower()
 
     if scaling in {"native", "none"}:
@@ -88,6 +92,7 @@ def _apply_scaling(np_image: np.ndarray, processing_log: str, scaling: str) -> n
 
 
 def _normalize_scaling(scaling: str) -> str:
+    """Helper for normalize scaling."""
     normalized = scaling.lower()
     if normalized in {"none", "native", "mu", "hu", "bmd", "density"}:
         return normalized
@@ -118,6 +123,7 @@ def _as_zyx(array: np.ndarray, dimensions_xyz: tuple[int, int, int] | None) -> n
 def _read_with_py_aimio(py_aimio: Any, path: Path, scaling: str) -> tuple[np.ndarray, dict[str, Any]]:
     # Read native counts and apply legacy scaling math locally to match
     # historical vtkbone-based imports as closely as possible.
+    """Helper for read with py aimio."""
     np_arr, meta = py_aimio.read_aim(str(path), density=False, hu=False)
 
     meta = dict(meta)
@@ -136,6 +142,7 @@ def _read_with_py_aimio(py_aimio: Any, path: Path, scaling: str) -> tuple[np.nda
 
 
 def _resolve_origin(meta: dict[str, Any], spacing: tuple[float, float, float]) -> tuple[float, float, float]:
+    """Resolve origin."""
     origin_raw = meta.get("origin")
     if isinstance(origin_raw, (list, tuple)) and len(origin_raw) == 3:
         return tuple(float(v) for v in origin_raw)

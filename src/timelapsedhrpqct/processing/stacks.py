@@ -75,6 +75,7 @@ def get_stack_range(
     stack_depth: int = 168,
     on_incomplete_stack: str = "error",
 ) -> StackSliceRange:
+    """Helper for get stack range."""
     if stack_index < 1:
         raise ValueError("stack_index must be >= 1")
 

@@ -12,6 +12,7 @@ def build_superstack_from_aligned_contributors(
     aligned_masks: list[sitk.Image] | None,
     reference: sitk.Image,
 ) -> tuple[sitk.Image, sitk.Image | None]:
+    """Build superstack from aligned contributors."""
     acc = sitk.Image(reference.GetSize(), sitk.sitkFloat32)
     acc.CopyInformation(reference)
     cnt = sitk.Image(reference.GetSize(), sitk.sitkFloat32)

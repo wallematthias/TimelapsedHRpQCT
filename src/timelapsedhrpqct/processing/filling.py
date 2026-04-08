@@ -19,6 +19,7 @@ class FillingParams:
 
 
 def largest_components_mask(binary: np.ndarray, min_size: int) -> np.ndarray:
+    """Helper for largest components mask."""
     if int(min_size) <= 1:
         return binary.astype(bool, copy=True)
 
@@ -37,6 +38,7 @@ def largest_components_mask(binary: np.ndarray, min_size: int) -> np.ndarray:
 
 
 def ensure_odd(n: int) -> int:
+    """Helper for ensure odd."""
     n = max(1, int(n))
     if n % 2 == 0:
         n += 1
@@ -48,6 +50,7 @@ def n_closest_session_indices(
     index: int,
     n_images: int,
 ) -> list[int]:
+    """Helper for n closest session indices."""
     order_vals = []
     for sid in session_ids:
         digits = "".join(ch if ch.isdigit() else " " for ch in sid).split()
@@ -63,6 +66,7 @@ def build_allowed_support(
     real_mask_arrs: list[np.ndarray],
     support_closing_z: int,
 ) -> tuple[np.ndarray, dict]:
+    """Build allowed support."""
     return build_closed_union_support(
         support_arrs=real_mask_arrs,
         support_closing_z=support_closing_z,
@@ -75,6 +79,7 @@ def build_closed_union_support(
     support_closing_z: int,
     support_source: str,
 ) -> tuple[np.ndarray, dict]:
+    """Build closed union support."""
     union_mask = np.zeros_like(support_arrs[0], dtype=bool)
     for arr in support_arrs:
         union_mask |= arr
@@ -98,6 +103,7 @@ def build_fill_region(
     real_mask_arrs: list[np.ndarray],
     closed_support_arr: np.ndarray,
 ) -> tuple[np.ndarray, dict]:
+    """Build fill region."""
     union_mask = np.zeros_like(real_mask_arrs[0], dtype=bool)
     for arr in real_mask_arrs:
         union_mask |= arr
@@ -113,6 +119,7 @@ def build_fill_region(
 
 
 def bbox_from_binary(binary: np.ndarray) -> tuple[slice, slice, slice] | None:
+    """Helper for bbox from binary."""
     coords = np.argwhere(binary)
     if coords.size == 0:
         return None
@@ -126,6 +133,7 @@ def expand_bbox(
     shape: tuple[int, int, int],
     margin_zyx: tuple[int, int, int],
 ) -> tuple[slice, slice, slice]:
+    """Helper for expand bbox."""
     out = []
     for i, slc in enumerate(bbox):
         start = max(0, slc.start - int(margin_zyx[i]))
@@ -135,10 +143,12 @@ def expand_bbox(
 
 
 def crop_to_bbox(arr: np.ndarray, bbox: tuple[slice, slice, slice]) -> np.ndarray:
+    """Helper for crop to bbox."""
     return arr[bbox[0], bbox[1], bbox[2]]
 
 
 def paste_bbox(dst: np.ndarray, src: np.ndarray, bbox: tuple[slice, slice, slice]) -> None:
+    """Helper for paste bbox."""
     dst[bbox[0], bbox[1], bbox[2]] = src
 
 
@@ -148,6 +158,7 @@ def spatial_fill_single_session(
     allowed_support_arr: np.ndarray,
     params: FillingParams,
 ) -> tuple[np.ndarray, np.ndarray, dict]:
+    """Helper for spatial fill single session."""
     filled = image_arr.copy()
     added = np.zeros_like(real_mask_arr, dtype=bool)
 
@@ -258,6 +269,7 @@ def spatial_fill_single_session_binary(
     allowed_support_arr: np.ndarray,
     params: FillingParams,
 ) -> tuple[np.ndarray, np.ndarray, dict]:
+    """Helper for spatial fill single session binary."""
     filled = seg_arr.copy().astype(bool, copy=True)
     added = np.zeros_like(real_seg_arr, dtype=bool)
 
@@ -379,6 +391,7 @@ def timelapse_fill_sessions(
     session_ids: list[str],
     n_images: int,
 ) -> tuple[list[np.ndarray], list[np.ndarray], list[dict]]:
+    """Helper for timelapse fill sessions."""
     final_images: list[np.ndarray] = []
     total_added_masks: list[np.ndarray] = []
     metas: list[dict] = []
@@ -432,6 +445,7 @@ def timelapse_fill_sessions_binary(
     session_ids: list[str],
     n_images: int,
 ) -> tuple[list[np.ndarray], list[np.ndarray], list[dict]]:
+    """Helper for timelapse fill sessions binary."""
     final_segs: list[np.ndarray] = []
     total_added_masks: list[np.ndarray] = []
     metas: list[dict] = []

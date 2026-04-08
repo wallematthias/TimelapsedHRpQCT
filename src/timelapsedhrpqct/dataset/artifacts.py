@@ -6,6 +6,7 @@ from pathlib import Path
 
 from timelapsedhrpqct.dataset.layout import get_derivatives_root
 from timelapsedhrpqct.dataset.models import StackArtifact, StackSliceRange
+from timelapsedhrpqct.utils.session_ids import session_sort_key
 
 
 @dataclass(slots=True)
@@ -46,26 +47,32 @@ class FilledSessionRecord:
 
 
 def _artifact_dir(dataset_root: str | Path) -> Path:
+    """Helper for artifact dir."""
     return get_derivatives_root(dataset_root) / "_artifacts"
 
 
 def _imported_stack_index_path(dataset_root: str | Path) -> Path:
+    """Return imported stack index path."""
     return _artifact_dir(dataset_root) / "imported_stacks.json"
 
 
 def _fused_session_index_path(dataset_root: str | Path) -> Path:
+    """Return fused session index path."""
     return _artifact_dir(dataset_root) / "fused_sessions.json"
 
 
 def _filled_session_index_path(dataset_root: str | Path) -> Path:
+    """Return filled session index path."""
     return _artifact_dir(dataset_root) / "filled_sessions.json"
 
 
 def _path_or_none(path: Path | None) -> str | None:
+    """Return path or none."""
     return str(path) if path is not None else None
 
 
 def _serialize_path(dataset_root: str | Path, path: Path | None) -> str | None:
+    """Return serialize path."""
     if path is None:
         return None
     root = Path(dataset_root).resolve()
@@ -77,6 +84,7 @@ def _serialize_path(dataset_root: str | Path, path: Path | None) -> str | None:
 
 
 def _deserialize_path(dataset_root: str | Path, payload: str | None) -> Path | None:
+    """Return deserialize path."""
     if not payload:
         return None
     path = Path(payload)
@@ -86,16 +94,19 @@ def _deserialize_path(dataset_root: str | Path, payload: str | None) -> Path | N
 
 
 def _stack_slice_to_dict(slice_range: StackSliceRange | None) -> dict | None:
+    """Helper for stack slice to dict."""
     return asdict(slice_range) if slice_range is not None else None
 
 
 def _stack_slice_from_dict(payload: dict | None) -> StackSliceRange | None:
+    """Helper for stack slice from dict."""
     if payload is None:
         return None
     return StackSliceRange(**payload)
 
 
 def _read_records(path: Path) -> list[dict]:
+    """Helper for read records."""
     if not path.exists():
         return []
     payload = json.loads(path.read_text(encoding="utf-8"))
@@ -103,6 +114,7 @@ def _read_records(path: Path) -> list[dict]:
 
 
 def _write_records(path: Path, records: list[dict]) -> None:
+    """Helper for write records."""
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(
         json.dumps({"version": 1, "records": records}, indent=2),
@@ -114,6 +126,7 @@ def _serialize_imported_stack(
     dataset_root: str | Path,
     record: StackArtifact | ImportedStackRecord,
 ) -> dict:
+    """Helper for serialize imported stack."""
     return {
         "subject_id": record.subject_id,
         "site": record.site,
@@ -134,6 +147,7 @@ def _deserialize_imported_stack(
     dataset_root: str | Path,
     payload: dict,
 ) -> ImportedStackRecord:
+    """Helper for deserialize imported stack."""
     return ImportedStackRecord(
         subject_id=payload["subject_id"],
         site=payload.get("site", "radius"),
@@ -155,6 +169,7 @@ def _serialize_fused_session(
     dataset_root: str | Path,
     record: FusedSessionRecord,
 ) -> dict:
+    """Helper for serialize fused session."""
     return {
         "subject_id": record.subject_id,
         "site": record.site,
@@ -173,6 +188,7 @@ def _deserialize_fused_session(
     dataset_root: str | Path,
     payload: dict,
 ) -> FusedSessionRecord:
+    """Helper for deserialize fused session."""
     return FusedSessionRecord(
         subject_id=payload["subject_id"],
         site=payload.get("site", "radius"),
@@ -192,6 +208,7 @@ def _serialize_filled_session(
     dataset_root: str | Path,
     record: FilledSessionRecord,
 ) -> dict:
+    """Helper for serialize filled session."""
     return {
         "subject_id": record.subject_id,
         "site": record.site,
@@ -209,6 +226,7 @@ def _deserialize_filled_session(
     dataset_root: str | Path,
     payload: dict,
 ) -> FilledSessionRecord:
+    """Helper for deserialize filled session."""
     return FilledSessionRecord(
         subject_id=payload["subject_id"],
         site=payload.get("site", "radius"),
@@ -226,6 +244,7 @@ def upsert_imported_stack_records(
     dataset_root: str | Path,
     records: list[StackArtifact | ImportedStackRecord],
 ) -> None:
+    """Helper for upsert imported stack records."""
     index_path = _imported_stack_index_path(dataset_root)
     existing = {
         (r["subject_id"], r["site"], r["session_id"], int(r["stack_index"])): r
@@ -240,6 +259,7 @@ def upsert_imported_stack_records(
 
 
 def iter_imported_stack_records(dataset_root: str | Path) -> list[ImportedStackRecord]:
+    """Helper for iter imported stack records."""
     return [
         _deserialize_imported_stack(dataset_root, payload)
         for payload in _read_records(_imported_stack_index_path(dataset_root))
@@ -250,6 +270,7 @@ def upsert_fused_session_record(
     dataset_root: str | Path,
     record: FusedSessionRecord,
 ) -> None:
+    """Helper for upsert fused session record."""
     index_path = _fused_session_index_path(dataset_root)
     existing = {
         (r["subject_id"], r["site"], r["session_id"]): r for r in _read_records(index_path)
@@ -263,6 +284,7 @@ def upsert_fused_session_record(
 
 
 def iter_fused_session_records(dataset_root: str | Path) -> list[FusedSessionRecord]:
+    """Helper for iter fused session records."""
     return [
         _deserialize_fused_session(dataset_root, payload)
         for payload in _read_records(_fused_session_index_path(dataset_root))
@@ -273,6 +295,7 @@ def upsert_filled_session_record(
     dataset_root: str | Path,
     record: FilledSessionRecord,
 ) -> None:
+    """Helper for upsert filled session record."""
     index_path = _filled_session_index_path(dataset_root)
     existing = {
         (r["subject_id"], r["site"], r["session_id"]): r for r in _read_records(index_path)
@@ -286,6 +309,7 @@ def upsert_filled_session_record(
 
 
 def iter_filled_session_records(dataset_root: str | Path) -> list[FilledSessionRecord]:
+    """Helper for iter filled session records."""
     return [
         _deserialize_filled_session(dataset_root, payload)
         for payload in _read_records(_filled_session_index_path(dataset_root))
@@ -295,6 +319,7 @@ def iter_filled_session_records(dataset_root: str | Path) -> list[FilledSessionR
 def group_imported_stacks_by_subject_site_and_stack(
     records: list[ImportedStackRecord],
 ) -> dict[tuple[str, str], dict[int, list[ImportedStackRecord]]]:
+    """Helper for group imported stacks by subject site and stack."""
     grouped: dict[tuple[str, str], dict[int, list[ImportedStackRecord]]] = {}
 
     for record in records:
@@ -302,7 +327,7 @@ def group_imported_stacks_by_subject_site_and_stack(
 
     for key in grouped:
         for stack_index in grouped[key]:
-            grouped[key][stack_index].sort(key=lambda r: r.session_id)
+            grouped[key][stack_index].sort(key=lambda r: session_sort_key(r.session_id))
 
     return grouped
 
@@ -310,17 +335,19 @@ def group_imported_stacks_by_subject_site_and_stack(
 def group_fused_sessions_by_subject_site(
     records: list[FusedSessionRecord],
 ) -> dict[tuple[str, str], list[FusedSessionRecord]]:
+    """Helper for group fused sessions by subject site."""
     grouped: dict[tuple[str, str], list[FusedSessionRecord]] = {}
     for record in records:
         grouped.setdefault((record.subject_id, record.site), []).append(record)
     for key in grouped:
-        grouped[key].sort(key=lambda r: r.session_id)
+        grouped[key].sort(key=lambda r: session_sort_key(r.session_id))
     return grouped
 
 
 def group_filled_sessions_by_subject_site(
     records: list[FilledSessionRecord],
 ) -> dict[tuple[str, str], list[FilledSessionRecord]]:
+    """Helper for group filled sessions by subject site."""
     grouped: dict[tuple[str, str], list[FilledSessionRecord]] = {}
     for record in records:
         grouped.setdefault((record.subject_id, record.site), []).append(record)

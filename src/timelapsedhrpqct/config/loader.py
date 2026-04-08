@@ -27,6 +27,7 @@ from timelapsedhrpqct.config.models import (
 
 
 def _read_yaml(path: Path) -> dict[str, Any]:
+    """Helper for read yaml."""
     with path.open("r", encoding="utf-8") as f:
         data = yaml.safe_load(f) or {}
     if not isinstance(data, dict):
@@ -35,6 +36,7 @@ def _read_yaml(path: Path) -> dict[str, Any]:
 
 
 def _filter_dataclass_kwargs(cls: type, values: dict[str, Any]) -> dict[str, Any]:
+    """Helper for filter dataclass kwargs."""
     allowed = {f.name for f in fields(cls)}
     return {k: v for k, v in values.items() if k in allowed}
 
@@ -45,6 +47,7 @@ def _warn_unknown_keys(
     values: dict[str, Any],
     excluded: set[str] | None = None,
 ) -> None:
+    """Helper for warn unknown keys."""
     allowed = {f.name for f in fields(cls)}
     ignored = set(excluded or set())
     unknown = sorted(k for k in values.keys() if k not in allowed and k not in ignored)
@@ -56,6 +59,7 @@ def _warn_unknown_keys(
 
 
 def load_config(path: str | Path) -> AppConfig:
+    """Load config."""
     cfg_path = Path(path)
     raw = _read_yaml(cfg_path)
 

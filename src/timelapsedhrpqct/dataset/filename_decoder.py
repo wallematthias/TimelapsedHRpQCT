@@ -20,10 +20,12 @@ class DecodedFilename:
 
 
 def strip_aim_suffix(name: str) -> str:
+    """Helper for strip aim suffix."""
     return _AIM_WITH_OPTIONAL_VERSION_RE.sub("", name)
 
 
 def normalize_role(role: str) -> str:
+    """Helper for normalize role."""
     role_lower = role.strip().lower()
     if role_lower in {"cort", "cortical", "cort_mask"}:
         return "cort"
@@ -39,6 +41,7 @@ def normalize_role(role: str) -> str:
 
 
 def classify_role_from_text(role_text: str, cfg: DiscoveryConfig) -> str:
+    """Helper for classify role from text."""
     role_upper = role_text.strip().upper()
     for canonical_role, aliases in cfg.role_aliases.items():
         for alias in aliases:
@@ -48,6 +51,7 @@ def classify_role_from_text(role_text: str, cfg: DiscoveryConfig) -> str:
 
 
 def classify_role_from_name(path: Path, cfg: DiscoveryConfig) -> str:
+    """Helper for classify role from name."""
     stem_upper = strip_aim_suffix(path.name).upper()
     for canonical_role, aliases in cfg.role_aliases.items():
         for alias in aliases:
@@ -73,6 +77,7 @@ def classify_role_from_name(path: Path, cfg: DiscoveryConfig) -> str:
 
 
 def normalize_site(site_text: str | None, cfg: DiscoveryConfig) -> str | None:
+    """Helper for normalize site."""
     if not site_text:
         return None
     token = site_text.strip().upper()
@@ -84,6 +89,7 @@ def normalize_site(site_text: str | None, cfg: DiscoveryConfig) -> str | None:
 
 
 def infer_site_from_name(path: Path, cfg: DiscoveryConfig) -> str:
+    """Helper for infer site from name."""
     stem_upper = strip_aim_suffix(path.name).upper()
     for canonical_site, aliases in cfg.site_aliases.items():
         for alias in aliases:
@@ -93,6 +99,7 @@ def infer_site_from_name(path: Path, cfg: DiscoveryConfig) -> str:
 
 
 def normalize_session_id(session_text: str, cfg: DiscoveryConfig) -> str:
+    """Helper for normalize session id."""
     token = session_text.strip()
     token_upper = token.upper()
 
@@ -111,6 +118,7 @@ def normalize_session_id(session_text: str, cfg: DiscoveryConfig) -> str:
 
 
 def extract_stack_index(path: Path) -> int | None:
+    """Helper for extract stack index."""
     stem = strip_aim_suffix(path.name)
     match = re.search(r"(?i)(?:^|_)STACK[_-]?(\d+)(?:_|$)", stem)
     if match is None:
@@ -119,6 +127,7 @@ def extract_stack_index(path: Path) -> int | None:
 
 
 def _looks_like_session_token(token: str, cfg: DiscoveryConfig) -> bool:
+    """Helper for looks like session token."""
     token_upper = token.upper()
     if re.search(r"\d", token_upper):
         return True
@@ -132,6 +141,7 @@ def _looks_like_session_token(token: str, cfg: DiscoveryConfig) -> bool:
 
 
 def decode_filename(path: Path, cfg: DiscoveryConfig) -> DecodedFilename:
+    """Helper for decode filename."""
     stem = strip_aim_suffix(path.name)
     role = classify_role_from_name(path, cfg)
 

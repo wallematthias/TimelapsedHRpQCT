@@ -33,14 +33,17 @@ from timelapsedhrpqct.utils.sitk_helpers import load_image, write_image, write_j
 
 
 def _load_transform(path: Path) -> sitk.Transform:
+    """Load transform."""
     return sitk.ReadTransform(str(path))
 
 
 def _free_memory() -> None:
+    """Helper for free memory."""
     gc.collect()
 
 
 def _image_physical_corners(image: sitk.Image) -> list[tuple[float, float, float]]:
+    """Helper for image physical corners."""
     size = image.GetSize()
     corners_index = [
         (0, 0, 0),
@@ -59,6 +62,7 @@ def _transform_points(
     points: list[tuple[float, float, float]],
     transform: sitk.Transform,
 ) -> list[tuple[float, float, float]]:
+    """Helper for transform points."""
     return [transform.TransformPoint(p) for p in points]
 
 
@@ -68,6 +72,7 @@ def _make_multi_union_reference_image(
     moving_to_reference_transforms: list[sitk.Transform],
     padding_voxels: int = 4,
 ) -> sitk.Image:
+    """Helper for make multi union reference image."""
     all_points = _image_physical_corners(reference_image)
 
     for moving_image, transform in zip(moving_images, moving_to_reference_transforms):
@@ -94,6 +99,7 @@ def _make_multi_union_reference_image(
 
 
 def _baseline_record_for_stack(records: list, baseline_session: str):
+    """Helper for baseline record for stack."""
     for record in records:
         if record.session_id == baseline_session:
             return record
@@ -103,10 +109,12 @@ def _baseline_record_for_stack(records: list, baseline_session: str):
 
 
 def _transforms_dir(dataset_root: Path, subject_id: str, site: str) -> Path:
+    """Helper for transforms dir."""
     return transforms_dir(dataset_root, subject_id, site)
 
 
 def _final_transform_dir(dataset_root: Path, subject_id: str, site: str) -> Path:
+    """Helper for final transform dir."""
     return final_transform_dir(dataset_root, subject_id, site)
 
 
@@ -118,6 +126,7 @@ def _final_transform_path(
     moving_session: str,
     baseline_session: str,
 ) -> Path:
+    """Return final transform path."""
     return final_transform_path(
         dataset_root=dataset_root,
         subject_id=subject_id,
@@ -129,10 +138,12 @@ def _final_transform_path(
 
 
 def _stack_correction_dir(dataset_root: Path, subject_id: str, site: str) -> Path:
+    """Helper for stack correction dir."""
     return stack_correction_dir(dataset_root, subject_id, site)
 
 
 def _common_reference_path(dataset_root: Path, subject_id: str, site: str) -> Path:
+    """Return common reference path."""
     return common_reference_path(dataset_root, subject_id, site)
 
 
@@ -142,6 +153,7 @@ def _fused_image_path(
     site: str = "radius",
     session_id: str | None = None,
 ) -> Path:
+    """Return fused image path."""
     if session_id is None:
         session_id = site
         site = "radius"
@@ -154,6 +166,7 @@ def _fused_seg_path(
     site: str = "radius",
     session_id: str | None = None,
 ) -> Path:
+    """Return fused seg path."""
     if session_id is None:
         session_id = site
         site = "radius"
@@ -167,6 +180,7 @@ def _fused_mask_path(
     session_id: str | None = None,
     role: str | None = None,
 ) -> Path:
+    """Return fused mask path."""
     if role is None:
         role = str(session_id)
         session_id = site
@@ -182,6 +196,7 @@ def _fused_metadata_path(
     site: str = "radius",
     session_id: str | None = None,
 ) -> Path:
+    """Return fused metadata path."""
     if session_id is None:
         session_id = site
         site = "radius"
@@ -196,6 +211,7 @@ def _resample_once(
     image_interpolator: str = "linear",
     mask_interpolator: str = "nearest",
 ) -> sitk.Image:
+    """Helper for resample once."""
     interp_name = mask_interpolator if is_mask else image_interpolator
     if interp_name == "nearest":
         interpolator = sitk.sitkNearestNeighbor
@@ -222,6 +238,7 @@ def _make_subject_common_reference_from_baselines(
     baseline_session: str,
     padding_voxels: int = 4,
 ) -> sitk.Image:
+    """Helper for make subject common reference from baselines."""
     stack_indices = sorted(stacks_by_index)
     if not stack_indices:
         raise ValueError("No stacks found for subject.")
@@ -268,6 +285,7 @@ def _resolve_reference_image(
     baseline_session: str,
     padding_voxels: int = 4,
 ) -> tuple[sitk.Image, str]:
+    """Resolve reference image."""
     reference_path = _common_reference_path(dataset_root, subject_id, site)
     if reference_path.exists():
         return load_image(reference_path), str(reference_path)
@@ -288,6 +306,7 @@ def _resolve_transform_for_record(
     session_id: str,
     baseline_session: str,
 ) -> tuple[sitk.Transform, str, str]:
+    """Resolve transform for record."""
     final_path = _final_transform_path(
         dataset_root=dataset_root,
         subject_id=subject_id,
@@ -317,12 +336,14 @@ def _resolve_transform_for_record(
 
 
 def _make_float_accumulator(reference: sitk.Image) -> sitk.Image:
+    """Helper for make float accumulator."""
     img = sitk.Image(reference.GetSize(), sitk.sitkFloat32)
     img.CopyInformation(reference)
     return img
 
 
 def _make_u8_accumulator(reference: sitk.Image) -> sitk.Image:
+    """Helper for make u8 accumulator."""
     img = sitk.Image(reference.GetSize(), sitk.sitkUInt8)
     img.CopyInformation(reference)
     return img
@@ -332,6 +353,7 @@ def run_apply_transforms(
     dataset_root: str | Path,
     config: AppConfig,
 ) -> None:
+    """Run apply transforms."""
     dataset_root = Path(dataset_root)
     transform_cfg = getattr(config, "transform", None)
     image_interpolator = str(

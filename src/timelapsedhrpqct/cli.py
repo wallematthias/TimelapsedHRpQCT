@@ -40,6 +40,7 @@ from timelapsedhrpqct.dataset.layout import (
 from timelapsedhrpqct.processing.stacks import compute_stack_ranges
 
 def _resolve_default_config_path() -> Path:
+    """Resolve default config path."""
     package_default = Path(__file__).resolve().parent / "configs" / "defaults.yml"
     if package_default.is_file():
         return package_default
@@ -50,6 +51,7 @@ DEFAULT_CONFIG_PATH = _resolve_default_config_path()
 
 
 def _print_citation_notice() -> None:
+    """Helper for print citation notice."""
     print("[timelapse] Please cite when using this pipeline:")
     print(
         "[timelapse]   Walle M et al. Bone. 2023;172:116780."
@@ -61,6 +63,7 @@ def _print_citation_notice() -> None:
 
 
 def _add_config_argument(parser: argparse.ArgumentParser) -> None:
+    """Helper for add config argument."""
     parser.add_argument(
         "--config",
         type=Path,
@@ -73,6 +76,7 @@ def _add_config_argument(parser: argparse.ArgumentParser) -> None:
 
 
 def _build_parser() -> argparse.ArgumentParser:
+    """Build parser."""
     parser = argparse.ArgumentParser(
         prog="timelapse",
         description=(
@@ -101,7 +105,7 @@ def _build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=None,
         help=(
-            "Output dataset root. Defaults to <input_root>/TimelapsedHRpQCT_results "
+            "Output dataset root. Defaults to <input_root>/TimelapsedHRpQCT "
             "if not provided."
         ),
     )
@@ -232,6 +236,18 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     _add_config_argument(analyse_parser)
     analyse_parser.add_argument(
+        "--subject",
+        type=str,
+        default=None,
+        help="Optional subject filter (without 'sub-' prefix).",
+    )
+    analyse_parser.add_argument(
+        "--site",
+        type=str,
+        default=None,
+        help="Optional site filter (for example radius, tibia, tibia_left).",
+    )
+    analyse_parser.add_argument(
         "--thr",
         type=float,
         nargs="+",
@@ -280,7 +296,7 @@ def _build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=None,
         help=(
-            "Output dataset root. Defaults to <input_root>/TimelapsedHRpQCT_results "
+            "Output dataset root. Defaults to <input_root>/TimelapsedHRpQCT "
             "if not provided."
         ),
     )
@@ -365,7 +381,7 @@ def _build_parser() -> argparse.ArgumentParser:
     undo_parser.add_argument(
         "dataset_root",
         type=Path,
-        help="Dataset root containing derivatives/TimelapsedHRpQCT metadata.",
+        help="Dataset root containing TimelapsedHRpQCT metadata.",
     )
     undo_parser.add_argument(
         "--dry-run",
@@ -377,10 +393,12 @@ def _build_parser() -> argparse.ArgumentParser:
 
 
 def _default_output_root(input_root: Path) -> Path:
-    return input_root / "TimelapsedHRpQCT_results"
+    """Helper for default output root."""
+    return input_root / "TimelapsedHRpQCT"
 
 
 def _load_config_or_die(config_path: Path) -> AppConfig:
+    """Load config or die."""
     if not config_path.is_file():
         raise FileNotFoundError(f"Config file not found: {config_path}")
     return load_config(config_path)
@@ -393,6 +411,7 @@ def _print_session_preview(
     copy_raw_inputs: bool = False,
     restructure_raw: bool = False,
 ) -> None:
+    """Helper for print session preview."""
     from timelapsedhrpqct.io.aim import read_aim
 
     print(f"Subject: {session.subject_id}")
@@ -441,6 +460,7 @@ def _print_session_preview(
 
 
 def _expected_stack_count_for_session(session, config: AppConfig) -> int:
+    """Helper for expected stack count for session."""
     from timelapsedhrpqct.io.aim import read_aim
 
     image, _meta = read_aim(session.raw_image_path)
@@ -454,20 +474,30 @@ def _expected_stack_count_for_session(session, config: AppConfig) -> int:
 
 
 def _sessions_needing_import(sessions, dataset_root: Path, config: AppConfig) -> list:
+    """Helper for sessions needing import."""
     existing = defaultdict(set)
     for record in iter_imported_stack_records(dataset_root):
-        existing[(record.subject_id, record.session_id)].add(int(record.stack_index))
+        existing[(record.subject_id, record.site, record.session_id)].add(int(record.stack_index))
 
     needed = []
     for session in sessions:
         expected_count = _expected_stack_count_for_session(session, config)
-        imported_indices = existing.get((session.subject_id, session.session_id), set())
+        session_site = str(
+            getattr(
+                session,
+                "site",
+                getattr(getattr(config, "discovery", None), "default_site", "radius"),
+            )
+            or "radius"
+        ).strip().lower()
+        imported_indices = existing.get((session.subject_id, session_site, session.session_id), set())
         if len(imported_indices) < expected_count:
             needed.append(session)
     return needed
 
 
 def _needs_mask_generation(dataset_root: Path) -> bool:
+    """Helper for needs mask generation."""
     for record in iter_imported_stack_records(dataset_root):
         if not record.mask_paths.get("full", Path()).exists():
             return True
@@ -481,6 +511,7 @@ def _needs_mask_generation(dataset_root: Path) -> bool:
 
 
 def _needs_timelapse_registration(dataset_root: Path) -> bool:
+    """Helper for needs timelapse registration."""
     records = iter_imported_stack_records(dataset_root)
     grouped = group_imported_stacks_by_subject_site_and_stack(records)
     for (subject_id, site), stacks_by_index in grouped.items():
@@ -510,6 +541,7 @@ def _needs_timelapse_registration(dataset_root: Path) -> bool:
 
 
 def _needs_stack_correction(dataset_root: Path) -> bool:
+    """Helper for needs stack correction."""
     records = iter_imported_stack_records(dataset_root)
     grouped = group_imported_stacks_by_subject_site_and_stack(records)
     for (subject_id, site), stacks_by_index in grouped.items():
@@ -539,6 +571,7 @@ def _needs_stack_correction(dataset_root: Path) -> bool:
 
 
 def _needs_apply_transforms(dataset_root: Path) -> bool:
+    """Helper for needs apply transforms."""
     records = iter_fused_session_records(dataset_root)
     if not records:
         return True
@@ -554,6 +587,7 @@ def _needs_apply_transforms(dataset_root: Path) -> bool:
 
 
 def _needs_filling(dataset_root: Path) -> bool:
+    """Helper for needs filling."""
     fused_by_subject = group_fused_sessions_by_subject_site(iter_fused_session_records(dataset_root))
     filled_by_subject = group_filled_sessions_by_subject_site(iter_filled_session_records(dataset_root))
     if not fused_by_subject:
@@ -579,6 +613,7 @@ def _requested_analysis_settings(
     config: AppConfig,
     args: argparse.Namespace,
 ) -> dict[str, object]:
+    """Helper for requested analysis settings."""
     analysis_cfg = getattr(config, "analysis", None)
     vis_cfg = getattr(config, "visualization", None)
 
@@ -658,7 +693,9 @@ def _needs_analysis(
     config: AppConfig,
     args: argparse.Namespace,
 ) -> bool:
+    """Helper for needs analysis."""
     def _pairwise_fixed_t0_available(subject_id: str, site: str, use_filled_images: bool) -> bool:
+        """Return whether pairwise_fixed_t0 can run for a subject/site group."""
         if use_filled_images:
             return False
         imported_by_subject = group_imported_stacks_by_subject_site_and_stack(
@@ -679,6 +716,7 @@ def _needs_analysis(
         site: str,
         requested: dict[str, object],
     ) -> bool:
+        """Return whether analysis metadata matches one requested setting."""
         if key not in payload:
             return True
         if key == "space":
@@ -701,6 +739,7 @@ def _needs_analysis(
         return payload.get(key) == value
 
     def _analysis_output_exists(path_str: str, expected_path: Path | None = None) -> bool:
+        """Return whether an analysis output exists with legacy path fallback."""
         path = Path(path_str)
         if not path.is_absolute():
             path = dataset_root / path
@@ -757,6 +796,7 @@ def _needs_analysis(
 
 
 def _filling_enabled(config: AppConfig) -> bool:
+    """Helper for filling enabled."""
     fusion_cfg = getattr(config, "fusion", None)
     if fusion_cfg is None:
         return True
@@ -764,6 +804,7 @@ def _filling_enabled(config: AppConfig) -> bool:
 
 
 def _multistack_correction_enabled(config: AppConfig) -> bool:
+    """Helper for multistack correction enabled."""
     cfg = getattr(config, "multistack_correction", None)
     if cfg is None:
         return True
@@ -771,6 +812,7 @@ def _multistack_correction_enabled(config: AppConfig) -> bool:
 
 
 def _cmd_import(args: argparse.Namespace) -> int:
+    """Helper for cmd import."""
     config = _load_config_or_die(args.config)
 
     input_root: Path = args.input_root.resolve()
@@ -864,6 +906,7 @@ def _cmd_import(args: argparse.Namespace) -> int:
 
 
 def _cmd_generate_masks(args: argparse.Namespace) -> int:
+    """Helper for cmd generate masks."""
     from timelapsedhrpqct.workflows.generate_masks import run_mask_generation
 
     config = _load_config_or_die(args.config)
@@ -880,6 +923,7 @@ def _cmd_generate_masks(args: argparse.Namespace) -> int:
 
 
 def _cmd_timelapse_register(args: argparse.Namespace) -> int:
+    """Helper for cmd timelapse register."""
     from timelapsedhrpqct.workflows.timelapse_registration import (
         run_timelapse_registration,
     )
@@ -898,6 +942,7 @@ def _cmd_timelapse_register(args: argparse.Namespace) -> int:
 
 
 def _cmd_stack_correct(args: argparse.Namespace) -> int:
+    """Helper for cmd stack correct."""
     from timelapsedhrpqct.workflows.multistack_correction import (
         run_stack_correction,
     )
@@ -916,6 +961,7 @@ def _cmd_stack_correct(args: argparse.Namespace) -> int:
 
 
 def _cmd_apply_transforms(args: argparse.Namespace) -> int:
+    """Helper for cmd apply transforms."""
     from timelapsedhrpqct.workflows.apply_transforms import run_apply_transforms
 
     config = _load_config_or_die(args.config)
@@ -932,6 +978,7 @@ def _cmd_apply_transforms(args: argparse.Namespace) -> int:
 
 
 def _cmd_fill(args: argparse.Namespace) -> int:
+    """Helper for cmd fill."""
     from timelapsedhrpqct.workflows.filling import run_filling
 
     config = _load_config_or_die(args.config)
@@ -948,6 +995,7 @@ def _cmd_fill(args: argparse.Namespace) -> int:
 
 
 def _cmd_analyse(args: argparse.Namespace) -> int:
+    """Helper for cmd analyse."""
     from timelapsedhrpqct.workflows.analysis import run_analysis
 
     config = _load_config_or_die(args.config)
@@ -966,11 +1014,14 @@ def _cmd_analyse(args: argparse.Namespace) -> int:
         thresholds=args.thr,
         clusters=args.clusters,
         visualize=visualize_pair,
+        subject_id_filter=args.subject,
+        site_filter=args.site,
     )
     return 0
 
 
 def _collect_restructure_reverse_moves(dataset_root: Path) -> list[tuple[Path, Path, str]]:
+    """Helper for collect restructure reverse moves."""
     moves_by_moved_path: dict[Path, tuple[Path, str]] = {}
     dataset_root_resolved = dataset_root.resolve()
 
@@ -1035,6 +1086,7 @@ def _collect_restructure_reverse_moves(dataset_root: Path) -> list[tuple[Path, P
 
 
 def _prune_empty_parents(path: Path, stop_root: Path) -> None:
+    """Helper for prune empty parents."""
     current = path
     stop_root_resolved = stop_root.resolve()
     while True:
@@ -1051,6 +1103,7 @@ def _prune_empty_parents(path: Path, stop_root: Path) -> None:
 
 
 def _cmd_undo_restructure(args: argparse.Namespace) -> int:
+    """Helper for cmd undo restructure."""
     dataset_root = args.dataset_root.resolve()
     if not dataset_root.exists():
         raise FileNotFoundError(f"Dataset root does not exist: {dataset_root}")
@@ -1096,6 +1149,7 @@ def _cmd_undo_restructure(args: argparse.Namespace) -> int:
 
 
 def _cmd_run(args: argparse.Namespace) -> int:
+    """Helper for cmd run."""
     input_root: Path = args.input_root.resolve()
     output_root: Path = (args.output_root or _default_output_root(input_root)).resolve()
     config = _load_config_or_die(args.config)
@@ -1211,6 +1265,8 @@ def _cmd_run(args: argparse.Namespace) -> int:
             thr=args.thr,
             clusters=args.clusters,
             visualize=args.visualize,
+            subject=getattr(args, "subject", None),
+            site=getattr(args, "site", None),
         )
         rc = _cmd_analyse(analyse_args)
         if rc != 0:
@@ -1222,6 +1278,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    """Run the CLI entrypoint."""
     enable_faulthandler = os.environ.get("TIMELAPSE_FAULTHANDLER", "").strip().lower() in {
         "1",
         "true",

@@ -34,6 +34,7 @@ class SessionFusedInputs:
 
 
 def discover_filling_subject_ids(dataset_root: Path) -> list[tuple[str, str]]:
+    """Helper for discover filling subject ids."""
     subject_site_keys = sorted(group_fused_sessions_by_subject_site(iter_fused_session_records(dataset_root)))
     if subject_site_keys and all(site == "radius" for _subject_id, site in subject_site_keys):
         return [subject_id for subject_id, _site in subject_site_keys]
@@ -45,6 +46,7 @@ def discover_filling_sessions(
     subject_id: str,
     site: str = "radius",
 ) -> list[SessionFusedInputs]:
+    """Helper for discover filling sessions."""
     out: list[SessionFusedInputs] = []
     grouped = group_fused_sessions_by_subject_site(iter_fused_session_records(dataset_root))
     for record in grouped.get((subject_id, site), []):
@@ -91,6 +93,7 @@ def build_filling_metadata(
     temporal_fill_seg: dict | None,
     parameters: dict,
 ) -> dict:
+    """Build filling metadata."""
     legacy = site is None
     site_value = "radius" if site is None else site
     return {
@@ -138,6 +141,7 @@ def build_filled_session_record(
     site: str | None = None,
     session_id: str,
 ) -> FilledSessionRecord:
+    """Build filled session record."""
     legacy = site is None
     site_value = "radius" if site is None else site
     if legacy:

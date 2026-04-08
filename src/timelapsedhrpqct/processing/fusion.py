@@ -6,6 +6,7 @@ import SimpleITK as sitk
 
 
 def fuse_images(images: Sequence[sitk.Image]) -> sitk.Image:
+    """Helper for fuse images."""
     if not images:
         raise ValueError("No images provided for fusion.")
     acc = sitk.Cast(images[0], sitk.sitkFloat32)

@@ -10,8 +10,13 @@ import SimpleITK as sitk
 
 from timelapsedhrpqct.analysis.remodelling import (
     build_label_image,
+    build_pair_valid_mask,
     build_series_common_masks,
     component_stats,
+    compute_pair_remodelling_preview,
+    compute_pair_trajectory_summary,
+    dilate_mask_xy,
+    maybe_smooth_density,
     pair_indices,
     remove_small,
     safe_corr,
@@ -237,6 +242,160 @@ def _build_delta_smoothing_dataset(dataset_root: Path, subject_id: str = "001") 
     )
 
     return dataset_root
+
+
+def test_compute_pair_remodelling_preview_matches_expected_labels():
+    shape = (5, 5, 5)
+    valid = np.zeros(shape, dtype=bool)
+    valid[1:4, 1:4, 1:4] = True
+
+    baseline_seg = np.zeros(shape, dtype=bool)
+    followup_seg = np.zeros(shape, dtype=bool)
+    baseline_seg[2, 2, 2] = True
+    followup_seg[2, 2, 2] = True
+    baseline_seg[1, 1, 1] = True
+    followup_seg[1, 1, 2] = True
+    baseline_seg[1, 2, 1] = True
+    followup_seg[1, 2, 1] = True
+    baseline_seg[1, 2, 2] = True
+    followup_seg[1, 2, 2] = True
+
+    baseline_img = np.zeros(shape, dtype=np.float32)
+    followup_img = np.zeros(shape, dtype=np.float32)
+    baseline_img[valid] = 100.0
+    followup_img[valid] = 100.0
+    baseline_img[2, 2, 2] = 450.0
+    followup_img[2, 2, 2] = 460.0
+    baseline_img[1, 1, 1] = 500.0
+    followup_img[1, 1, 1] = 150.0
+    baseline_img[1, 1, 2] = 150.0
+    followup_img[1, 1, 2] = 520.0
+    baseline_img[1, 2, 1] = 300.0
+    followup_img[1, 2, 1] = 600.0
+    baseline_img[1, 2, 2] = 620.0
+    followup_img[1, 2, 2] = 300.0
+
+    preview = compute_pair_remodelling_preview(
+        image_arr_t0=baseline_img,
+        image_arr_t1=followup_img,
+        seg_arr_t0=baseline_seg,
+        seg_arr_t1=followup_seg,
+        valid_mask=valid,
+        threshold=200.0,
+        cluster_size=1,
+        method="grayscale_and_binary",
+        gaussian_filter=False,
+    )
+
+    assert int(preview.label_image[1, 1, 1]) == 1
+    assert int(preview.label_image[1, 2, 2]) == 2
+    assert int(preview.label_image[2, 2, 2]) == 3
+    assert int(preview.label_image[1, 1, 2]) == 4
+    assert int(preview.label_image[1, 2, 1]) == 5
+
+
+def test_compute_pair_remodelling_preview_respects_cluster_filter_and_smoothing():
+    shape = (7, 7, 7)
+    valid = np.ones(shape, dtype=bool)
+    baseline_img = np.zeros(shape, dtype=np.float32)
+    followup_img = np.zeros(shape, dtype=np.float32)
+    followup_img[3, 3, 3] = 400.0
+
+    raw = compute_pair_remodelling_preview(
+        image_arr_t0=baseline_img,
+        image_arr_t1=followup_img,
+        seg_arr_t0=None,
+        seg_arr_t1=None,
+        valid_mask=valid,
+        threshold=200.0,
+        cluster_size=1,
+        method="grayscale_delta_only",
+        gaussian_filter=False,
+    )
+    filtered = compute_pair_remodelling_preview(
+        image_arr_t0=baseline_img,
+        image_arr_t1=followup_img,
+        seg_arr_t0=None,
+        seg_arr_t1=None,
+        valid_mask=valid,
+        threshold=200.0,
+        cluster_size=2,
+        method="grayscale_delta_only",
+        gaussian_filter=False,
+    )
+    smoothed = compute_pair_remodelling_preview(
+        image_arr_t0=baseline_img,
+        image_arr_t1=followup_img,
+        seg_arr_t0=None,
+        seg_arr_t1=None,
+        valid_mask=valid,
+        threshold=200.0,
+        cluster_size=1,
+        method="grayscale_delta_only",
+        gaussian_filter=True,
+        gaussian_sigma=1.2,
+    )
+
+    assert np.count_nonzero(raw.formation) == 1
+    assert np.count_nonzero(filtered.formation) == 0
+    assert np.max(smoothed.delta) < np.max(raw.delta)
+    assert np.allclose(raw.delta, maybe_smooth_density(followup_img, gaussian_filter=False, gaussian_sigma=1.2))
+
+
+def test_compute_pair_remodelling_preview_delta_only_uses_seg_overlap_for_quiescence():
+    shape = (5, 5, 5)
+    valid = np.ones(shape, dtype=bool)
+    baseline_seg = np.zeros(shape, dtype=bool)
+    followup_seg = np.zeros(shape, dtype=bool)
+    baseline_seg[2, 2, 2] = True
+    followup_seg[2, 2, 2] = True
+
+    preview = compute_pair_remodelling_preview(
+        image_arr_t0=np.zeros(shape, dtype=np.float32),
+        image_arr_t1=np.zeros(shape, dtype=np.float32),
+        seg_arr_t0=baseline_seg,
+        seg_arr_t1=followup_seg,
+        valid_mask=valid,
+        threshold=225.0,
+        cluster_size=1,
+        method="grayscale_delta_only",
+        gaussian_filter=False,
+    )
+
+    assert int(np.count_nonzero(preview.quiescent)) == 1
+    assert bool(preview.quiescent[2, 2, 2])
+    assert preview.bv0_vox == 1
+
+
+def test_compute_pair_remodelling_preview_supports_marrow_mask_mode():
+    shape = (5, 5, 5)
+    valid = np.ones(shape, dtype=bool)
+    support = np.ones(shape, dtype=bool)
+    baseline_seg = np.zeros(shape, dtype=bool)
+    followup_seg = np.zeros(shape, dtype=bool)
+    baseline_seg[2, 2, 2] = True
+    followup_seg[2, 2, 2] = True
+
+    followup_img = np.zeros(shape, dtype=np.float32)
+    followup_img[1, 1, 1] = 400.0
+
+    preview = compute_pair_remodelling_preview(
+        image_arr_t0=np.zeros(shape, dtype=np.float32),
+        image_arr_t1=followup_img,
+        seg_arr_t0=baseline_seg,
+        seg_arr_t1=followup_seg,
+        valid_mask=valid,
+        threshold=225.0,
+        cluster_size=1,
+        method="grayscale_marrow_mask",
+        gaussian_filter=False,
+        support_mask_t0=support,
+        support_mask_t1=support,
+        marrow_mask_erosion_voxels=0,
+    )
+
+    assert bool(preview.formation[1, 1, 1])
+    assert not bool(preview.valid_mask[2, 2, 2])
 
 
 def _build_pairwise_t0_single_stack_dataset(dataset_root: Path, subject_id: str = "001") -> Path:
@@ -474,6 +633,45 @@ def test_build_series_common_masks_and_label_image() -> None:
     assert labels[0, 1, 0] == 2
     assert labels[0, 1, 1] == 4
     assert labels[1, 0, 0] == 5
+
+
+def test_dilate_mask_xy_expands_only_in_plane() -> None:
+    mask = np.zeros((3, 5, 5), dtype=bool)
+    mask[1, 2, 2] = True
+
+    dilated = dilate_mask_xy(mask, 1)
+
+    assert bool(dilated[1, 2, 1])
+    assert bool(dilated[1, 1, 2])
+    assert not bool(dilated[0, 2, 2])
+    assert not bool(dilated[2, 2, 2])
+
+
+def test_compute_pair_trajectory_summary_respects_selected_adjacent_pairs() -> None:
+    shape = (3, 3, 3)
+    f12 = np.zeros(shape, dtype=bool)
+    r12 = np.zeros(shape, dtype=bool)
+    f23 = np.zeros(shape, dtype=bool)
+    r23 = np.zeros(shape, dtype=bool)
+    f12[1, 1, 1] = True
+    r23[1, 1, 2] = True
+
+    summary = compute_pair_trajectory_summary(
+        compartment="full",
+        threshold=225.0,
+        cluster_size=1,
+        common_region_path="common.mha",
+        valid_shape=shape,
+        adjacent_events=[
+            ("T1", "T2", f12, r12),
+            ("T2", "T3", f23, r23),
+        ],
+        selected_adjacent_pairs=["T1->T2"],
+    )
+
+    assert int(summary["formation_total_vox_series"]) == 1
+    assert int(summary["resorption_total_vox_series"]) == 0
+    assert summary["trajectory_basis"] == "selected_adjacent_intervals_only"
 
 
 def test_generate_bone_segmentation_thresholds_as_expected() -> None:

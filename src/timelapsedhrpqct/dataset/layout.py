@@ -9,27 +9,33 @@ PIPELINE_NAME = "TimelapsedHRpQCT"
 
 
 def get_subject_dir(root: str | Path, subject_id: str) -> Path:
+    """Helper for get subject dir."""
     root = Path(root)
     return root / f"sub-{subject_id}"
 
 
 def get_session_dir(root: str | Path, subject_id: str, session_id: str) -> Path:
+    """Helper for get session dir."""
     return get_subject_dir(root, subject_id) / f"ses-{session_id}"
 
 
 def get_site_dir(root: str | Path, subject_id: str, site: str) -> Path:
+    """Helper for get site dir."""
     return get_subject_dir(root, subject_id) / f"site-{site}"
 
 
 def get_site_session_dir(root: str | Path, subject_id: str, site: str, session_id: str) -> Path:
+    """Helper for get site session dir."""
     return get_site_dir(root, subject_id, site) / f"ses-{session_id}"
 
 
 def get_sourcedata_root(root: str | Path) -> Path:
+    """Helper for get sourcedata root."""
     return Path(root) / "sourcedata" / "hrpqct"
 
 
 def get_sourcedata_session_dir(root: str | Path, session: RawSession) -> Path:
+    """Helper for get sourcedata session dir."""
     return (
         get_sourcedata_root(root)
         / f"sub-{session.subject_id}"
@@ -39,10 +45,17 @@ def get_sourcedata_session_dir(root: str | Path, session: RawSession) -> Path:
 
 
 def get_derivatives_root(root: str | Path) -> Path:
-    return Path(root) / "derivatives" / PIPELINE_NAME
+    """Helper for get derivatives root."""
+    root = Path(root)
+    if root.name == PIPELINE_NAME:
+        return root
+    if root.name == "derivatives":
+        return root / PIPELINE_NAME
+    return root / "derivatives" / PIPELINE_NAME
 
 
 def get_derivative_session_dir(root: str | Path, session: RawSession) -> Path:
+    """Helper for get derivative session dir."""
     return (
         get_derivatives_root(root)
         / f"sub-{session.subject_id}"
@@ -52,24 +65,30 @@ def get_derivative_session_dir(root: str | Path, session: RawSession) -> Path:
 
 
 def get_stack_output_dir(root: str | Path, session: RawSession) -> Path:
+    """Helper for get stack output dir."""
     return get_derivative_session_dir(root, session) / "stacks"
 
 
 def get_transform_output_dir(root: str | Path, session: RawSession) -> Path:
+    """Helper for get transform output dir."""
     return get_derivative_session_dir(root, session) / "transforms"
 
 
 def get_fused_output_dir(root: str | Path, session: RawSession) -> Path:
+    """Helper for get fused output dir."""
     return get_derivative_session_dir(root, session) / "fused"
 
 
 def get_analysis_output_dir(root: str | Path, session: RawSession) -> Path:
+    """Helper for get analysis output dir."""
     return get_derivative_session_dir(root, session) / "analysis"
 
 
 def get_pipeline_index_path(root: str | Path) -> Path:
+    """Return get pipeline index path."""
     return get_derivatives_root(root) / "index.csv"
 
 
 def get_pipeline_dataset_description_path(root: str | Path) -> Path:
+    """Return get pipeline dataset description path."""
     return get_derivatives_root(root) / "dataset_description.json"

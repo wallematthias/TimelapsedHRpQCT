@@ -23,6 +23,8 @@ from timelapsedhrpqct.dataset.artifacts import (
     FilledSessionRecord,
     FusedSessionRecord,
     ImportedStackRecord,
+    group_fused_sessions_by_subject_site,
+    group_imported_stacks_by_subject_site_and_stack,
     upsert_filled_session_record,
     upsert_fused_session_record,
     upsert_imported_stack_records,
@@ -97,6 +99,14 @@ def test_parser_accepts_undo_restructure_command() -> None:
     assert args.dry_run is True
 
 
+def test_parser_accepts_subject_and_site_filters_for_analyse() -> None:
+    parser = _build_parser()
+    args = parser.parse_args(["analyse", "/tmp/dataset", "--subject", "001", "--site", "tibia"])
+    assert args.command == "analyse"
+    assert args.subject == "001"
+    assert args.site == "tibia"
+
+
 def test_sessions_needing_import_skips_already_imported_complete_sessions(tmp_path: Path, monkeypatch) -> None:
     dataset_root = tmp_path / "dataset"
     raw_sessions = [
@@ -125,6 +135,62 @@ def test_sessions_needing_import_skips_already_imported_complete_sessions(tmp_pa
     )
 
     assert [s.session_id for s in needed] == ["C2"]
+
+
+def test_sessions_needing_import_is_site_aware(tmp_path: Path, monkeypatch) -> None:
+    dataset_root = tmp_path / "dataset"
+    raw_sessions = [
+        RawSession("001", "C1", Path("/tmp/DT_C1.AIM"), site="tibia"),
+        RawSession("001", "C1", Path("/tmp/DR_C1.AIM"), site="radius"),
+    ]
+
+    monkeypatch.setattr(
+        "timelapsedhrpqct.cli._expected_stack_count_for_session",
+        lambda session, config: 1,
+    )
+
+    upsert_imported_stack_records(
+        dataset_root,
+        [
+            ImportedStackRecord(
+                "001",
+                "C1",
+                1,
+                Path("/tmp/tibia_stack.mha"),
+                {},
+                None,
+                None,
+                StackSliceRange(1, 0, 10),
+                site="tibia",
+            ),
+        ],
+    )
+
+    needed = _sessions_needing_import(
+        sessions=raw_sessions,
+        dataset_root=dataset_root,
+        config=SimpleNamespace(import_=SimpleNamespace()),
+    )
+
+    assert [(s.session_id, s.site) for s in needed] == [("C1", "radius")]
+
+
+def test_group_helpers_use_natural_session_order() -> None:
+    imported = [
+        ImportedStackRecord("001", "T10", 1, Path("/tmp/a.mha"), {}, None, None, site="radius"),
+        ImportedStackRecord("001", "T2", 1, Path("/tmp/b.mha"), {}, None, None, site="radius"),
+        ImportedStackRecord("001", "T1", 1, Path("/tmp/c.mha"), {}, None, None, site="radius"),
+    ]
+    grouped_imported = group_imported_stacks_by_subject_site_and_stack(imported)
+    assert [r.session_id for r in grouped_imported[("001", "radius")][1]] == ["T1", "T2", "T10"]
+
+    fused = [
+        FusedSessionRecord("001", "T10", Path("/tmp/a.mha"), {}, None, None, site="radius"),
+        FusedSessionRecord("001", "T2", Path("/tmp/b.mha"), {}, None, None, site="radius"),
+        FusedSessionRecord("001", "T1", Path("/tmp/c.mha"), {}, None, None, site="radius"),
+    ]
+    grouped_fused = group_fused_sessions_by_subject_site(fused)
+    assert [r.session_id for r in grouped_fused[("001", "radius")]] == ["T1", "T2", "T10"]
 
 
 def test_needs_timelapse_registration_false_when_all_baselines_exist(tmp_path: Path) -> None:

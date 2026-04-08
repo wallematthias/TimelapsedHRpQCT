@@ -10,6 +10,7 @@ def window_to_uint8(
     window_min: float = -200.0,
     window_max: float = 1200.0,
 ) -> sitk.Image:
+    """Helper for window to uint8."""
     image_f = sitk.Cast(image, sitk.sitkFloat32)
     windowed = sitk.IntensityWindowing(
         image_f,
@@ -24,6 +25,7 @@ def window_to_uint8(
 
 
 def compose_rgb(images: list[sitk.Image]) -> sitk.Image:
+    """Helper for compose rgb."""
     padded = list(images[:3])
     while len(padded) < 3:
         zero = sitk.Image(padded[0].GetSize(), sitk.sitkUInt8)
@@ -38,6 +40,7 @@ def build_registration_overlay_rgb(
     fixed: sitk.Image,
     moving_registered: sitk.Image,
 ) -> sitk.Image:
+    """Build registration overlay rgb."""
     fixed_u8 = window_to_uint8(fixed)
     moving_u8 = window_to_uint8(moving_registered)
     zero = sitk.Image(fixed_u8.GetSize(), sitk.sitkUInt8)
@@ -52,6 +55,7 @@ def build_registration_checkerboard(
     moving_registered: sitk.Image,
     pattern: tuple[int, int, int] = (6, 6, 6),
 ) -> sitk.Image:
+    """Build registration checkerboard."""
     fixed_u8 = window_to_uint8(fixed)
     moving_u8 = window_to_uint8(moving_registered)
     checker = sitk.CheckerBoard(fixed_u8, moving_u8, list(pattern))
@@ -64,6 +68,7 @@ def build_corrected_superstack_qc_outputs(
     common_reference: sitk.Image,
     cumulative_corrections: dict[int, sitk.Transform],
 ) -> tuple[dict[int, sitk.Image], sitk.Image | None]:
+    """Build corrected superstack qc outputs."""
     corrected_union_by_stack: dict[int, sitk.Image] = {}
     corrected_u8: list[sitk.Image] = []
 

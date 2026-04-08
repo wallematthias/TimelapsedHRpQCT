@@ -11,6 +11,7 @@ from timelapsedhrpqct.dataset.derivative_paths import (
     analysis_dir,
     analysis_metadata_path,
     common_region_path,
+    fused_seg_path,
     filled_image_path,
     filled_seg_path,
 )
@@ -28,6 +29,7 @@ class SessionAnalysisInputs:
 
 
 def discover_analysis_subject_ids(dataset_root: Path) -> list[str] | list[tuple[str, str]]:
+    """Helper for discover analysis subject ids."""
     subject_site_keys = sorted(group_fused_sessions_by_subject_site(iter_fused_session_records(dataset_root)))
     if subject_site_keys and all(site == "radius" for _subject_id, site in subject_site_keys):
         return [subject_id for subject_id, _site in subject_site_keys]
@@ -41,6 +43,7 @@ def discover_analysis_sessions(
     use_filled_images: bool = False,
     require_seg: bool = False,
 ) -> list[SessionAnalysisInputs]:
+    """Helper for discover analysis sessions."""
     sessions: list[SessionAnalysisInputs] = []
     grouped = group_fused_sessions_by_subject_site(iter_fused_session_records(dataset_root))
     for record in grouped.get((subject_id, site), []):
@@ -51,6 +54,12 @@ def discover_analysis_sessions(
         else:
             image_path = record.image_path
             seg_path = record.seg_path
+            # Recover segmentation path from canonical derivatives layout when the
+            # fused-session index metadata is stale or missing seg_path.
+            if seg_path is None:
+                canonical_seg = fused_seg_path(dataset_root, subject_id, site, session_id)
+                if canonical_seg.exists():
+                    seg_path = canonical_seg
 
         if not image_path.exists():
             continue
@@ -106,7 +115,11 @@ def build_analysis_summary_metadata(
     trajectory_csv: Path,
     gaussian_filter: bool = False,
     gaussian_sigma: float = 1.2,
+    full_mask_dilation_voxels: int = 2,
+    marrow_mask_erosion_voxels: int = 2,
+    trajectory_selected_adjacent_pairs: list[str] | None = None,
 ) -> dict:
+    """Build analysis summary metadata."""
     legacy = site is None
     site = "radius" if site is None else site
     return {
@@ -126,9 +139,16 @@ def build_analysis_summary_metadata(
         "erosion_voxels": erosion_voxels,
         "gaussian_filter": gaussian_filter,
         "gaussian_sigma": gaussian_sigma,
+        "full_mask_dilation_voxels": int(full_mask_dilation_voxels),
+        "marrow_mask_erosion_voxels": int(marrow_mask_erosion_voxels),
         "visualization_enabled": visualization_enabled,
         "visualization_threshold": visualization_threshold,
         "visualization_cluster_size": visualization_cluster_size,
+        "trajectory_selected_adjacent_pairs": (
+            list(trajectory_selected_adjacent_pairs)
+            if trajectory_selected_adjacent_pairs is not None
+            else None
+        ),
         "pairwise_csv": str(pairwise_csv),
         "trajectory_csv": str(trajectory_csv),
         "common_regions": {

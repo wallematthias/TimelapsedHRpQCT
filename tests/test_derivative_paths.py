@@ -24,7 +24,7 @@ def test_timelapse_baseline_transform_path_matches_existing_layout() -> None:
     )
 
     assert str(path).endswith(
-        "derivatives/TimelapsedHRpQCT/sub-001/timelapse_registration/stack-02/baseline/"
+        "TimelapsedHRpQCT/sub-001/timelapse_registration/stack-02/baseline/"
         "sub-001_stack-02_from-ses-followup1_to-ses-baseline_baseline.tfm"
     )
 
@@ -59,21 +59,21 @@ def test_multistack_correction_and_final_paths_match_existing_layout() -> None:
     common_ref = common_reference_path(dataset_root=dataset_root, subject_id="001")
 
     assert str(correction_tfm).endswith(
-        "derivatives/TimelapsedHRpQCT/sub-001/stack_correction/corrections/"
+        "TimelapsedHRpQCT/sub-001/stack_correction/corrections/"
         "sub-001_stack-03_stackshift_correction.tfm"
     )
     assert str(correction_meta).endswith(
-        "derivatives/TimelapsedHRpQCT/sub-001/stack_correction/corrections/"
+        "TimelapsedHRpQCT/sub-001/stack_correction/corrections/"
         "sub-001_stack-03_stackshift_correction.json"
     )
     assert str(final_tfm).endswith(
-        "derivatives/TimelapsedHRpQCT/sub-001/transforms/final/"
+        "TimelapsedHRpQCT/sub-001/transforms/final/"
         "sub-001_stack-03_from-ses-followup2_to-ses-baseline_final.tfm"
     )
     assert str(final_meta).endswith(
-        "derivatives/TimelapsedHRpQCT/sub-001/transforms/final/"
+        "TimelapsedHRpQCT/sub-001/transforms/final/"
         "sub-001_stack-03_from-ses-followup2_to-ses-baseline_final.json"
     )
     assert str(common_ref).endswith(
-        "derivatives/TimelapsedHRpQCT/sub-001/stack_correction/common/sub-001_stack-common_reference.mha"
+        "TimelapsedHRpQCT/sub-001/stack_correction/common/sub-001_stack-common_reference.mha"
     )

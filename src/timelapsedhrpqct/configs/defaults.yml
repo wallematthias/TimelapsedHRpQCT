@@ -229,16 +229,16 @@ filling:
 # -----------------------------------------------------------------------------
 analysis:
   space: pairwise_fixed_t0 # baseline_common | pairwise_fixed_t0
-  method: grayscale_and_binary # grayscale_and_binary | grayscale_delta_only
+  method: grayscale_and_binary # grayscale_and_binary | grayscale_delta_only | grayscale_marrow_mask
   # Auto compartment selection priority:
   # 1) ROI masks (roi*) if present in all sessions
   # 2) regmask if ROI masks are absent
   # 3) configured compartments below (filtered by availability)
   # 4) fallback to available trab/cort/full
   compartments:
+    - full
     - trab
     - cort
-    - full
   thresholds:
     - 225
   cluster_sizes:
@@ -247,6 +247,8 @@ analysis:
   use_filled_images: false
   gaussian_filter: true
   gaussian_sigma: 1.2 # voxels
+  full_mask_dilation_voxels: 2
+  marrow_mask_erosion_voxels: 2
 
   valid_region:
     erosion_voxels: 1

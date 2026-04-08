@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import os
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -42,7 +44,149 @@ class RegistrationResult:
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
+def _is_truthy_env(value: str | None) -> bool:
+    """Return whether an environment variable value enables a feature."""
+    if value is None:
+        return False
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _image_debug_summary(image: sitk.Image) -> dict[str, Any]:
+    """Build lightweight geometry/intensity summary for debug logging."""
+    arr = sitk.GetArrayViewFromImage(image)
+    return {
+        "dimension": int(image.GetDimension()),
+        "size": [int(v) for v in image.GetSize()],
+        "spacing": [float(v) for v in image.GetSpacing()],
+        "origin": [float(v) for v in image.GetOrigin()],
+        "direction": [float(v) for v in image.GetDirection()],
+        "dtype": str(arr.dtype),
+        "min": float(np.min(arr)) if arr.size else float("nan"),
+        "max": float(np.max(arr)) if arr.size else float("nan"),
+        "mean": float(np.mean(arr)) if arr.size else float("nan"),
+    }
+
+
+def _mask_debug_summary(mask: sitk.Image | None) -> dict[str, Any] | None:
+    """Build mask occupancy and geometry summary for debug logging."""
+    if mask is None:
+        return None
+    arr = sitk.GetArrayViewFromImage(sitk.Cast(mask > 0, sitk.sitkUInt8))
+    return {
+        "size": [int(v) for v in mask.GetSize()],
+        "spacing": [float(v) for v in mask.GetSpacing()],
+        "origin": [float(v) for v in mask.GetOrigin()],
+        "direction": [float(v) for v in mask.GetDirection()],
+        "nonzero_voxels": int(np.count_nonzero(arr)),
+        "total_voxels": int(arr.size),
+        "occupancy_fraction": (float(np.count_nonzero(arr)) / float(arr.size)) if arr.size else float("nan"),
+    }
+
+
+def _should_trace_registration(settings: RegistrationSettings) -> bool:
+    """Return whether verbose registration trace logging is enabled."""
+    return bool(settings.debug) or _is_truthy_env(os.environ.get("TIMELAPSE_TRACE_REGISTRATION"))
+
+
+def _build_registration_debug_context(
+    fixed_image: sitk.Image,
+    moving_image: sitk.Image,
+    settings: RegistrationSettings,
+    fixed_mask: sitk.Image | None,
+    moving_mask: sitk.Image | None,
+    *,
+    use_masks: bool,
+    spatial_samples: int,
+    init_transform_parameters: list[Any],
+    requested_initial_translation_vox: tuple[float, float, float],
+    requested_initial_translation_physical: tuple[float, float, float],
+) -> dict[str, Any]:
+    """Collect preflight context for registration debugging and failures."""
+    return {
+        "settings": {
+            "transform_type": str(settings.transform_type),
+            "metric": str(settings.metric),
+            "optimizer": str(settings.optimizer),
+            "initializer": str(settings.initializer),
+            "sampling_percentage": float(settings.sampling_percentage),
+            "number_of_resolutions": int(settings.number_of_resolutions),
+            "number_of_iterations": int(settings.number_of_iterations),
+            "automatic_parameter_estimation": bool(settings.automatic_parameter_estimation),
+            "use_masks_requested": bool(settings.use_masks),
+            "use_masks_effective": bool(use_masks),
+            "initial_translation_voxels": [float(v) for v in requested_initial_translation_vox],
+            "initial_translation_physical": [float(v) for v in requested_initial_translation_physical],
+            "computed_spatial_samples": int(spatial_samples),
+            "elastix_init_transform_parameters": [str(v) for v in init_transform_parameters],
+        },
+        "fixed_image": _image_debug_summary(fixed_image),
+        "moving_image": _image_debug_summary(moving_image),
+        "fixed_mask": _mask_debug_summary(fixed_mask),
+        "moving_mask": _mask_debug_summary(moving_mask),
+    }
+
+
+def _coerce_first_float(value: Any) -> float:
+    """Return the first parseable float from elastix parameter values."""
+    if value is None:
+        return float("nan")
+    if isinstance(value, (float, int)):
+        return float(value)
+    if isinstance(value, (list, tuple)):
+        for item in value:
+            try:
+                return float(item)
+            except Exception:
+                continue
+        return float("nan")
+    try:
+        return float(value)
+    except Exception:
+        return float("nan")
+
+
+def _extract_elastix_final_metric_and_stop(parameter_map: Any) -> tuple[float, str]:
+    """Extract best-effort final metric and stop condition from elastix outputs."""
+    metric_candidates = (
+        "FinalMetricValue",
+        "MetricValue",
+        "ExactMetricValue",
+        "LastMetricValue",
+    )
+    metric_value = float("nan")
+    metric_key = None
+    for key in metric_candidates:
+        metric_value = _coerce_first_float(_safe_parameter_map_get(parameter_map, key, None))
+        if np.isfinite(metric_value):
+            metric_key = key
+            break
+
+    stop_candidates = (
+        "OptimizerStopCondition",
+        "StopConditionDescription",
+        "StoppingCondition",
+    )
+    stop_condition = "elastix"
+    stop_key = None
+    for key in stop_candidates:
+        raw = _safe_parameter_map_get(parameter_map, key, None)
+        text = str(raw[0] if isinstance(raw, (list, tuple)) and raw else raw).strip()
+        if text and text.lower() != "none":
+            stop_condition = text
+            stop_key = key
+            break
+
+    if metric_key is not None:
+        print(f"[timelapse]   extracted elastix metric from {metric_key}: {metric_value:.6g}")
+    else:
+        print("[timelapse]   warning: could not extract final elastix metric from result parameter map.")
+    if stop_key is not None:
+        print(f"[timelapse]   extracted elastix stop condition from {stop_key}: {stop_condition}")
+    return metric_value, stop_condition
+
+
 def _ensure_itk_elastix() -> None:
+    """Helper for ensure itk elastix."""
     if itk is None:
         raise RuntimeError(
             "itk-elastix is required for this registration backend. "
@@ -64,6 +208,7 @@ def _safe_parameter_map_get(parameter_map: Any, key: str, default: Any) -> Any:
 
 
 def _sitk_float_to_itk(image: sitk.Image):
+    """Helper for sitk float to itk."""
     dim = image.GetDimension()
     arr = sitk.GetArrayFromImage(image).astype(np.float32, copy=False)
     itk_image = itk.image_from_array(arr)
@@ -75,6 +220,7 @@ def _sitk_float_to_itk(image: sitk.Image):
 
 
 def _sitk_mask_to_itk(image: sitk.Image):
+    """Helper for sitk mask to itk."""
     dim = image.GetDimension()
     arr = sitk.GetArrayFromImage(image).astype(np.uint8, copy=False)
     itk_image = itk.image_from_array(arr)
@@ -90,6 +236,7 @@ def _build_elastix_parameter_object(
     settings: RegistrationSettings,
     use_masks: bool,
 ):
+    """Build elastix parameter object."""
     transform_type = str(settings.transform_type).lower()
     if transform_type not in {"euler", "translation"}:
         raise ValueError(
@@ -277,6 +424,7 @@ def _build_elastix_parameter_object(
 
 
 def _parameter_object_to_sitk_transform(parameter_object, dim: int) -> sitk.Transform:
+    """Helper for parameter object to sitk transform."""
     parameter_map = parameter_object.GetParameterMap(0)
 
     transform_name = parameter_map["Transform"][0]
@@ -332,6 +480,7 @@ def register_images(
     fixed_mask: sitk.Image | None = None,
     moving_mask: sitk.Image | None = None,
 ) -> RegistrationResult:
+    """Helper for register images."""
     _ensure_itk_elastix()
 
     if fixed_image.GetDimension() != moving_image.GetDimension():
@@ -340,6 +489,14 @@ def register_images(
     dim = fixed_image.GetDimension()
 
     use_masks = settings.use_masks and fixed_mask is not None and moving_mask is not None
+    total_voxels = int(np.prod(fixed_image.GetSize(), dtype=np.int64))
+    sampling_fraction = float(settings.sampling_percentage)
+    if sampling_fraction <= 0:
+        raise ValueError(
+            f"sampling_percentage must be > 0, got {settings.sampling_percentage}"
+        )
+    spatial_samples = max(1, min(total_voxels, int(round(total_voxels * sampling_fraction))))
+
     fixed_itk = _sitk_float_to_itk(sitk.Cast(fixed_image, sitk.sitkFloat32))
     moving_itk = _sitk_float_to_itk(sitk.Cast(moving_image, sitk.sitkFloat32))
 
@@ -369,7 +526,7 @@ def register_images(
         _safe_parameter_map_get(init_parameter_map, "TransformParameters", [])
     )
 
-    if settings.debug:
+    if _should_trace_registration(settings):
         print(
             "[timelapse]   registration init offset "
             f"vox={list(requested_initial_translation_vox)} "
@@ -379,15 +536,47 @@ def register_images(
             "[timelapse]   elastix init TransformParameters="
             f"{init_transform_parameters}"
         )
+        debug_context = _build_registration_debug_context(
+            fixed_image=fixed_image,
+            moving_image=moving_image,
+            settings=settings,
+            fixed_mask=fixed_mask,
+            moving_mask=moving_mask,
+            use_masks=use_masks,
+            spatial_samples=spatial_samples,
+            init_transform_parameters=init_transform_parameters,
+            requested_initial_translation_vox=requested_initial_translation_vox,
+            requested_initial_translation_physical=requested_initial_translation_physical,
+        )
+        print("[timelapse]   registration preflight context:")
+        print(json.dumps(debug_context, indent=2))
 
-    registered_itk, result_parameter_object = itk.elastix_registration_method(
-        fixed_itk,
-        moving_itk,
-        parameter_object=parameter_object,
-        fixed_mask=fixed_mask_itk,
-        moving_mask=moving_mask_itk,
-        log_to_console=bool(settings.debug),
-    )
+    try:
+        registered_itk, result_parameter_object = itk.elastix_registration_method(
+            fixed_itk,
+            moving_itk,
+            parameter_object=parameter_object,
+            fixed_mask=fixed_mask_itk,
+            moving_mask=moving_mask_itk,
+            log_to_console=bool(settings.debug),
+        )
+    except Exception as exc:
+        fail_context = _build_registration_debug_context(
+            fixed_image=fixed_image,
+            moving_image=moving_image,
+            settings=settings,
+            fixed_mask=fixed_mask,
+            moving_mask=moving_mask,
+            use_masks=use_masks,
+            spatial_samples=spatial_samples,
+            init_transform_parameters=init_transform_parameters,
+            requested_initial_translation_vox=requested_initial_translation_vox,
+            requested_initial_translation_physical=requested_initial_translation_physical,
+        )
+        raise RuntimeError(
+            "itk-elastix registration failed. Preflight context:\n"
+            + json.dumps(fail_context, indent=2)
+        ) from exc
     _ = registered_itk
 
     final_transform = _parameter_object_to_sitk_transform(
@@ -396,11 +585,12 @@ def register_images(
     )
 
     parameter_map = result_parameter_object.GetParameterMap(0)
+    metric_value, optimizer_stop_condition = _extract_elastix_final_metric_and_stop(parameter_map)
 
     return RegistrationResult(
         transform=final_transform,
-        metric_value=float("nan"),
-        optimizer_stop_condition="elastix",
+        metric_value=float(metric_value),
+        optimizer_stop_condition=optimizer_stop_condition,
         iterations=int(settings.number_of_iterations),
         metadata={
             "backend": "itk-elastix",
@@ -436,5 +626,7 @@ def register_images(
             "elastix_transform_parameters": list(
                 _safe_parameter_map_get(parameter_map, "TransformParameters", [])
             ),
+            "elastix_metric_value": float(metric_value),
+            "elastix_optimizer_stop_condition": optimizer_stop_condition,
         },
     )
