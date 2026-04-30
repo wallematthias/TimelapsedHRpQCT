@@ -704,8 +704,8 @@ def _needs_analysis(
         sessions_by_stack = imported_by_subject.get((subject_id, site), {})
         if not sessions_by_stack:
             return False
-        # pairwise_fixed_t0 currently supports single-stack trajectories only
-        return len(sessions_by_stack) == 1
+        all_sessions = {record.session_id for stack_records in sessions_by_stack.values() for record in stack_records}
+        return len(all_sessions) >= 2
 
     def _matches_requested_setting(
         payload: dict,

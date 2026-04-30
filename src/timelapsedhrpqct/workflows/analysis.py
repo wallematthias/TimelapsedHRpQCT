@@ -5,7 +5,7 @@ import json
 import math
 import re
 from datetime import date, datetime
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Iterable
 
@@ -352,6 +352,37 @@ def _load_session_to_baseline_transform(
     )
 
 
+def _load_stack_session_reference_image(
+    dataset_root: Path,
+    subject_id: str,
+    site: str,
+    session_id: str,
+    stack_index: int | None = None,
+) -> sitk.Image:
+    """Load the imported stack image used as the session reference geometry."""
+    grouped = group_imported_stacks_by_subject_site_and_stack(iter_imported_stack_records(dataset_root))
+    stacks_by_index = grouped.get((subject_id, site), {})
+    stack_indices = [stack_index] if stack_index is not None else sorted(stacks_by_index.keys())
+    for stack_idx in stack_indices:
+        stack_records = stacks_by_index.get(stack_idx, [])
+        for record in stack_records:
+            if record.session_id == session_id:
+                return load_image(record.image_path)
+    raise FileNotFoundError(
+        f"Missing imported stack image for sub-{subject_id} site-{site} ses-{session_id}"
+    )
+
+
+@dataclass(slots=True)
+class _PairwiseSessionInputs:
+    session_id: str
+    image_path: Path
+    seg_path: Path | None
+    mask_paths: dict[str, Path]
+    target_from_baseline: sitk.Transform
+    source_from_baseline: sitk.Transform
+
+
 def _get_analysis_params(config: AppConfig) -> AnalysisParams:
     """Build analysis parameters from config with defaults and visualization settings."""
     cfg = getattr(config, "analysis", None)
@@ -572,6 +603,32 @@ def _repartition_compartment_masks_to_support(
     return remapped
 
 
+def _resolve_pairwise_reference_stack_index(
+    dataset_root: Path,
+    subject_id: str,
+    site: str,
+    required_session_ids: set[str] | None = None,
+) -> int:
+    """Pick a deterministic stack index that can serve session reference geometry."""
+    grouped = group_imported_stacks_by_subject_site_and_stack(iter_imported_stack_records(dataset_root))
+    stacks_by_index = grouped.get((subject_id, site), {})
+    if not stacks_by_index:
+        raise ValueError(f"Missing imported stack records for sub-{subject_id} site-{site}")
+
+    required = {str(s).strip() for s in (required_session_ids or set()) if str(s).strip()}
+    for stack_index in sorted(stacks_by_index.keys()):
+        sessions = {record.session_id for record in stacks_by_index[stack_index]}
+        if not required or required.issubset(sessions):
+            return int(stack_index)
+
+    if required:
+        missing_desc = ", ".join(sorted(required))
+        raise ValueError(
+            f"No stack contains all required sessions for pairwise t0 reference: {missing_desc}"
+        )
+    return int(sorted(stacks_by_index.keys())[0])
+
+
 def _baseline_common_outputs(
     dataset_root: Path,
     subject_id: str,
@@ -677,37 +734,112 @@ def _baseline_common_outputs(
     return outputs, ref_img
 
 
-def _pairwise_fixed_t0_outputs_single_stack(
+def _pairwise_fixed_t0_outputs(
     dataset_root: Path,
     subject_id: str,
     site: str,
     params: AnalysisParams,
 ) -> tuple[RemodellingOutputs, sitk.Image]:
-    """Run pairwise analysis in each t0 session space for single-stack subjects."""
+    """Run pairwise analysis in each t0 session space for single- and multistack subjects."""
     if params.use_filled_images:
         raise ValueError("pairwise_fixed_t0 analysis does not support use_filled_images=true")
 
-    records = iter_imported_stack_records(dataset_root)
-    grouped = group_imported_stacks_by_subject_site_and_stack(records)
+    grouped = group_imported_stacks_by_subject_site_and_stack(iter_imported_stack_records(dataset_root))
     stacks_by_index = grouped.get((subject_id, site), {})
-    if len(stacks_by_index) != 1:
-        raise ValueError(
-            "pairwise_fixed_t0 analysis currently supports single-stack subjects only"
-        )
+    if not stacks_by_index:
+        raise ValueError(f"Skipping sub-{subject_id} site-{site}: no imported stacks found.")
 
-    stack_index = next(iter(stacks_by_index))
-    stack_records = sorted(stacks_by_index[stack_index], key=lambda r: session_sort_key(r.session_id))
-    if len(stack_records) < 2:
+    single_stack = len(stacks_by_index) == 1
+    if single_stack:
+        stack_index = int(next(iter(sorted(stacks_by_index.keys()))))
+        stack_records = sorted(stacks_by_index[stack_index], key=lambda r: session_sort_key(r.session_id))
+        if len(stack_records) < 2:
+            raise ValueError(
+                f"Skipping sub-{subject_id} site-{site}: need at least 2 sessions."
+            )
+        baseline_session = stack_records[0].session_id
+        analysis_sessions: list[_PairwiseSessionInputs] = [
+            _PairwiseSessionInputs(
+                session_id=record.session_id,
+                image_path=record.image_path,
+                seg_path=record.seg_path,
+                mask_paths=record.mask_paths,
+                target_from_baseline=_load_session_to_baseline_transform(
+                    dataset_root=dataset_root,
+                    subject_id=subject_id,
+                    site=site,
+                    stack_index=stack_index,
+                    session_id=record.session_id,
+                    baseline_session=baseline_session,
+                ),
+                source_from_baseline=_load_session_to_baseline_transform(
+                    dataset_root=dataset_root,
+                    subject_id=subject_id,
+                    site=site,
+                    stack_index=stack_index,
+                    session_id=record.session_id,
+                    baseline_session=baseline_session,
+                ),
+            )
+            for record in stack_records
+        ]
+        baseline_ref = load_image(stack_records[0].image_path)
+        mode_desc = f"stack-{stack_index:02d} single-stack"
+    else:
+        require_seg = _analysis_requires_seg(params.method)
+        fused_sessions = discover_analysis_sessions(
+            dataset_root=dataset_root,
+            subject_id=subject_id,
+            site=site,
+            use_filled_images=False,
+            require_seg=require_seg,
+        )
+        if len(fused_sessions) < 2:
+            raise ValueError(
+                f"Skipping sub-{subject_id} site-{site}: need at least 2 sessions."
+            )
+
+        baseline_session = fused_sessions[0].session_id
+        session_ids = {session.session_id for session in fused_sessions}
+        stack_index = _resolve_pairwise_reference_stack_index(
+            dataset_root=dataset_root,
+            subject_id=subject_id,
+            site=site,
+            required_session_ids=session_ids,
+        )
+        baseline_ref = load_image(fused_sessions[0].image_path)
+        identity = sitk.Transform(3, sitk.sitkIdentity)
+        analysis_sessions = [
+            _PairwiseSessionInputs(
+                session_id=session.session_id,
+                image_path=session.image_path,
+                seg_path=session.seg_path,
+                mask_paths=session.mask_paths,
+                target_from_baseline=_load_session_to_baseline_transform(
+                    dataset_root=dataset_root,
+                    subject_id=subject_id,
+                    site=site,
+                    stack_index=stack_index,
+                    session_id=session.session_id,
+                    baseline_session=baseline_session,
+                ),
+                source_from_baseline=identity,
+            )
+            for session in fused_sessions
+        ]
+        mode_desc = f"stack-{stack_index:02d} multistack"
+
+    if len(analysis_sessions) < 2:
         raise ValueError(
             f"Skipping sub-{subject_id} site-{site}: need at least 2 sessions."
         )
 
     effective_compartments, compartment_source = _resolve_analysis_compartments(
-        [r.mask_paths for r in stack_records],
+        [r.mask_paths for r in analysis_sessions],
         params.compartments,
     )
     require_seg = _analysis_requires_seg(params.method)
-    for record in stack_records:
+    for record in analysis_sessions:
         if require_seg and (record.seg_path is None or not record.seg_path.exists()):
             raise ValueError(
                 f"Missing required segmentation for sub-{subject_id} "
@@ -724,20 +856,8 @@ def _pairwise_fixed_t0_outputs_single_stack(
                 f"site-{site} ses-{record.session_id}: "
                 + ", ".join(sorted(missing))
             )
-
-    baseline_session = stack_records[0].session_id
-    baseline_ref = load_image(stack_records[0].image_path)
-    transforms_to_baseline = {
-        record.session_id: _load_session_to_baseline_transform(
-            dataset_root=dataset_root,
-            subject_id=subject_id,
-            site=site,
-            stack_index=stack_index,
-            session_id=record.session_id,
-            baseline_session=baseline_session,
-        )
-        for record in stack_records
-    }
+    target_from_baseline = {record.session_id: record.target_from_baseline for record in analysis_sessions}
+    source_from_baseline = {record.session_id: record.source_from_baseline for record in analysis_sessions}
 
     support_union_baseline = np.zeros(
         tuple(reversed(baseline_ref.GetSize())),
@@ -746,7 +866,7 @@ def _pairwise_fixed_t0_outputs_single_stack(
     common_masks_baseline: dict[str, np.ndarray] = {}
     for role in effective_compartments:
         common_mask_img: sitk.Image | None = None
-        for record in stack_records:
+        for record in analysis_sessions:
             if role == "full":
                 full_arr = _load_support_mask_array(
                     mask_paths=record.mask_paths,
@@ -764,7 +884,7 @@ def _pairwise_fixed_t0_outputs_single_stack(
             mask_tx = _resample_image(
                 sitk.Cast(mask_img > 0, sitk.sitkUInt8),
                 baseline_ref,
-                transforms_to_baseline[record.session_id],
+                source_from_baseline[record.session_id],
                 is_mask=True,
             )
             if common_mask_img is None:
@@ -787,31 +907,43 @@ def _pairwise_fixed_t0_outputs_single_stack(
         _free_memory()
 
     outputs = RemodellingOutputs(common_masks=common_masks_baseline)
-    pairs = pair_indices(len(stack_records), params.pair_mode)
-    adjacent_pairs = pair_indices(len(stack_records), "adjacent")
+    pairs = pair_indices(len(analysis_sessions), params.pair_mode)
+    adjacent_pairs = pair_indices(len(analysis_sessions), "adjacent")
 
     print(
-        f"[analysis] sub-{subject_id} site-{site} stack-{stack_index:02d}: "
-        f"{len(stack_records)} session(s) "
-        f"({', '.join(record.session_id for record in stack_records)}), "
+        f"[analysis] sub-{subject_id} site-{site} {mode_desc}: "
+        f"{len(analysis_sessions)} session(s) "
+        f"({', '.join(record.session_id for record in analysis_sessions)}), "
         f"pair_mode={params.pair_mode}, use_filled_images={params.use_filled_images}, "
         f"space=pairwise_fixed_t0, compartments={effective_compartments} ({compartment_source})"
     )
 
     pair_base_cache: list[dict[str, object]] = []
     for i0, i1 in pairs:
-        rec0 = stack_records[i0]
-        rec1 = stack_records[i1]
+        rec0 = analysis_sessions[i0]
+        rec1 = analysis_sessions[i1]
         t0 = rec0.session_id
         t1 = rec1.session_id
-        ref_img = load_image(rec0.image_path)
+        ref_img = _load_stack_session_reference_image(
+            dataset_root=dataset_root,
+            subject_id=subject_id,
+            site=site,
+            session_id=t0,
+            stack_index=stack_index,
+        )
+        source0_to_t0 = _compose_resample_transform_between_sessions(
+            source_from_baseline=source_from_baseline[t0],
+            target_from_baseline=target_from_baseline[t0],
+        )
         t0_to_t1 = _compose_resample_transform_between_sessions(
-            source_from_baseline=transforms_to_baseline[t1],
-            target_from_baseline=transforms_to_baseline[t0],
+            source_from_baseline=source_from_baseline[t1],
+            target_from_baseline=target_from_baseline[t0],
         )
 
+        source0_img = load_image(rec0.image_path)
+        dens0_img = _resample_image(source0_img, ref_img, source0_to_t0, is_mask=False)
         dens0 = _maybe_smooth_density(
-            image_to_array(ref_img).astype(np.float32, copy=False),
+            image_to_array(dens0_img).astype(np.float32, copy=False),
             params,
         )
         moving_img = load_image(rec1.image_path)
@@ -822,7 +954,13 @@ def _pairwise_fixed_t0_outputs_single_stack(
         )
 
         if rec0.seg_path is not None and rec0.seg_path.exists() and rec1.seg_path is not None and rec1.seg_path.exists():
-            seg0 = (image_to_array(load_image(rec0.seg_path)) > 0).astype(bool, copy=False)
+            seg0_img = _resample_image(
+                sitk.Cast(load_image(rec0.seg_path) > 0, sitk.sitkUInt8),
+                ref_img,
+                source0_to_t0,
+                is_mask=True,
+            )
+            seg0 = (image_to_array(seg0_img) > 0).astype(bool, copy=False)
             seg1_img = _resample_image(
                 sitk.Cast(load_image(rec1.seg_path) > 0, sitk.sitkUInt8),
                 ref_img,
@@ -834,12 +972,23 @@ def _pairwise_fixed_t0_outputs_single_stack(
             seg0 = np.zeros_like(dens0, dtype=bool)
             seg1 = np.zeros_like(dens1, dtype=bool)
 
-        full0 = _load_support_mask_array(
+        full0_arr = _load_support_mask_array(
             mask_paths=rec0.mask_paths,
             reference_image_path=rec0.image_path,
         )
         if params.full_mask_dilation_voxels > 0:
-            full0 = dilate_mask_xy(full0, params.full_mask_dilation_voxels)
+            full0_arr = dilate_mask_xy(full0_arr, params.full_mask_dilation_voxels)
+        full0_img = _resample_image(
+            array_to_image(
+                full0_arr.astype(np.uint8),
+                reference=load_image(rec0.image_path),
+                pixel_id=sitk.sitkUInt8,
+            ),
+            ref_img,
+            source0_to_t0,
+            is_mask=True,
+        )
+        full0 = (image_to_array(full0_img) > 0).astype(bool, copy=False)
         full1_img = _resample_image(
             array_to_image(
                 dilate_mask_xy(
@@ -862,9 +1011,13 @@ def _pairwise_fixed_t0_outputs_single_stack(
         comp_masks_t0: dict[str, np.ndarray] = {}
         comp_masks_t1: dict[str, np.ndarray] = {}
         for role in non_full_roles:
-            comp_masks_t0[role] = (
-                image_to_array(load_image(rec0.mask_paths[role])) > 0
-            ).astype(bool, copy=False)
+            comp0_img = _resample_image(
+                sitk.Cast(load_image(rec0.mask_paths[role]) > 0, sitk.sitkUInt8),
+                ref_img,
+                source0_to_t0,
+                is_mask=True,
+            )
+            comp_masks_t0[role] = (image_to_array(comp0_img) > 0).astype(bool, copy=False)
             comp1_img = _resample_image(
                 sitk.Cast(load_image(rec1.mask_paths[role]) > 0, sitk.sitkUInt8),
                 ref_img,
@@ -892,7 +1045,7 @@ def _pairwise_fixed_t0_outputs_single_stack(
                 pixel_id=sitk.sitkUInt8,
             ),
             ref_img,
-            transforms_to_baseline[t0].GetInverse(),
+            target_from_baseline[t0].GetInverse(),
             is_mask=True,
         )
         support_t0 = (image_to_array(support_t0_img) > 0).astype(bool, copy=False)
@@ -941,7 +1094,7 @@ def _pairwise_fixed_t0_outputs_single_stack(
             comp_masks_t1 = base["comp_masks_t1"]
 
             print(
-                f"[analysis] sub-{subject_id} site-{site} stack-{stack_index:02d}: "
+                f"[analysis] sub-{subject_id} site-{site} {mode_desc}: "
                 f"preparing comp-{compartment} t0-{t0} -> t1-{t1} "
                 f"(space=pairwise_fixed_t0)"
             )
@@ -960,7 +1113,7 @@ def _pairwise_fixed_t0_outputs_single_stack(
                     pixel_id=sitk.sitkUInt8,
                 ),
                 ref_img,
-                transforms_to_baseline[t0].GetInverse(),
+                target_from_baseline[t0].GetInverse(),
                 is_mask=True,
             )
             common_t0 = (image_to_array(common_t0_img) > 0).astype(bool, copy=False)
@@ -978,7 +1131,7 @@ def _pairwise_fixed_t0_outputs_single_stack(
                     cluster_size = int(cluster_size)
 
                     print(
-                        f"[analysis] sub-{subject_id} site-{site} stack-{stack_index:02d}: "
+                        f"[analysis] sub-{subject_id} site-{site} {mode_desc}: "
                         f"comp-{compartment} thr-{thr:g} cluster-{cluster_size} "
                         f"t0-{t0} -> t1-{t1} (space=pairwise_fixed_t0)"
                     )
@@ -1085,13 +1238,13 @@ def _pairwise_fixed_t0_outputs_single_stack(
                         formation_base_img = _resample_image(
                             array_to_image(formation.astype(np.uint8), ref_img, pixel_id=sitk.sitkUInt8),
                             baseline_ref,
-                            transforms_to_baseline[t0],
+                            target_from_baseline[t0],
                             is_mask=True,
                         )
                         resorption_base_img = _resample_image(
                             array_to_image(resorption.astype(np.uint8), ref_img, pixel_id=sitk.sitkUInt8),
                             baseline_ref,
-                            transforms_to_baseline[t0],
+                            target_from_baseline[t0],
                             is_mask=True,
                         )
                         trajectory_event_maps[(thr, cluster_size)].append(
@@ -1110,15 +1263,8 @@ def _pairwise_fixed_t0_outputs_single_stack(
                         and math.isclose(thr, params.visualize_threshold)
                         and cluster_size == params.visualize_cluster_size
                     ):
-                        label_t0 = preview.label_image
-                        label_baseline_img = _resample_image(
-                            array_to_image(label_t0, ref_img, pixel_id=sitk.sitkUInt8),
-                            baseline_ref,
-                            transforms_to_baseline[t0],
-                            is_mask=True,
-                        )
                         outputs.label_images[(compartment, t0, t1, thr, cluster_size)] = (
-                            image_to_array(label_baseline_img).astype(np.uint8, copy=False)
+                            preview.label_image.astype(np.uint8, copy=False)
                         )
 
             del comp0, comp1, common_t0
@@ -1184,7 +1330,7 @@ def run_analysis(
         effective_space = params.space
         try:
             if params.space == "pairwise_fixed_t0":
-                outputs, ref_img = _pairwise_fixed_t0_outputs_single_stack(
+                outputs, ref_img = _pairwise_fixed_t0_outputs(
                     dataset_root=dataset_root,
                     subject_id=subject_id,
                     site=site,
@@ -1201,8 +1347,7 @@ def run_analysis(
                 raise ValueError(f"Unsupported analysis space: {params.space}")
         except ValueError as exc:
             if params.space == "pairwise_fixed_t0" and (
-                "single-stack subjects only" in str(exc)
-                or "use_filled_images=true" in str(exc)
+                "use_filled_images=true" in str(exc)
             ):
                 effective_space = "baseline_common"
                 print(
@@ -1250,8 +1395,31 @@ def run_analysis(
                 )
             del common_img
 
+        label_reference_cache: dict[str, sitk.Image] = {}
+        pairwise_reference_stack_index: int | None = None
+        if effective_space == "pairwise_fixed_t0":
+            pairwise_t0_sessions = {str(t0).strip() for (_compartment, t0, _t1, _thr, _cluster) in outputs.label_images}
+            pairwise_reference_stack_index = _resolve_pairwise_reference_stack_index(
+                dataset_root=dataset_root,
+                subject_id=subject_id,
+                site=site,
+                required_session_ids=pairwise_t0_sessions,
+            )
         for (compartment, t0, t1, thr, cluster_size), label_arr in outputs.label_images.items():
-            label_img = array_to_image(label_arr, reference=ref_img, pixel_id=sitk.sitkUInt8)
+            label_reference = ref_img
+            if effective_space == "pairwise_fixed_t0":
+                label_reference = label_reference_cache.get(t0)
+                if label_reference is None:
+                    label_reference = _load_stack_session_reference_image(
+                        dataset_root=dataset_root,
+                        subject_id=subject_id,
+                        site=site,
+                        session_id=t0,
+                        stack_index=pairwise_reference_stack_index,
+                    )
+                    label_reference_cache[t0] = label_reference
+
+            label_img = array_to_image(label_arr, reference=label_reference, pixel_id=sitk.sitkUInt8)
             write_image(
                 label_img,
                 analysis_visualize_path(
@@ -1279,6 +1447,9 @@ def run_analysis(
                     ),
                 )
             del label_img
+
+        for cached_reference in label_reference_cache.values():
+            del cached_reference
 
         _augment_output_rows_with_site_and_followup(
             dataset_root=dataset_root,

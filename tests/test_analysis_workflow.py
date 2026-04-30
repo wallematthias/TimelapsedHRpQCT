@@ -27,8 +27,10 @@ from timelapsedhrpqct.analysis.remodelling import (
 )
 from timelapsedhrpqct.config.models import AppConfig
 from timelapsedhrpqct.dataset.derivative_paths import (
+    analysis_visualize_path,
     analysis_metadata_path,
     common_region_path,
+    final_transform_path,
     pairwise_remodelling_csv_path,
     timelapse_baseline_transform_path,
     trajectory_metrics_csv_path,
@@ -547,6 +549,164 @@ def _build_pairwise_t0_shifted_followup_dataset(
     return dataset_root
 
 
+def _build_pairwise_t0_three_session_mixed_geometry_dataset(
+    dataset_root: Path,
+    subject_id: str = "001",
+) -> Path:
+    shape_c1 = (5, 5, 5)
+    shape_followups = (7, 7, 7)
+
+    mask_c1 = np.zeros(shape_c1, dtype=bool)
+    mask_c1[1:4, 1:4, 1:4] = True
+    image_c1 = np.zeros(shape_c1, dtype=np.float32)
+    image_c1[mask_c1] = 100.0
+
+    mask_c2 = np.zeros(shape_followups, dtype=bool)
+    mask_c2[1:6, 1:6, 1:6] = True
+    image_c2 = np.zeros(shape_followups, dtype=np.float32)
+    image_c2[mask_c2] = 110.0
+    image_c2[3, 3, 3] = 420.0
+
+    mask_c3 = mask_c2.copy()
+    image_c3 = image_c2.copy()
+    image_c3[3, 3, 3] = 100.0
+
+    _write_analysis_session(
+        dataset_root,
+        subject_id,
+        "C1",
+        image_c1,
+        None,
+        mask_c1,
+        None,
+        None,
+    )
+    _write_analysis_session(
+        dataset_root,
+        subject_id,
+        "C2",
+        image_c2,
+        None,
+        mask_c2,
+        None,
+        None,
+    )
+    _write_analysis_session(
+        dataset_root,
+        subject_id,
+        "C3",
+        image_c3,
+        None,
+        mask_c3,
+        None,
+        None,
+    )
+
+    session_dir = get_derivatives_root(dataset_root) / f"sub-{subject_id}"
+    stack_dir_c1 = session_dir / "ses-C1" / "stacks"
+    stack_dir_c2 = session_dir / "ses-C2" / "stacks"
+    stack_dir_c3 = session_dir / "ses-C3" / "stacks"
+    stack_dir_c1.mkdir(parents=True, exist_ok=True)
+    stack_dir_c2.mkdir(parents=True, exist_ok=True)
+    stack_dir_c3.mkdir(parents=True, exist_ok=True)
+
+    c1_image = stack_dir_c1 / f"sub-{subject_id}_ses-C1_stack-01_image.mha"
+    c1_full = stack_dir_c1 / f"sub-{subject_id}_ses-C1_stack-01_mask-full.mha"
+    c2_image = stack_dir_c2 / f"sub-{subject_id}_ses-C2_stack-01_image.mha"
+    c2_full = stack_dir_c2 / f"sub-{subject_id}_ses-C2_stack-01_mask-full.mha"
+    c3_image = stack_dir_c3 / f"sub-{subject_id}_ses-C3_stack-01_image.mha"
+    c3_full = stack_dir_c3 / f"sub-{subject_id}_ses-C3_stack-01_mask-full.mha"
+    c1_meta = stack_dir_c1 / f"sub-{subject_id}_ses-C1_stack-01.json"
+    c2_meta = stack_dir_c2 / f"sub-{subject_id}_ses-C2_stack-01.json"
+    c3_meta = stack_dir_c3 / f"sub-{subject_id}_ses-C3_stack-01.json"
+    for path in (c1_meta, c2_meta, c3_meta):
+        path.write_text("{}", encoding="utf-8")
+
+    write_image(c1_image, image_c1.astype(np.float32))
+    write_image(c1_full, mask_c1.astype(np.uint8))
+    write_image(c2_image, image_c2.astype(np.float32))
+    write_image(c2_full, mask_c2.astype(np.uint8))
+    write_image(c3_image, image_c3.astype(np.float32))
+    write_image(c3_full, mask_c3.astype(np.uint8))
+
+    upsert_imported_stack_records(
+        dataset_root,
+        [
+            ImportedStackRecord(subject_id, "C1", 1, c1_image, {"full": c1_full}, None, c1_meta),
+            ImportedStackRecord(subject_id, "C2", 1, c2_image, {"full": c2_full}, None, c2_meta),
+            ImportedStackRecord(subject_id, "C3", 1, c3_image, {"full": c3_full}, None, c3_meta),
+        ],
+    )
+
+    c1_tfm = timelapse_baseline_transform_path(dataset_root, subject_id, 1, "C1", "C1")
+    c2_tfm = timelapse_baseline_transform_path(dataset_root, subject_id, 1, "C2", "C1")
+    c3_tfm = timelapse_baseline_transform_path(dataset_root, subject_id, 1, "C3", "C1")
+    c1_tfm.parent.mkdir(parents=True, exist_ok=True)
+    sitk.WriteTransform(sitk.Transform(3, sitk.sitkIdentity), str(c1_tfm))
+    sitk.WriteTransform(sitk.Transform(3, sitk.sitkIdentity), str(c2_tfm))
+    sitk.WriteTransform(sitk.Transform(3, sitk.sitkIdentity), str(c3_tfm))
+
+    return dataset_root
+
+
+def _build_pairwise_t0_multistack_dataset(
+    dataset_root: Path,
+    subject_id: str = "001",
+) -> Path:
+    shape_fused = (7, 7, 7)
+    mask_fused = np.zeros(shape_fused, dtype=bool)
+    mask_fused[1:6, 1:6, 1:6] = True
+
+    c1_fused = np.zeros(shape_fused, dtype=np.float32)
+    c2_fused = np.zeros(shape_fused, dtype=np.float32)
+    c3_fused = np.zeros(shape_fused, dtype=np.float32)
+    c1_fused[3, 3, 3] = 100.0
+    c2_fused[3, 3, 3] = 420.0
+    c3_fused[3, 3, 3] = 120.0
+
+    _write_analysis_session(dataset_root, subject_id, "C1", c1_fused, None, mask_fused, None, None)
+    _write_analysis_session(dataset_root, subject_id, "C2", c2_fused, None, mask_fused, None, None)
+    _write_analysis_session(dataset_root, subject_id, "C3", c3_fused, None, mask_fused, None, None)
+
+    session_dir = get_derivatives_root(dataset_root) / f"sub-{subject_id}"
+    imported_records: list[ImportedStackRecord] = []
+
+    for session_id, value in (("C1", 100.0), ("C2", 420.0), ("C3", 120.0)):
+        for stack_index, shape in ((1, (5, 5, 5)), (2, (6, 6, 6))):
+            stack_dir = session_dir / f"ses-{session_id}" / "stacks"
+            stack_dir.mkdir(parents=True, exist_ok=True)
+            image_path = stack_dir / f"sub-{subject_id}_ses-{session_id}_stack-{stack_index:02d}_image.mha"
+            full_path = stack_dir / f"sub-{subject_id}_ses-{session_id}_stack-{stack_index:02d}_mask-full.mha"
+            meta_path = stack_dir / f"sub-{subject_id}_ses-{session_id}_stack-{stack_index:02d}.json"
+            image = np.zeros(shape, dtype=np.float32)
+            image[tuple(s // 2 for s in shape)] = value
+            mask = np.ones(shape, dtype=np.uint8)
+            write_image(image_path, image)
+            write_image(full_path, mask)
+            meta_path.write_text("{}", encoding="utf-8")
+            imported_records.append(
+                ImportedStackRecord(
+                    subject_id,
+                    session_id,
+                    stack_index,
+                    image_path,
+                    {"full": full_path},
+                    None,
+                    meta_path,
+                )
+            )
+
+    upsert_imported_stack_records(dataset_root, imported_records)
+
+    for stack_index in (1, 2):
+        for moving_session in ("C1", "C2", "C3"):
+            tfm_path = final_transform_path(dataset_root, subject_id, "radius", stack_index, moving_session, "C1")
+            tfm_path.parent.mkdir(parents=True, exist_ok=True)
+            sitk.WriteTransform(sitk.Transform(3, sitk.sitkIdentity), str(tfm_path))
+
+    return dataset_root
+
+
 def test_pair_indices_supports_all_modes() -> None:
     assert pair_indices(3, "adjacent") == [(0, 1), (1, 2)]
     assert pair_indices(3, "baseline") == [(0, 1), (0, 2)]
@@ -951,6 +1111,180 @@ def test_run_analysis_pairwise_fixed_t0_uses_baseline_resample_direction(
 
     assert int(row["formation_vox"]) == 0
     assert int(row["resorption_vox"]) == 0
+
+
+def test_run_analysis_pairwise_fixed_t0_visualization_exports_in_t0_space(
+    tmp_path: Path,
+) -> None:
+    dataset_root = _build_pairwise_t0_three_session_mixed_geometry_dataset(tmp_path / "dataset")
+    config = AppConfig()
+    config.analysis = SimpleNamespace(
+        space="pairwise_fixed_t0",
+        method="grayscale_delta_only",
+        compartments=["full"],
+        thresholds=[225.0],
+        cluster_sizes=[1],
+        pair_mode="adjacent",
+        use_filled_images=False,
+        gaussian_filter=False,
+        valid_region=SimpleNamespace(erosion_voxels=0),
+    )
+    config.visualization = SimpleNamespace(
+        enabled=True,
+        threshold=225.0,
+        cluster_size=1,
+        label_map=None,
+    )
+
+    run_analysis(
+        dataset_root=dataset_root,
+        config=config,
+        thresholds=[225.0],
+        clusters=[1],
+    )
+
+    vis_path = analysis_visualize_path(
+        dataset_root=dataset_root,
+        subject_id="001",
+        compartment="full",
+        t0="C2",
+        t1="C3",
+        thr=225.0,
+        cluster_size=1,
+    )
+    assert vis_path.exists()
+
+    vis_img = sitk.ReadImage(str(vis_path))
+    c2_ref_img = sitk.ReadImage(
+        str(
+            get_derivatives_root(dataset_root)
+            / "sub-001"
+            / "ses-C2"
+            / "stacks"
+            / "sub-001_ses-C2_stack-01_image.mha"
+        )
+    )
+
+    assert vis_img.GetSize() == c2_ref_img.GetSize()
+    assert vis_img.GetOrigin() == c2_ref_img.GetOrigin()
+    assert vis_img.GetDirection() == c2_ref_img.GetDirection()
+
+
+def test_run_analysis_pairwise_fixed_t0_multistack_records_space_in_metadata(tmp_path: Path) -> None:
+    dataset_root = _build_pairwise_t0_multistack_dataset(tmp_path / "dataset")
+    config = AppConfig()
+    config.analysis = SimpleNamespace(
+        space="pairwise_fixed_t0",
+        method="grayscale_delta_only",
+        compartments=["full"],
+        thresholds=[225.0],
+        cluster_sizes=[1],
+        pair_mode="adjacent",
+        use_filled_images=False,
+        gaussian_filter=False,
+        valid_region=SimpleNamespace(erosion_voxels=0),
+    )
+    config.visualization = SimpleNamespace(enabled=False, threshold=None, cluster_size=None)
+
+    run_analysis(dataset_root=dataset_root, config=config, thresholds=[225.0], clusters=[1])
+
+    meta = json.loads(analysis_metadata_path(dataset_root, "001").read_text())
+    pairwise_df = pd.read_csv(pairwise_remodelling_csv_path(dataset_root, "001"))
+
+    assert meta["space"] == "pairwise_fixed_t0"
+    assert {(str(row["t0"]), str(row["t1"])) for _, row in pairwise_df.iterrows()} == {("C1", "C2"), ("C2", "C3")}
+
+
+def test_run_analysis_pairwise_fixed_t0_multistack_visualization_uses_t0_stack_reference(
+    tmp_path: Path,
+) -> None:
+    dataset_root = _build_pairwise_t0_multistack_dataset(tmp_path / "dataset")
+    config = AppConfig()
+    config.analysis = SimpleNamespace(
+        space="pairwise_fixed_t0",
+        method="grayscale_delta_only",
+        compartments=["full"],
+        thresholds=[225.0],
+        cluster_sizes=[1],
+        pair_mode="adjacent",
+        use_filled_images=False,
+        gaussian_filter=False,
+        valid_region=SimpleNamespace(erosion_voxels=0),
+    )
+    config.visualization = SimpleNamespace(enabled=True, threshold=225.0, cluster_size=1, label_map=None)
+
+    run_analysis(dataset_root=dataset_root, config=config, thresholds=[225.0], clusters=[1])
+
+    vis_path = analysis_visualize_path(
+        dataset_root=dataset_root,
+        subject_id="001",
+        compartment="full",
+        t0="C2",
+        t1="C3",
+        thr=225.0,
+        cluster_size=1,
+    )
+    assert vis_path.exists()
+
+    vis_img = sitk.ReadImage(str(vis_path))
+    c2_ref_img = sitk.ReadImage(
+        str(
+            get_derivatives_root(dataset_root)
+            / "sub-001"
+            / "ses-C2"
+            / "stacks"
+            / "sub-001_ses-C2_stack-01_image.mha"
+        )
+    )
+    assert vis_img.GetSize() == c2_ref_img.GetSize()
+    assert vis_img.GetOrigin() == c2_ref_img.GetOrigin()
+    assert vis_img.GetDirection() == c2_ref_img.GetDirection()
+
+
+def test_run_analysis_baseline_common_visualization_stays_in_baseline_space_multistack(
+    tmp_path: Path,
+) -> None:
+    dataset_root = _build_pairwise_t0_multistack_dataset(tmp_path / "dataset")
+    config = AppConfig()
+    config.analysis = SimpleNamespace(
+        space="baseline_common",
+        method="grayscale_delta_only",
+        compartments=["full"],
+        thresholds=[225.0],
+        cluster_sizes=[1],
+        pair_mode="adjacent",
+        use_filled_images=False,
+        gaussian_filter=False,
+        valid_region=SimpleNamespace(erosion_voxels=0),
+    )
+    config.visualization = SimpleNamespace(enabled=True, threshold=225.0, cluster_size=1, label_map=None)
+
+    run_analysis(dataset_root=dataset_root, config=config, thresholds=[225.0], clusters=[1])
+
+    vis_path = analysis_visualize_path(
+        dataset_root=dataset_root,
+        subject_id="001",
+        compartment="full",
+        t0="C2",
+        t1="C3",
+        thr=225.0,
+        cluster_size=1,
+    )
+    assert vis_path.exists()
+
+    vis_img = sitk.ReadImage(str(vis_path))
+    baseline_fused_img = sitk.ReadImage(
+        str(
+            get_derivatives_root(dataset_root)
+            / "sub-001"
+            / "transformed"
+            / "ses-C1"
+            / "sub-001_ses-C1_image_fused.mha"
+        )
+    )
+    assert vis_img.GetSize() == baseline_fused_img.GetSize()
+    assert vis_img.GetOrigin() == baseline_fused_img.GetOrigin()
+    assert vis_img.GetDirection() == baseline_fused_img.GetDirection()
 
 
 def test_run_analysis_adds_site_and_followup_duration_columns(tmp_path: Path) -> None:
