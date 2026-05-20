@@ -6,6 +6,10 @@ from pathlib import Path
 import SimpleITK as sitk
 
 from timelapsedhrpqct.dataset.layout import get_derivatives_root
+from timelapsedhrpqct.dataset.transform_registry import (
+    TransformRegistryRecord,
+    upsert_transform_registry_record,
+)
 from timelapsedhrpqct.workflows.apply_transforms import (
     _fused_image_path,
     _fused_mask_path,
@@ -94,6 +98,68 @@ def test_timelapse_registration_writes_pairwise_and_baseline_transforms(
     )
     assert baseline_meta["baseline_session"] == "baseline"
     assert len(fake_register.calls) == 4
+
+
+def test_timelapse_registration_reuses_external_registry_pairwise_transform(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    dataset_root = build_imported_dataset(
+        tmp_path / "dataset",
+        session_ids=("baseline", "followup1"),
+        stack_indices=(1,),
+    )
+    config = make_test_config()
+    pairwise_path = (
+        get_derivatives_root(dataset_root)
+        / "sub-001"
+        / "timelapse_registration"
+        / "stack-01"
+        / "pairwise"
+        / "external_pairwise.tfm"
+    )
+    pairwise_path.parent.mkdir(parents=True, exist_ok=True)
+    sitk.WriteTransform(sitk.TranslationTransform(3, (7.0, 8.0, 9.0)), str(pairwise_path))
+    upsert_transform_registry_record(
+        dataset_root,
+        TransformRegistryRecord(
+            subject_id="001",
+            site="radius",
+            stack_index=1,
+            moving_session="followup1",
+            fixed_session="baseline",
+            transform_kind="pairwise",
+            internal_path=pairwise_path,
+            source_format="dat",
+            source_path=tmp_path / "raw" / "external.DAT",
+            source_direction="fixed_to_moving",
+            internal_direction="moving_to_fixed",
+            coordinate_convention="SimpleITK_LPS_physical",
+            provenance="unit-test",
+            import_timestamp="2026-05-20T12:00:00+00:00",
+        ),
+    )
+    fake_register = make_fake_registration([(1.0, 0.0, 0.0)])
+    monkeypatch.setattr(
+        "timelapsedhrpqct.workflows.timelapse_registration.register_images",
+        fake_register,
+    )
+
+    run_timelapse_registration(dataset_root=dataset_root, config=config)
+
+    baseline_tfm = sitk.ReadTransform(
+        str(
+            _baseline_transform_path(
+                dataset_root=dataset_root,
+                subject_id="001",
+                stack_index=1,
+                moving_session="followup1",
+                baseline_session="baseline",
+            )
+        )
+    )
+    assert transform_offset(baseline_tfm) == (7.0, 8.0, 9.0)
+    assert len(fake_register.calls) == 0
 
 
 def test_pipeline_runs_end_to_end_with_deterministic_registration_backend(

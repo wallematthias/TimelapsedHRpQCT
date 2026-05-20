@@ -107,6 +107,30 @@ def test_parser_accepts_subject_and_site_filters_for_analyse() -> None:
     assert args.site == "tibia"
 
 
+def test_parser_accepts_scanco_transform_commands() -> None:
+    parser = _build_parser()
+
+    import_args = parser.parse_args(["import-transforms", "/tmp/raw", "/tmp/dataset"])
+    export_args = parser.parse_args(
+        [
+            "export-transform-dat",
+            "/tmp/dataset/in.tfm",
+            "/tmp/dataset/out.DAT",
+        ]
+    )
+    aim_args = parser.parse_args(["export-aim", "/tmp/dataset/in.nii.gz", "/tmp/dataset/out.AIM"])
+
+    assert import_args.command == "import-transforms"
+    assert import_args.input_root == Path("/tmp/raw")
+    assert import_args.dataset_root == Path("/tmp/dataset")
+    assert export_args.command == "export-transform-dat"
+    assert export_args.transform_path == Path("/tmp/dataset/in.tfm")
+    assert export_args.output_path == Path("/tmp/dataset/out.DAT")
+    assert aim_args.command == "export-aim"
+    assert aim_args.image_path == Path("/tmp/dataset/in.nii.gz")
+    assert aim_args.output_path == Path("/tmp/dataset/out.AIM")
+
+
 def test_sessions_needing_import_skips_already_imported_complete_sessions(tmp_path: Path, monkeypatch) -> None:
     dataset_root = tmp_path / "dataset"
     raw_sessions = [

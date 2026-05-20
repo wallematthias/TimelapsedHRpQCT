@@ -19,6 +19,7 @@ from timelapsedhrpqct.dataset.derivative_paths import (
     timelapse_pairwise_transform_path,
     timelapse_stack_transform_dir,
 )
+from timelapsedhrpqct.dataset.transform_registry import find_external_pairwise_transform
 from timelapsedhrpqct.processing.qc import (
     build_registration_checkerboard,
     build_registration_overlay_rgb,
@@ -506,6 +507,69 @@ def run_timelapse_registration(
             for prev_record, curr_record in zip(stack_records[:-1], stack_records[1:]):
                 fixed_session = prev_record.session_id
                 moving_session = curr_record.session_id
+
+                registry_match = find_external_pairwise_transform(
+                    dataset_root,
+                    subject_id=subject_id,
+                    site=site,
+                    stack_index=stack_index,
+                    moving_session=moving_session,
+                    fixed_session=fixed_session,
+                )
+                if registry_match is not None:
+                    transform = sitk.ReadTransform(str(registry_match.internal_path))
+                    tfm_path = _pairwise_transform_path(
+                        dataset_root,
+                        subject_id,
+                        site,
+                        stack_index,
+                        moving_session=moving_session,
+                        fixed_session=fixed_session,
+                    )
+                    if registry_match.internal_path.resolve() != tfm_path.resolve():
+                        _write_transform(transform, tfm_path)
+                    meta_path = _pairwise_metadata_path(
+                        dataset_root,
+                        subject_id,
+                        site,
+                        stack_index,
+                        moving_session=moving_session,
+                        fixed_session=fixed_session,
+                    )
+                    write_json(
+                        {
+                            "subject_id": subject_id,
+                            "site": site,
+                            "stack_index": stack_index,
+                            "kind": "pairwise",
+                            "source": "transform_registry",
+                            "registry_source_format": registry_match.source_format,
+                            "registry_source_path": (
+                                str(registry_match.source_path)
+                                if registry_match.source_path is not None
+                                else None
+                            ),
+                            "registry_internal_path": str(registry_match.internal_path),
+                            "moving_session": moving_session,
+                            "fixed_session": fixed_session,
+                            "source_direction": registry_match.source_direction,
+                            "internal_direction": registry_match.internal_direction,
+                            "coordinate_convention": registry_match.coordinate_convention,
+                            "provenance": registry_match.provenance,
+                        },
+                        meta_path,
+                    )
+                    pairwise.append(
+                        PairwiseTransform(
+                            session_id=moving_session,
+                            transform=flatten_transform(transform),
+                        )
+                    )
+                    print(
+                        f"[timelapse]     {moving_session} -> {fixed_session} "
+                        "using external transform registry"
+                    )
+                    continue
 
                 fixed_image = load_image(prev_record.image_path)
                 moving_image = load_image(curr_record.image_path)

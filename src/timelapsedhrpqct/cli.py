@@ -389,6 +389,61 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Preview planned reverse moves without changing files.",
     )
 
+    # ------------------------------------------------------------------
+    # import-transforms
+    # ------------------------------------------------------------------
+    import_tfm_parser = subparsers.add_parser(
+        "import-transforms",
+        help="Import manufacturer Scanco DAT pairwise transforms into the registry.",
+    )
+    import_tfm_parser.add_argument(
+        "input_root",
+        type=Path,
+        help="Root directory containing manufacturer DAT transform files.",
+    )
+    import_tfm_parser.add_argument(
+        "dataset_root",
+        type=Path,
+        help="Imported dataset root containing stack artifacts.",
+    )
+    _add_config_argument(import_tfm_parser)
+
+    # ------------------------------------------------------------------
+    # export-transform-dat
+    # ------------------------------------------------------------------
+    export_dat_parser = subparsers.add_parser(
+        "export-transform-dat",
+        help="Export a canonical SimpleITK .tfm transform as a Scanco-style DAT file.",
+    )
+    export_dat_parser.add_argument(
+        "transform_path",
+        type=Path,
+        help="Input .tfm transform path.",
+    )
+    export_dat_parser.add_argument(
+        "output_path",
+        type=Path,
+        help="Output .DAT path.",
+    )
+
+    # ------------------------------------------------------------------
+    # export-aim
+    # ------------------------------------------------------------------
+    export_aim_parser = subparsers.add_parser(
+        "export-aim",
+        help="Export a processed image to Scanco AIM format.",
+    )
+    export_aim_parser.add_argument(
+        "image_path",
+        type=Path,
+        help="Input image path readable by SimpleITK.",
+    )
+    export_aim_parser.add_argument(
+        "output_path",
+        type=Path,
+        help="Output .AIM path.",
+    )
+
     return parser
 
 
@@ -1148,6 +1203,64 @@ def _cmd_undo_restructure(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_import_transforms(args: argparse.Namespace) -> int:
+    """Import manufacturer Scanco DAT transforms into canonical outputs and registry."""
+    from timelapsedhrpqct.processing.scanco_transforms import (
+        discover_manufacturer_transform_records,
+        import_manufacturer_pairwise_transforms,
+    )
+
+    config = _load_config_or_die(args.config)
+    input_root: Path = args.input_root.resolve()
+    dataset_root: Path = args.dataset_root.resolve()
+    if not input_root.exists():
+        raise FileNotFoundError(f"Input root does not exist: {input_root}")
+    if not dataset_root.exists():
+        raise FileNotFoundError(f"Dataset root does not exist: {dataset_root}")
+
+    raw_sessions = discover_raw_sessions(root=input_root, discovery_config=config.discovery)
+    records = discover_manufacturer_transform_records(input_root, config.discovery)
+    written = import_manufacturer_pairwise_transforms(
+        records=records,
+        raw_sessions=list(raw_sessions),
+        stack_artifacts=iter_imported_stack_records(dataset_root),
+        dataset_root=dataset_root,
+    )
+    print(f"[timelapse] Manufacturer DAT transforms discovered: {len(records)}")
+    print(f"[timelapse] Manufacturer DAT transforms imported: {len(written)}")
+    return 0
+
+
+def _cmd_export_transform_dat(args: argparse.Namespace) -> int:
+    """Export canonical SimpleITK transform as Scanco DAT."""
+    import SimpleITK as sitk
+
+    from timelapsedhrpqct.processing.scanco_transforms import write_scanco_dat_transform
+
+    transform_path: Path = args.transform_path
+    output_path: Path = args.output_path
+    if not transform_path.exists():
+        raise FileNotFoundError(f"Transform does not exist: {transform_path}")
+    write_scanco_dat_transform(sitk.ReadTransform(str(transform_path)), output_path)
+    print(f"[timelapse] Wrote Scanco DAT transform: {output_path}")
+    return 0
+
+
+def _cmd_export_aim(args: argparse.Namespace) -> int:
+    """Export a processed SimpleITK-readable image as Scanco AIM."""
+    import SimpleITK as sitk
+
+    from timelapsedhrpqct.io.aim import write_aim
+
+    image_path: Path = args.image_path
+    output_path: Path = args.output_path
+    if not image_path.exists():
+        raise FileNotFoundError(f"Image does not exist: {image_path}")
+    write_aim(sitk.ReadImage(str(image_path)), output_path)
+    print(f"[timelapse] Wrote AIM image: {output_path}")
+    return 0
+
+
 def _cmd_run(args: argparse.Namespace) -> int:
     """Helper for cmd run."""
     input_root: Path = args.input_root.resolve()
@@ -1309,6 +1422,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _cmd_run(args)
     if args.command == "undo-restructure":
         return _cmd_undo_restructure(args)
+    if args.command == "import-transforms":
+        return _cmd_import_transforms(args)
+    if args.command == "export-transform-dat":
+        return _cmd_export_transform_dat(args)
+    if args.command == "export-aim":
+        return _cmd_export_aim(args)
 
     parser.error(f"Unknown command: {args.command}")
     return 2

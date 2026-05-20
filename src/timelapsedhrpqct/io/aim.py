@@ -219,3 +219,21 @@ def read_aim(
     }
 
     return sitk_img, metadata
+
+
+def write_aim(
+    image: sitk.Image,
+    path: Path,
+    metadata: dict[str, Any] | None = None,
+) -> None:
+    """Write a SimpleITK image to Scanco AIM through py_aimio."""
+    py_aimio = _load_py_aimio()
+    arr_zyx = sitk.GetArrayFromImage(image)
+    arr_xyz = np.transpose(arr_zyx, (2, 1, 0))
+    meta = dict(metadata or {})
+    meta.setdefault("dimensions", tuple(int(v) for v in image.GetSize()))
+    meta.setdefault("spacing", tuple(float(v) for v in image.GetSpacing()))
+    meta.setdefault("element_size", tuple(float(v) for v in image.GetSpacing()))
+    meta.setdefault("origin", tuple(float(v) for v in image.GetOrigin()))
+    meta.setdefault("direction", tuple(float(v) for v in image.GetDirection()))
+    py_aimio.write_aim(str(path), arr_xyz, meta)
