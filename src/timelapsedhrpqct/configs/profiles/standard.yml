@@ -1,0 +1,12 @@
+profile: standard
+description: Balanced defaults for routine TimelapsedHRpQCT processing.
+
+multistack_correction:
+  enabled: true
+
+analysis:
+  space: pairwise_fixed_t0
+  pair_mode: adjacent
+
+visualization:
+  enabled: true

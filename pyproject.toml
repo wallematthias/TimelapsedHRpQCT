@@ -39,7 +39,7 @@ package-dir = {"" = "src"}
 where = ["src"]
 
 [tool.setuptools.package-data]
-timelapsedhrpqct = ["configs/*.yml"]
+timelapsedhrpqct = ["configs/*.yml", "configs/profiles/*.yml"]
 
 [tool.pytest.ini_options]
 filterwarnings = [
