@@ -156,10 +156,8 @@ Typical choices are linear for grayscale and nearest-neighbor for masks.
 
 ## `fusion`
 
-Controls whether fused outputs are written and whether filling is part of the working pipeline.
+Controls whether filling is part of the working pipeline. Fused outputs are always written by the transform stage.
 
-- `save_fused`
-- `save_fusedfilled`
 - `enable_filling`
 
 ## `filling`

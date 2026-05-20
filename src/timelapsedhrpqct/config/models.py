@@ -278,9 +278,19 @@ class TransformConfig:
 
 @dataclass(slots=True)
 class FusionConfig:
-    save_fused: bool = True
-    save_fusedfilled: bool = False
     enable_filling: bool = False
+
+
+@dataclass(slots=True)
+class FillingConfig:
+    spatial_min_size: int = 3
+    spatial_max_size: int = 23
+    spatial_step: int = 5
+    temporal_n_images: int = 3
+    small_object_min_size_factor: int = 9
+    support_closing_z: int = 11
+    roi_margin_xy: int = 3
+    roi_margin_z_extra: int = 2
 
 
 @dataclass(slots=True)
@@ -334,5 +344,6 @@ class AppConfig:
     )
     transform: TransformConfig = field(default_factory=TransformConfig)
     fusion: FusionConfig = field(default_factory=FusionConfig)
+    filling: FillingConfig = field(default_factory=FillingConfig)
     analysis: AnalysisConfig = field(default_factory=AnalysisConfig)
     visualization: VisualizationConfig = field(default_factory=VisualizationConfig)

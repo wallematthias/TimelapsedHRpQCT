@@ -36,6 +36,23 @@ visualization:
     assert config.visualization.enabled is True
 
 
+def test_filling_section_is_loaded_from_config(tmp_path: Path) -> None:
+    user_config = tmp_path / "user.yml"
+    user_config.write_text(
+        """
+filling:
+  temporal_n_images: 5
+  support_closing_z: 9
+""",
+        encoding="utf-8",
+    )
+
+    config = load_config(user_config)
+
+    assert config.filling.temporal_n_images == 5
+    assert config.filling.support_closing_z == 9
+
+
 def test_user_config_template_marks_common_edit_points() -> None:
     text = build_user_config_template("multistack")
 

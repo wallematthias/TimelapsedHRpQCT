@@ -13,6 +13,7 @@ from timelapsedhrpqct.config.models import (
     AppConfig,
     DiscoveryConfig,
     FusionConfig,
+    FillingConfig,
     ImportConfig,
     InnerContourConfig,
     MaskSegmentationConfig,
@@ -95,6 +96,7 @@ def load_config(path: str | Path | None = None, *, profile: str | None = None) -
     multistack_raw = raw.get("multistack_correction", {})
     transform_raw = raw.get("transform", {})
     fusion_raw = raw.get("fusion", {})
+    filling_raw = raw.get("filling", {})
     analysis_raw = raw.get("analysis", {})
     visualization_raw = raw.get("visualization", {})
 
@@ -114,6 +116,7 @@ def load_config(path: str | Path | None = None, *, profile: str | None = None) -
     _warn_unknown_keys("multistack_correction", MultistackCorrectionConfig, multistack_raw)
     _warn_unknown_keys("transform", TransformConfig, transform_raw)
     _warn_unknown_keys("fusion", FusionConfig, fusion_raw)
+    _warn_unknown_keys("filling", FillingConfig, filling_raw)
     _warn_unknown_keys("analysis", AnalysisConfig, analysis_raw, excluded={"valid_region"})
     _warn_unknown_keys("analysis.valid_region", AnalysisValidRegionConfig, analysis_valid_region_raw)
     _warn_unknown_keys("visualization", VisualizationConfig, visualization_raw, excluded={"label_map"})
@@ -155,6 +158,7 @@ def load_config(path: str | Path | None = None, *, profile: str | None = None) -
             **_filter_dataclass_kwargs(TransformConfig, transform_raw)
         ),
         fusion=FusionConfig(**_filter_dataclass_kwargs(FusionConfig, fusion_raw)),
+        filling=FillingConfig(**_filter_dataclass_kwargs(FillingConfig, filling_raw)),
         analysis=AnalysisConfig(
             **_filter_dataclass_kwargs(
                 AnalysisConfig,

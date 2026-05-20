@@ -73,8 +73,6 @@ Controls adjacent stack correction:
 
 ## `fusion`
 
-- `save_fused: true`
-- `save_fusedfilled: true`
 - `enable_filling: true`
 
 ## `filling`
