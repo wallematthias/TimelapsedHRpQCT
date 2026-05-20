@@ -48,6 +48,28 @@ def test_write_aim_can_export_binary_mask_as_signed_char(monkeypatch, tmp_path: 
     assert fake.calls[0][3] == "native"
 
 
+def test_write_aim_normalizes_bmd_unit_for_py_aimio(monkeypatch, tmp_path: Path) -> None:
+    fake = _FakeAimio()
+    monkeypatch.setattr("timelapsedhrpqct.io.aim._load_py_aimio", lambda: fake)
+    image = sitk.GetImageFromArray(np.ones((1, 2, 3), dtype=np.float32))
+    processing_log = """
+Mu_Scaling 8192
+Density: slope 1599.91699
+Density: intercept -390.925995
+HU: mu water 0.2403
+"""
+
+    write_aim(
+        image,
+        tmp_path / "density.AIM",
+        metadata={"unit": "bmd", "processing_log": processing_log},
+    )
+
+    assert fake.calls[0][1].dtype == np.int16
+    assert fake.calls[0][2]["unit"] == "native"
+    assert fake.calls[0][3] == "native"
+
+
 def test_aim_metadata_from_import_json_uses_source_log_and_output_geometry(tmp_path: Path) -> None:
     metadata_json = tmp_path / "stack.json"
     metadata_json.write_text(
