@@ -13,6 +13,7 @@ from timelapsedhrpqct.dataset.artifacts import (
 from timelapsedhrpqct.dataset.derivative_paths import (
     common_reference_path,
     derivative_image_filename,
+    existing_derivative_path,
     final_transform_metadata_path,
     final_transform_path,
     stack_correction_dir,
@@ -367,6 +368,7 @@ def _build_stack_superstack_in_common_reference(
             moving_session=record.session_id,
             baseline_session=baseline_session,
         )
+        baseline_tfm_path = existing_derivative_path(baseline_tfm_path)
         if not baseline_tfm_path.exists():
             raise FileNotFoundError(
                 f"Missing baseline transform for superstack creation: {baseline_tfm_path}"
@@ -1054,6 +1056,7 @@ def run_stack_correction(
                     moving_session=moving_session,
                     baseline_session=baseline_session,
                 )
+                baseline_path = existing_derivative_path(baseline_path)
                 if not baseline_path.exists():
                     raise FileNotFoundError(
                         f"Missing baseline transform: {baseline_path}"

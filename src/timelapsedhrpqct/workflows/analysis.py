@@ -44,6 +44,7 @@ from timelapsedhrpqct.dataset.derivative_paths import (
     analysis_metadata_path,
     analysis_visualize_path,
     common_region_path,
+    existing_derivative_path,
     final_transform_path,
     pairwise_remodelling_csv_path,
     timelapse_baseline_transform_path,
@@ -313,6 +314,7 @@ def _load_session_to_baseline_transform(
         moving_session=session_id,
         baseline_session=baseline_session,
     )
+    final_path = existing_derivative_path(final_path)
     if final_path.exists():
         return sitk.ReadTransform(str(final_path))
 
@@ -334,6 +336,7 @@ def _load_session_to_baseline_transform(
         moving_session=session_id,
         baseline_session=baseline_session,
     )
+    baseline_path = existing_derivative_path(baseline_path)
     if baseline_path.exists():
         return sitk.ReadTransform(str(baseline_path))
 

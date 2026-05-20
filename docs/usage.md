@@ -253,10 +253,12 @@ Important output areas:
 - `sub-*/site-*/ses-*/`: optional moved raw AIM files (only when `--restructure-raw`)
 - `TimelapsedHRpQCT/_artifacts/`: persistent artifact indices
 - `TimelapsedHRpQCT/sub-*/ses-*/stacks/`: imported stacks
-- `TimelapsedHRpQCT/sub-*/timelapse_registration/`: within-stack longitudinal transforms
+- `TimelapsedHRpQCT/sub-*/registration/`: within-stack longitudinal transforms
 - `TimelapsedHRpQCT/sub-*/stack_correction/`: multistack correction outputs
 - `TimelapsedHRpQCT/sub-*/transforms/final/`: canonical final transforms
-- `TimelapsedHRpQCT/sub-*/transformed/`: fused transformed sessions
+- `TimelapsedHRpQCT/sub-*/transformed_images/`: fused transformed sessions
+
+Older datasets that used `timelapse_registration/` and `transformed/` remain readable.
 - `TimelapsedHRpQCT/sub-*/filled/`: filled fused sessions
 - `TimelapsedHRpQCT/sub-*/analysis/`: CSV outputs, common regions, visualizations, summary JSON
 

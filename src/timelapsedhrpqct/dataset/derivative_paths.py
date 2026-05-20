@@ -8,6 +8,10 @@ from timelapsedhrpqct.dataset.models import RawSession
 
 DERIVATIVE_IMAGE_SUFFIX = ".nii.gz"
 LEGACY_DERIVATIVE_IMAGE_SUFFIX = ".mha"
+REGISTRATION_DIR_NAME = "registration"
+LEGACY_REGISTRATION_DIR_NAME = "timelapse_registration"
+TRANSFORMED_IMAGES_DIR_NAME = "transformed_images"
+LEGACY_TRANSFORMED_IMAGES_DIR_NAME = "transformed"
 
 
 def derivative_image_filename(stem: str) -> str:
@@ -23,13 +27,42 @@ def legacy_image_path(path: Path) -> Path:
     return path.with_suffix(LEGACY_DERIVATIVE_IMAGE_SUFFIX)
 
 
+def legacy_layout_path(path: Path) -> Path:
+    """Return the old-layout sibling for a derivative path."""
+    parts = tuple(
+        LEGACY_REGISTRATION_DIR_NAME
+        if part == REGISTRATION_DIR_NAME
+        else LEGACY_TRANSFORMED_IMAGES_DIR_NAME
+        if part == TRANSFORMED_IMAGES_DIR_NAME
+        else part
+        for part in path.parts
+    )
+    return Path(*parts)
+
+
+def existing_derivative_path(path: Path) -> Path:
+    """Return preferred path when present, otherwise a legacy-layout sibling."""
+    if path.exists():
+        return path
+    legacy = legacy_layout_path(path)
+    if legacy.exists():
+        return legacy
+    return path
+
+
 def existing_image_path(path: Path) -> Path:
     """Return preferred path when present, otherwise a legacy .mha sibling."""
     if path.exists():
         return path
+    legacy_layout = legacy_layout_path(path)
+    if legacy_layout.exists():
+        return legacy_layout
     legacy = legacy_image_path(path)
     if legacy.exists():
         return legacy
+    legacy_layout_image = legacy_image_path(legacy_layout)
+    if legacy_layout_image.exists():
+        return legacy_layout_image
     return path
 
 
@@ -167,7 +200,7 @@ def timelapse_stack_transform_dir(
 ) -> Path:
     """Helper for timelapse stack transform dir."""
     site, stack_index, legacy = _parse_site_stack_args(site, stack_index)
-    return _subject_dir(dataset_root, subject_id, site, legacy) / "timelapse_registration" / f"stack-{stack_index:02d}"
+    return _subject_dir(dataset_root, subject_id, site, legacy) / REGISTRATION_DIR_NAME / f"stack-{stack_index:02d}"
 
 
 def stack_correction_dir(dataset_root: Path, subject_id: str, site: str | None = None) -> Path:
@@ -452,7 +485,7 @@ def transformed_dir(dataset_root: Path, subject_id: str, site: str | None = None
     """Helper for transformed dir."""
     legacy = site is None
     site = "radius" if site is None else site
-    return _subject_dir(dataset_root, subject_id, site, legacy) / "transformed"
+    return _subject_dir(dataset_root, subject_id, site, legacy) / TRANSFORMED_IMAGES_DIR_NAME
 
 
 def transformed_session_dir(

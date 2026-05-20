@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from timelapsedhrpqct.dataset.derivative_paths import (
+    existing_derivative_path,
     existing_image_path,
     common_reference_path,
     final_transform_metadata_path,
@@ -28,7 +29,7 @@ def test_timelapse_baseline_transform_path_matches_existing_layout() -> None:
     )
 
     assert str(path).endswith(
-        "TimelapsedHRpQCT/sub-001/timelapse_registration/stack-02/baseline/"
+        "TimelapsedHRpQCT/sub-001/registration/stack-02/baseline/"
         "sub-001_stack-02_from-ses-followup1_to-ses-baseline_baseline.tfm"
     )
 
@@ -98,3 +99,56 @@ def test_existing_image_path_falls_back_to_legacy_mha(tmp_path: Path) -> None:
     legacy.write_text("legacy", encoding="utf-8")
 
     assert existing_image_path(preferred) == legacy
+
+
+def test_existing_paths_fall_back_to_legacy_layout_names(tmp_path: Path) -> None:
+    transform = (
+        tmp_path
+        / "derivatives"
+        / "TimelapsedHRpQCT"
+        / "sub-001"
+        / "site-tibia"
+        / "registration"
+        / "stack-01"
+        / "baseline"
+        / "x.tfm"
+    )
+    legacy_transform = (
+        tmp_path
+        / "derivatives"
+        / "TimelapsedHRpQCT"
+        / "sub-001"
+        / "site-tibia"
+        / "timelapse_registration"
+        / "stack-01"
+        / "baseline"
+        / "x.tfm"
+    )
+    legacy_transform.parent.mkdir(parents=True)
+    legacy_transform.write_text("legacy", encoding="utf-8")
+
+    image = (
+        tmp_path
+        / "derivatives"
+        / "TimelapsedHRpQCT"
+        / "sub-001"
+        / "site-tibia"
+        / "transformed_images"
+        / "ses-C1"
+        / "image.nii.gz"
+    )
+    legacy_image = (
+        tmp_path
+        / "derivatives"
+        / "TimelapsedHRpQCT"
+        / "sub-001"
+        / "site-tibia"
+        / "transformed"
+        / "ses-C1"
+        / "image.nii.gz"
+    )
+    legacy_image.parent.mkdir(parents=True)
+    legacy_image.write_text("legacy", encoding="utf-8")
+
+    assert existing_derivative_path(transform) == legacy_transform
+    assert existing_image_path(image) == legacy_image

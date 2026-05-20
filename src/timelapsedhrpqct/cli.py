@@ -29,6 +29,7 @@ from timelapsedhrpqct.dataset.artifacts import (
 from timelapsedhrpqct.dataset.derivative_paths import (
     analysis_visualize_dir,
     analysis_metadata_path,
+    existing_derivative_path,
     pairwise_remodelling_csv_path,
     trajectory_metrics_csv_path,
     filled_image_path,
@@ -813,7 +814,7 @@ def _needs_timelapse_registration(dataset_root: Path) -> bool:
                     moving_session=record.session_id,
                     baseline_session=baseline_session,
                 )
-                if path.exists():
+                if existing_derivative_path(path).exists():
                     continue
                 legacy_path = timelapse_baseline_transform_path(
                     dataset_root=dataset_root,
@@ -822,7 +823,7 @@ def _needs_timelapse_registration(dataset_root: Path) -> bool:
                     moving_session=record.session_id,
                     baseline_session=baseline_session,
                 )
-                if not legacy_path.exists():
+                if not existing_derivative_path(legacy_path).exists():
                     return True
     return False
 
@@ -843,7 +844,7 @@ def _needs_stack_correction(dataset_root: Path) -> bool:
                     moving_session=record.session_id,
                     baseline_session=baseline_session,
                 )
-                if path.exists():
+                if existing_derivative_path(path).exists():
                     continue
                 legacy_path = final_transform_path(
                     dataset_root=dataset_root,
@@ -852,7 +853,7 @@ def _needs_stack_correction(dataset_root: Path) -> bool:
                     moving_session=record.session_id,
                     baseline_session=baseline_session,
                 )
-                if not legacy_path.exists():
+                if not existing_derivative_path(legacy_path).exists():
                     return True
     return False
 

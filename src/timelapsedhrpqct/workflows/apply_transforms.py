@@ -15,6 +15,7 @@ from timelapsedhrpqct.dataset.artifacts import (
 )
 from timelapsedhrpqct.dataset.derivative_paths import (
     common_reference_path,
+    existing_derivative_path,
     existing_image_path,
     final_transform_dir,
     final_transform_path,
@@ -320,6 +321,7 @@ def _resolve_transform_for_record(
         moving_session=session_id,
         baseline_session=baseline_session,
     )
+    final_path = existing_derivative_path(final_path)
     if final_path.exists():
         return _load_transform(final_path), str(final_path), "final"
 
@@ -331,6 +333,7 @@ def _resolve_transform_for_record(
         moving_session=session_id,
         baseline_session=baseline_session,
     )
+    baseline_path = existing_derivative_path(baseline_path)
     if baseline_path.exists():
         return _load_transform(baseline_path), str(baseline_path), "timelapse_fallback"
 
