@@ -12,6 +12,7 @@ from timelapsedhrpqct.dataset.artifacts import (
 )
 from timelapsedhrpqct.dataset.derivative_paths import (
     common_reference_path,
+    derivative_image_filename,
     final_transform_metadata_path,
     final_transform_path,
     stack_correction_dir,
@@ -160,7 +161,7 @@ def _superstack_image_path(
 ) -> Path:
     """Return superstack image path."""
     return _superstack_dir(dataset_root, subject_id, site, stack_index) / (
-        f"sub-{subject_id}_site-{site}_stack-{stack_index:02d}_superstack.mha"
+        derivative_image_filename(f"sub-{subject_id}_site-{site}_stack-{stack_index:02d}_superstack")
     )
 
 
@@ -172,7 +173,7 @@ def _superstack_mask_path(
 ) -> Path:
     """Return superstack mask path."""
     return _superstack_dir(dataset_root, subject_id, site, stack_index) / (
-        f"sub-{subject_id}_site-{site}_stack-{stack_index:02d}_superstack_mask-full.mha"
+        derivative_image_filename(f"sub-{subject_id}_site-{site}_stack-{stack_index:02d}_superstack_mask-full")
     )
 
 
@@ -184,7 +185,7 @@ def _superstack_reference_path(
 ) -> Path:
     """Return superstack reference path."""
     return _superstack_dir(dataset_root, subject_id, site, stack_index) / (
-        f"sub-{subject_id}_site-{site}_stack-{stack_index:02d}_superstack_reference.mha"
+        derivative_image_filename(f"sub-{subject_id}_site-{site}_stack-{stack_index:02d}_superstack_reference")
     )
 
 
@@ -213,14 +214,14 @@ def _qc_corrected_superstack_path(
 ) -> Path:
     """Return qc corrected superstack path."""
     return _qc_common_dir(dataset_root, subject_id, site) / (
-        f"sub-{subject_id}_site-{site}_stack-{stack_index:02d}_corrected_superstack.mha"
+        derivative_image_filename(f"sub-{subject_id}_site-{site}_stack-{stack_index:02d}_corrected_superstack")
     )
 
 
 def _qc_overlay_path(dataset_root: Path, subject_id: str, site: str) -> Path:
     """Return qc overlay path."""
     return _qc_common_dir(dataset_root, subject_id, site) / (
-        f"sub-{subject_id}_site-{site}_corrected_superstacks_overlay.mha"
+        derivative_image_filename(f"sub-{subject_id}_site-{site}_corrected_superstacks_overlay")
     )
 
 

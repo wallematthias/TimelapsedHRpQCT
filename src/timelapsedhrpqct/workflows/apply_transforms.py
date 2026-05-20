@@ -15,6 +15,7 @@ from timelapsedhrpqct.dataset.artifacts import (
 )
 from timelapsedhrpqct.dataset.derivative_paths import (
     common_reference_path,
+    existing_image_path,
     final_transform_dir,
     final_transform_path,
     fused_image_path,
@@ -287,8 +288,9 @@ def _resolve_reference_image(
 ) -> tuple[sitk.Image, str]:
     """Resolve reference image."""
     reference_path = _common_reference_path(dataset_root, subject_id, site)
-    if reference_path.exists():
-        return load_image(reference_path), str(reference_path)
+    existing_reference_path = existing_image_path(reference_path)
+    if existing_reference_path.exists():
+        return load_image(existing_reference_path), str(existing_reference_path)
 
     ref = _make_subject_common_reference_from_baselines(
         stacks_by_index=stacks_by_index,

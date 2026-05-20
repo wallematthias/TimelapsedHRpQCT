@@ -13,6 +13,7 @@ from timelapsedhrpqct.dataset.artifacts import (
     iter_imported_stack_records,
     upsert_imported_stack_records,
 )
+from timelapsedhrpqct.dataset.derivative_paths import derivative_image_filename
 from timelapsedhrpqct.processing.contour_generation import (
     ContourGenerationParams,
     generate_masks_from_image,
@@ -52,10 +53,10 @@ def discover_stack_images(dataset_root: Path) -> list[StackImageInput]:
 def _stack_paths(item: StackImageInput) -> dict[str, Path]:
     """Return stack paths."""
     return {
-        "seg": item.stack_dir / f"{item.stem}_seg.mha",
-        "full": item.stack_dir / f"{item.stem}_mask-full.mha",
-        "trab": item.stack_dir / f"{item.stem}_mask-trab.mha",
-        "cort": item.stack_dir / f"{item.stem}_mask-cort.mha",
+        "seg": item.stack_dir / derivative_image_filename(f"{item.stem}_seg"),
+        "full": item.stack_dir / derivative_image_filename(f"{item.stem}_mask-full"),
+        "trab": item.stack_dir / derivative_image_filename(f"{item.stem}_mask-trab"),
+        "cort": item.stack_dir / derivative_image_filename(f"{item.stem}_mask-cort"),
         "metadata": item.stack_dir / f"{item.stem}.json",
     }
 

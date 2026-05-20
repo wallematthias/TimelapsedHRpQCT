@@ -790,7 +790,10 @@ def _needs_analysis(
                 return True
         if requested["visualization_enabled"]:
             visualize_dir = analysis_visualize_dir(dataset_root, subject_id, site)
-            if not visualize_dir.exists() or not any(visualize_dir.glob("*.mha")):
+            has_visualization = any(visualize_dir.glob("*.nii.gz")) or any(
+                visualize_dir.glob("*.mha")
+            )
+            if not visualize_dir.exists() or not has_visualization:
                 return True
     return False
 

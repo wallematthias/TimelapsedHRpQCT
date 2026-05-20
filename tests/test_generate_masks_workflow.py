@@ -32,6 +32,10 @@ def test_run_mask_generation_refreshes_imported_artifacts_for_existing_outputs(
     trab_path = stack_dir / f"{stem}_mask-trab.mha"
     cort_path = stack_dir / f"{stem}_mask-cort.mha"
     seg_path = stack_dir / f"{stem}_seg.mha"
+    full_out = stack_dir / f"{stem}_mask-full.nii.gz"
+    trab_out = stack_dir / f"{stem}_mask-trab.nii.gz"
+    cort_out = stack_dir / f"{stem}_mask-cort.nii.gz"
+    seg_out = stack_dir / f"{stem}_seg.nii.gz"
     metadata_path = stack_dir / f"{stem}.json"
 
     image = np.zeros((4, 4, 4), dtype=np.float32)
@@ -70,11 +74,11 @@ def test_run_mask_generation_refreshes_imported_artifacts_for_existing_outputs(
     records = iter_imported_stack_records(dataset_root)
     assert len(records) == 1
     assert records[0].mask_paths == {
-        "cort": cort_path,
-        "full": full_path,
-        "trab": trab_path,
+        "cort": cort_out,
+        "full": full_out,
+        "trab": trab_out,
     }
-    assert records[0].seg_path == seg_path
+    assert records[0].seg_path == seg_out
     assert records[0].metadata_path == metadata_path
 
 
@@ -192,6 +196,7 @@ def test_adaptive_mode_regenerates_segmentation_when_masks_change(
 
     run_mask_generation(dataset_root, config)
 
-    assert cort_path.exists()
-    assert seg_path.exists()
-    assert "stale-seg" not in seg_path.read_text(encoding="utf-8", errors="ignore")
+    cort_out = stack_dir / f"{stem}_mask-cort.nii.gz"
+    seg_out = stack_dir / f"{stem}_seg.nii.gz"
+    assert cort_out.exists()
+    assert seg_out.exists()
