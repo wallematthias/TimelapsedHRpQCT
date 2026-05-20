@@ -228,6 +228,8 @@ def write_aim(
 ) -> None:
     """Write a SimpleITK image to Scanco AIM through py_aimio."""
     py_aimio = _load_py_aimio()
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
     arr_zyx = sitk.GetArrayFromImage(image)
     arr_xyz = np.transpose(arr_zyx, (2, 1, 0))
     meta = dict(metadata or {})

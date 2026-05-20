@@ -45,6 +45,18 @@ def test_scanco_dat_export_round_trips_canonical_transform(tmp_path: Path) -> No
     assert "SCANCO TRANSFORMATION DATA VERSION" in dat_path.read_text(encoding="utf-8")
 
 
+def test_scanco_dat_export_handles_composite_final_transform(tmp_path: Path) -> None:
+    dat_path = tmp_path / "exported_composite.DAT"
+    composite = sitk.CompositeTransform(3)
+    composite.AddTransform(sitk.TranslationTransform(3, (1.0, 2.0, 3.0)))
+    composite.AddTransform(sitk.TranslationTransform(3, (4.0, 5.0, 6.0)))
+
+    write_scanco_dat_transform(composite, dat_path)
+    imported = read_scanco_dat_transform(dat_path)
+
+    assert imported.TransformPoint((1.0, 2.0, 3.0)) == composite.TransformPoint((1.0, 2.0, 3.0))
+
+
 def test_import_manufacturer_transform_writes_registry_record(tmp_path: Path) -> None:
     dat_path = tmp_path / "raw" / "sub-SAMPLE341" / "site-tibia" / "ses-T1" / "SAMPLE341_T2-to-T1.DAT"
     _write_dat(dat_path, tx=4.0, ty=5.0, tz=6.0)

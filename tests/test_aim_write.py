@@ -25,9 +25,10 @@ def test_write_aim_exports_sitk_image_as_xyz_array_with_geometry(monkeypatch, tm
     image.SetOrigin((1.0, 2.0, 3.0))
     image.SetDirection((1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0))
 
-    write_aim(image, tmp_path / "out.AIM", metadata={"unit": "native"})
+    write_aim(image, tmp_path / "nested" / "out.AIM", metadata={"unit": "native"})
 
     assert fake.calls[0][0].endswith("out.AIM")
+    assert (tmp_path / "nested").is_dir()
     np.testing.assert_array_equal(fake.calls[0][1], np.transpose(array_zyx, (2, 1, 0)))
     assert fake.calls[0][2]["dimensions"] == (4, 3, 2)
     assert fake.calls[0][2]["spacing"] == (0.061, 0.062, 0.063)

@@ -210,19 +210,33 @@ def read_scanco_dat_transform(path: str | Path) -> sitk.Transform:
 
 
 def _matrix_translation(transform: sitk.Transform) -> tuple[tuple[float, ...], tuple[float, ...]]:
-    if isinstance(transform, sitk.TranslationTransform):
-        return (
-            (1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0),
-            tuple(float(v) for v in transform.GetOffset()),
-        )
-    if isinstance(transform, sitk.AffineTransform):
-        return tuple(float(v) for v in transform.GetMatrix()), tuple(
-            float(v) for v in transform.GetTranslation()
-        )
-    affine = sitk.AffineTransform(transform)
-    return tuple(float(v) for v in affine.GetMatrix()), tuple(
-        float(v) for v in affine.GetTranslation()
+    if transform.GetDimension() != 3:
+        raise ValueError("Scanco DAT export requires a 3D transform.")
+
+    origin = (0.0, 0.0, 0.0)
+    basis = (
+        (1.0, 0.0, 0.0),
+        (0.0, 1.0, 0.0),
+        (0.0, 0.0, 1.0),
     )
+    translation = tuple(float(v) for v in transform.TransformPoint(origin))
+    transformed_basis = [transform.TransformPoint(point) for point in basis]
+    columns = [
+        tuple(float(transformed_basis[col][row] - translation[row]) for row in range(3))
+        for col in range(3)
+    ]
+    matrix = (
+        columns[0][0],
+        columns[1][0],
+        columns[2][0],
+        columns[0][1],
+        columns[1][1],
+        columns[2][1],
+        columns[0][2],
+        columns[1][2],
+        columns[2][2],
+    )
+    return matrix, translation
 
 
 def write_scanco_dat_transform(transform: sitk.Transform, path: str | Path) -> None:
