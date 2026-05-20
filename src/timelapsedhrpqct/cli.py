@@ -876,17 +876,47 @@ def _needs_stack_correction(dataset_root: Path) -> bool:
 
 def _needs_apply_transforms(dataset_root: Path) -> bool:
     """Helper for needs apply transforms."""
+    def _fused_record_complete(record) -> bool:
+        if not record.image_path.exists():
+            return False
+        if record.metadata_path is None or not record.metadata_path.exists():
+            return False
+        full_mask = record.mask_paths.get("full")
+        return full_mask is not None and full_mask.exists()
+
     records = iter_fused_session_records(dataset_root)
+    imported_records = iter_imported_stack_records(dataset_root)
+    if not imported_records:
+        if not records:
+            return True
+        return any(not _fused_record_complete(record) for record in records)
+
     if not records:
         return True
-    for record in records:
-        if not record.image_path.exists():
-            return True
-        if record.metadata_path is None or not record.metadata_path.exists():
-            return True
-        full_mask = record.mask_paths.get("full")
-        if full_mask is None or not full_mask.exists():
-            return True
+
+    fused_by_subject_site = group_fused_sessions_by_subject_site(records)
+    imported_by_subject_site = group_imported_stacks_by_subject_site_and_stack(imported_records)
+    for subject_site, stacks_by_index in imported_by_subject_site.items():
+        expected_sessions = {
+            record.session_id
+            for stack_records in stacks_by_index.values()
+            for record in stack_records
+        }
+        fused_by_session = {
+            record.session_id: record
+            for record in fused_by_subject_site.get(subject_site, [])
+        }
+        for session_id in expected_sessions:
+            fused_record = fused_by_session.get(session_id)
+            if fused_record is None or not _fused_record_complete(fused_record):
+                return True
+
+    for subject_site, fused_records in fused_by_subject_site.items():
+        if subject_site not in imported_by_subject_site:
+            continue
+        for record in fused_records:
+            if not _fused_record_complete(record):
+                return True
     return False
 
 

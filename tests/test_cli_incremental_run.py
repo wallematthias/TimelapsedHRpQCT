@@ -317,6 +317,96 @@ def test_needs_apply_transforms_and_filling_reflect_artifact_presence(tmp_path: 
     assert _needs_filling(dataset_root) is False
 
 
+def test_needs_apply_transforms_detects_missing_imported_session_fusion(tmp_path: Path) -> None:
+    dataset_root = tmp_path / "dataset"
+    imported_image = tmp_path / "imported_image.mha"
+    _touch(imported_image)
+
+    upsert_imported_stack_records(
+        dataset_root,
+        [
+            ImportedStackRecord(
+                "001",
+                "C1",
+                1,
+                imported_image,
+                {},
+                None,
+                None,
+                site="radius",
+            ),
+            ImportedStackRecord(
+                "001",
+                "C2",
+                1,
+                imported_image,
+                {},
+                None,
+                None,
+                site="radius",
+            ),
+            ImportedStackRecord(
+                "002",
+                "C1",
+                1,
+                imported_image,
+                {},
+                None,
+                None,
+                site="tibia",
+            ),
+        ],
+    )
+
+    fused_image = tmp_path / "fused_image.mha"
+    fused_full = tmp_path / "fused_full.mha"
+    fused_meta = tmp_path / "fused.json"
+    for path in (fused_image, fused_full, fused_meta):
+        _touch(path)
+
+    upsert_fused_session_record(
+        dataset_root,
+        FusedSessionRecord(
+            "001",
+            "C1",
+            fused_image,
+            {"full": fused_full},
+            None,
+            fused_meta,
+            site="radius",
+        ),
+    )
+
+    assert _needs_apply_transforms(dataset_root) is True
+
+    upsert_fused_session_record(
+        dataset_root,
+        FusedSessionRecord(
+            "001",
+            "C2",
+            fused_image,
+            {"full": fused_full},
+            None,
+            fused_meta,
+            site="radius",
+        ),
+    )
+    upsert_fused_session_record(
+        dataset_root,
+        FusedSessionRecord(
+            "002",
+            "C1",
+            fused_image,
+            {"full": fused_full},
+            None,
+            fused_meta,
+            site="tibia",
+        ),
+    )
+
+    assert _needs_apply_transforms(dataset_root) is False
+
+
 def test_needs_analysis_uses_existing_summary_when_no_overrides(tmp_path: Path) -> None:
     dataset_root = tmp_path / "dataset"
     fused_image = tmp_path / "fused_image.mha"
