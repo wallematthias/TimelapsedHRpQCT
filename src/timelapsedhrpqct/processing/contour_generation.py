@@ -6,8 +6,11 @@ from typing import Any
 
 import numpy as np
 import SimpleITK as sitk
-from scipy import ndimage
 
+from timelapsedhrpqct.processing.laplace_hamming import (
+    LaplaceHammingParams,
+    laplace_hamming_binarize_xyz,
+)
 from timelapsedhrpqct.processing.masks import resolve_masks
 
 
@@ -56,7 +59,7 @@ class InnerContourParams:
 @dataclass(slots=True)
 class SegmentationParams:
     enabled: bool = True
-    method: str = "global"  # "global" | "adaptive" | "laplace_hamming"
+    method: str = "seg_gauss"  # "adaptive" | "seg_gauss" | "laplace_hamming"
     gaussian_sigma: float = 0.8
     trab_threshold: float = 320.0
     cort_threshold: float = 450.0
@@ -65,9 +68,17 @@ class SegmentationParams:
     adaptive_block_size: int = 13
     min_size_voxels: int = 64
     keep_largest_component: bool = True
+    laplace_hamming_low_pass_cutoff: float = 0.3
+    laplace_hamming_high_pass_cutoff: float = 0.0
     laplace_hamming_threshold: float = 15564.0
     laplace_hamming_epsilon: float = 0.45
-    laplace_hamming_cutoff: float = 0.3
+    laplace_hamming_amplitude: float = 1.0
+    laplace_hamming_amplification: float = 1.0
+    laplace_hamming_input_offset: float = 32768.0
+    laplace_hamming_ipl_scale_a: float = 77.7911
+    laplace_hamming_ipl_scale_b: float = -1359190.17
+    laplace_hamming_ipl_float_max: float = 200000.0
+    laplace_hamming_int16_max: float = 32768.0
     laplace_hamming_min_size_voxels: int = 70
 
 
@@ -845,54 +856,6 @@ def combined_threshold(
     return _safe_remove_small_objects(out, min_size=min_size)
 
 
-def laplace_hamming_map(
-    density: np.ndarray,
-    *,
-    epsilon: float = 0.45,
-    cutoff: float = 0.3,
-) -> np.ndarray:
-    """
-    Return an edge-enhanced Laplace-Hamming-style map in Scanco-like units.
-
-    Scanco's IPL implementation is proprietary. This implementation follows the
-    published parameterization: a Hamming-windowed frequency-domain smoothing
-    step followed by Laplacian edge enhancement. The output is scaled so the
-    common 475 per mille threshold corresponds to 15564 in the config.
-    """
-    image = np.asarray(density, dtype=np.float32)
-    cutoff = float(cutoff)
-    if not 0.0 < cutoff <= 1.0:
-        raise ValueError(f"laplace_hamming_cutoff must be in (0, 1], got {cutoff}")
-
-    freq_axes = [np.fft.fftfreq(size) / 0.5 for size in image.shape]
-    radius_squared = np.zeros(image.shape, dtype=np.float32)
-    for dim, axis in enumerate(freq_axes):
-        shape = [1] * image.ndim
-        shape[dim] = -1
-        radius_squared += axis.reshape(shape).astype(np.float32) ** 2
-    radius = np.sqrt(radius_squared)
-    window = np.zeros_like(radius, dtype=np.float32)
-    inside = radius <= cutoff
-    window[inside] = 0.54 + 0.46 * np.cos(np.pi * radius[inside] / cutoff)
-
-    smoothed = np.fft.ifftn(np.fft.fftn(image) * window).real.astype(np.float32, copy=False)
-    enhanced = smoothed - float(epsilon) * ndimage.laplace(smoothed)
-    return enhanced * np.float32(32.768)
-
-
-def laplace_hamming_threshold(
-    density: np.ndarray,
-    *,
-    threshold: float = 15564.0,
-    epsilon: float = 0.45,
-    cutoff: float = 0.3,
-    min_size: int = 70,
-) -> np.ndarray:
-    """Segment bone with the Laplace-Hamming-style map and a global threshold."""
-    lh = laplace_hamming_map(density, epsilon=epsilon, cutoff=cutoff)
-    return _safe_remove_small_objects(lh >= float(threshold), min_size=int(min_size))
-
-
 def _segment_bone_xyz(
     image_xyz: np.ndarray,
     full_mask_xyz: np.ndarray,
@@ -905,13 +868,15 @@ def _segment_bone_xyz(
     if not params.enabled:
         return _ensure_bool(full_mask_xyz)
 
-    if params.method == "global":
+    method = "seg_gauss" if params.method == "global" else params.method
+
+    if method == "seg_gauss":
         filtered = _smooth_density_xyz(image_xyz, sigma=params.gaussian_sigma, truncate=4.0, spacing_xyz=spacing_xyz)
         trab_seg = (filtered >= params.trab_threshold) & trab_mask_xyz
         cort_seg = (filtered >= params.cort_threshold) & cort_mask_xyz
         seg = trab_seg | cort_seg
 
-    elif params.method == "adaptive":
+    elif method == "adaptive":
         seg = combined_threshold(
             image_xyz,
             spacing_xyz=spacing_xyz,
@@ -922,22 +887,35 @@ def _segment_bone_xyz(
         )
         seg = seg & full_mask_xyz
 
-    elif params.method == "laplace_hamming":
-        seg = laplace_hamming_threshold(
+    elif method == "laplace_hamming":
+        seg = laplace_hamming_binarize_xyz(
             image_xyz,
-            threshold=params.laplace_hamming_threshold,
-            epsilon=params.laplace_hamming_epsilon,
-            cutoff=params.laplace_hamming_cutoff,
-            min_size=params.laplace_hamming_min_size_voxels,
+            full_mask_xyz=full_mask_xyz,
+            spacing_xyz=spacing_xyz,
+            params=LaplaceHammingParams(
+                low_pass_cutoff=float(params.laplace_hamming_low_pass_cutoff),
+                high_pass_cutoff=float(params.laplace_hamming_high_pass_cutoff),
+                laplace_epsilon=float(params.laplace_hamming_epsilon),
+                hamming_amplitude=float(params.laplace_hamming_amplitude),
+                amplification=float(params.laplace_hamming_amplification),
+                input_offset=float(params.laplace_hamming_input_offset),
+                ipl_scale_a=float(params.laplace_hamming_ipl_scale_a),
+                ipl_scale_b=float(params.laplace_hamming_ipl_scale_b),
+                ipl_float_max=float(params.laplace_hamming_ipl_float_max),
+                int16_max=float(params.laplace_hamming_int16_max),
+                threshold=float(params.laplace_hamming_threshold),
+                min_size_voxels=int(params.laplace_hamming_min_size_voxels),
+            ),
         )
-        seg = seg & full_mask_xyz
 
     else:
         raise ValueError(f"Unsupported segmentation method: {params.method}")
 
     seg = _safe_remove_small_objects(seg, params.min_size_voxels)
 
-    if params.keep_largest_component and np.any(seg):
+    # The LH reference removes small 6-connected components but does not prune
+    # the result to one largest component after thresholding.
+    if method != "laplace_hamming" and params.keep_largest_component and np.any(seg):
         seg = _largest_connected_component(seg)
 
     return _ensure_bool(seg)

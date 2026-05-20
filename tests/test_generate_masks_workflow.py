@@ -13,8 +13,14 @@ from timelapsedhrpqct.dataset.artifacts import (
     upsert_imported_stack_records,
 )
 from timelapsedhrpqct.dataset.layout import get_derivatives_root
-from timelapsedhrpqct.workflows.generate_masks import run_mask_generation
-from timelapsedhrpqct.workflows.generate_masks import _apply_site_defaults, _derive_params, _infer_scan_site
+from timelapsedhrpqct.workflows.generate_masks import (
+    StackImageInput,
+    _apply_site_defaults,
+    _derive_params,
+    _generate_segmentation_image,
+    _infer_scan_site,
+    run_mask_generation,
+)
 
 from ._pipeline_helpers import write_image
 
@@ -201,3 +207,79 @@ def test_adaptive_mode_regenerates_segmentation_when_masks_change(
     seg_out = stack_dir / f"{stem}_seg.nii.gz"
     assert cort_out.exists()
     assert seg_out.exists()
+
+
+def test_laplace_hamming_segmentation_uses_scanco_hu_int16_values(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    source_aim = tmp_path / "scan.AIM"
+    source_aim.write_bytes(b"placeholder")
+    image_path = tmp_path / "stack_image.nii.gz"
+
+    reference = sitk.GetImageFromArray(np.zeros((3, 4, 5), dtype=np.float32))
+    reference.SetSpacing((0.061, 0.061, 0.061))
+    scanco_image = sitk.GetImageFromArray(np.full((3, 4, 5), 1234, dtype=np.int16))
+    scanco_image.CopyInformation(reference)
+
+    item = StackImageInput(
+        subject_id="001",
+        site="tibia",
+        session_id="T1",
+        stack_id="stack-01",
+        stack_index=1,
+        image_path=image_path,
+        stack_dir=tmp_path,
+        stem="sub-001_site-tibia_ses-T1_stack-01",
+    )
+    metadata = {
+        "source_image": str(source_aim),
+        "slice_range": {"stack_index": 1, "z_start": 0, "z_stop": 3, "depth": 3},
+        "crop": {"applied": False},
+    }
+    params = _derive_params(AppConfig())
+    params.segmentation.method = "laplace_hamming"
+
+    captured = {}
+
+    def fake_read_laplace_hamming_aim(path: Path):
+        captured["read_laplace_hamming_aim"] = Path(path)
+        return scanco_image
+
+    def fake_generate_seg_from_existing_masks(
+        image,
+        full_mask,
+        trab_mask,
+        cort_mask,
+        params,
+        verbose=False,
+    ):
+        captured["seg_input_value"] = int(sitk.GetArrayFromImage(image)[0, 0, 0])
+        return sitk.Cast(image > 0, sitk.sitkUInt8)
+
+    monkeypatch.setattr(
+        "timelapsedhrpqct.workflows.generate_masks._read_laplace_hamming_aim",
+        fake_read_laplace_hamming_aim,
+    )
+    monkeypatch.setattr(
+        "timelapsedhrpqct.workflows.generate_masks.generate_seg_from_existing_masks",
+        fake_generate_seg_from_existing_masks,
+    )
+
+    seg, source_meta = _generate_segmentation_image(
+        item=item,
+        metadata=metadata,
+        reference_image=reference,
+        full_mask=sitk.Cast(reference == 0, sitk.sitkUInt8),
+        trab_mask=sitk.Cast(reference == 0, sitk.sitkUInt8),
+        cort_mask=sitk.Cast(reference == 0, sitk.sitkUInt8),
+        params=params,
+        verbose=False,
+    )
+
+    assert captured["read_laplace_hamming_aim"] == source_aim
+    assert captured["seg_input_value"] == 1234
+    assert source_meta["segmentation_input_unit"] == "scanco_hu_int16"
+    assert source_meta["segmentation_input_reader"] == "py_aimio_hu_truncated_to_int16"
+    assert seg.GetSize() == reference.GetSize()
+    assert seg.GetSpacing() == reference.GetSpacing()

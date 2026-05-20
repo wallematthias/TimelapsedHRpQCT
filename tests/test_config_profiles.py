@@ -62,7 +62,8 @@ masks:
     method: laplace_hamming
     laplace_hamming_threshold: 15000
     laplace_hamming_epsilon: 0.5
-    laplace_hamming_cutoff: 0.4
+    laplace_hamming_low_pass_cutoff: 0.4
+    laplace_hamming_high_pass_cutoff: 0.1
     laplace_hamming_min_size_voxels: 25
 """,
         encoding="utf-8",
@@ -73,7 +74,8 @@ masks:
     assert config.masks.segmentation.method == "laplace_hamming"
     assert config.masks.segmentation.laplace_hamming_threshold == 15000
     assert config.masks.segmentation.laplace_hamming_epsilon == 0.5
-    assert config.masks.segmentation.laplace_hamming_cutoff == 0.4
+    assert config.masks.segmentation.laplace_hamming_low_pass_cutoff == 0.4
+    assert config.masks.segmentation.laplace_hamming_high_pass_cutoff == 0.1
     assert config.masks.segmentation.laplace_hamming_min_size_voxels == 25
 
 

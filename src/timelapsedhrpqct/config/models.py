@@ -92,7 +92,7 @@ class InnerContourConfig:
 
 @dataclass(slots=True)
 class MaskSegmentationConfig:
-    method: str = "adaptive"  # "global" | "adaptive" | "laplace_hamming"
+    method: str = "adaptive"  # "adaptive" | "seg_gauss" | "laplace_hamming"
     gaussian_sigma: float = 0.8
     trab_threshold: float = 320.0
     cort_threshold: float = 450.0
@@ -101,9 +101,17 @@ class MaskSegmentationConfig:
     adaptive_block_size: int = 13
     min_size_voxels: int = 64
     keep_largest_component: bool = True
+    laplace_hamming_low_pass_cutoff: float = 0.3
+    laplace_hamming_high_pass_cutoff: float = 0.0
     laplace_hamming_threshold: float = 15564.0
     laplace_hamming_epsilon: float = 0.45
-    laplace_hamming_cutoff: float = 0.3
+    laplace_hamming_amplitude: float = 1.0
+    laplace_hamming_amplification: float = 1.0
+    laplace_hamming_input_offset: float = 32768.0
+    laplace_hamming_ipl_scale_a: float = 77.7911
+    laplace_hamming_ipl_scale_b: float = -1359190.17
+    laplace_hamming_ipl_float_max: float = 200000.0
+    laplace_hamming_int16_max: float = 32768.0
     laplace_hamming_min_size_voxels: int = 70
 
 

@@ -81,8 +81,8 @@ Key options:
 
 Controls segmentation from stack images and masks.
 
-- `method`: `adaptive`, `global`, or `laplace_hamming`
-- `gaussian_sigma`: Gaussian smoothing sigma before `global` thresholding; converted internally to physical units using image spacing
+- `method`: `adaptive`, `seg_gauss`, or `laplace_hamming`
+- `gaussian_sigma`: Gaussian smoothing sigma before `seg_gauss` thresholding; converted internally to physical units using image spacing
 - `trab_threshold`
 - `cort_threshold`
 - `adaptive_low_threshold`
@@ -90,10 +90,22 @@ Controls segmentation from stack images and masks.
 - `adaptive_block_size`
 - `min_size_voxels`
 - `keep_largest_component`
+- `laplace_hamming_low_pass_cutoff`
+- `laplace_hamming_high_pass_cutoff`
 - `laplace_hamming_threshold`
 - `laplace_hamming_epsilon`
-- `laplace_hamming_cutoff`
+- `laplace_hamming_amplitude`
+- `laplace_hamming_amplification`
+- `laplace_hamming_input_offset`
+- `laplace_hamming_ipl_scale_a`
+- `laplace_hamming_ipl_scale_b`
+- `laplace_hamming_ipl_float_max`
+- `laplace_hamming_int16_max`
 - `laplace_hamming_min_size_voxels`
+
+`seg_gauss` is the former `global` method: Gaussian smoothing followed by trabecular/cortical thresholds. Old configs that say `global` are still accepted as a compatibility alias.
+
+For `laplace_hamming`, generated masks still come from the imported BMD image, but the segmentation itself re-reads the original AIM as Scanco-style signed-short HU values because the reference threshold is calibrated on that scale.
 
 ## `timelapsed_registration`
 

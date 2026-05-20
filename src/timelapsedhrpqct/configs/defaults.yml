@@ -285,13 +285,13 @@ masks:
 
   segmentation:
     # Segmentation method for generating binary/label images from masks/image.
-    # Options: adaptive | global | laplace_hamming.
+    # Options: adaptive | seg_gauss | laplace_hamming.
     method: adaptive
-    # Gaussian smoothing sigma before global thresholding; range: 0-3 voxels.
+    # Gaussian smoothing sigma before seg_gauss thresholding; range: 0-3 voxels.
     gaussian_sigma: 0.8
-    # Trabecular threshold for global segmentation; range: 100-600 mgHA/cm3.
+    # Trabecular threshold for seg_gauss segmentation; range: 100-600 mgHA/cm3.
     trab_threshold: 320
-    # Cortical threshold for global segmentation; range: 200-900 mgHA/cm3.
+    # Cortical threshold for seg_gauss segmentation; range: 200-900 mgHA/cm3.
     cort_threshold: 450
     # Lower adaptive threshold; range: 50-300 mgHA/cm3.
     adaptive_low_threshold: 100
@@ -304,13 +304,35 @@ masks:
     # Keep only the largest connected segmentation component.
     # Options: true | false.
     keep_largest_component: true
-    # Laplace-Hamming fixed threshold in Scanco-like filtered units; range: 8000-25000.
-    # The default corresponds to about 475 per mille in the published LH workflow.
-    laplace_hamming_threshold: 15564
-    # Laplacian edge-enhancement weight; published XCTII parameter range: 0.3-0.6.
+    # Laplace-Hamming low-pass cutoff for the frequency-domain Hamming filter; range: 0.1-1.0.
+    laplace_hamming_low_pass_cutoff: 0.3
+    # Laplace-Hamming high-pass cutoff; keep 0.0 for the reference low-pass workflow, range: 0.0-0.5.
+    laplace_hamming_high_pass_cutoff: 0.0
+    # Laplacian edge-enhancement weight from the reference workflow; range: 0.3-0.6.
     laplace_hamming_epsilon: 0.45
-    # Hamming frequency cutoff fraction; published XCTII parameter range: 0.2-0.4.
-    laplace_hamming_cutoff: 0.3
+    # Hamming window amplitude; keep 1.0 for the reference workflow, range: 0.0-1.0.
+    laplace_hamming_amplitude: 1.0
+    # Overall frequency-domain amplification; keep 1.0 unless validating against a scanner-specific reference.
+    # Reasonable range: 0.1-5.0.
+    laplace_hamming_amplification: 1.0
+    # Offset added before filtering to match the reference signed-short HU convention.
+    # Reasonable range: 0-32768.
+    laplace_hamming_input_offset: 32768.0
+    # IPL linear scaling slope applied after filtering; scanner/reference-specific.
+    # Reasonable range: 1-200.
+    laplace_hamming_ipl_scale_a: 77.7911
+    # IPL linear scaling intercept applied after filtering; scanner/reference-specific.
+    # Reasonable range: -3000000-0.
+    laplace_hamming_ipl_scale_b: -1359190.17
+    # Upper clipping value before int16-style scaling; reference value is 200000.
+    # Reasonable range: 10000-500000.
+    laplace_hamming_ipl_float_max: 200000.0
+    # Final integer scaling maximum; reference value is 32768.
+    # Reasonable range: 32767-65535.
+    laplace_hamming_int16_max: 32768.0
+    # Laplace-Hamming fixed threshold in filtered/scaled units; reference value corresponds to 475 per mille.
+    # Reasonable range: 8000-25000.
+    laplace_hamming_threshold: 15564
     # Remove LH components smaller than this voxel count; reasonable range: 0-10000.
     laplace_hamming_min_size_voxels: 70
 
