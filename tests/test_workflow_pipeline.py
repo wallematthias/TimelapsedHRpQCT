@@ -6,11 +6,16 @@ from pathlib import Path
 import SimpleITK as sitk
 
 from timelapsedhrpqct.dataset.layout import get_derivatives_root
+from timelapsedhrpqct.dataset.artifacts import (
+    group_imported_stacks_by_subject_site_and_stack,
+    iter_imported_stack_records,
+)
 from timelapsedhrpqct.workflows.apply_transforms import (
     _fused_image_path,
     _fused_mask_path,
     _fused_metadata_path,
     _fused_seg_path,
+    _make_subject_common_reference_from_baselines,
     run_apply_transforms,
 )
 from timelapsedhrpqct.workflows.multistack_correction import (
@@ -94,6 +99,32 @@ def test_timelapse_registration_writes_pairwise_and_baseline_transforms(
     )
     assert baseline_meta["baseline_session"] == "baseline"
     assert len(fake_register.calls) == 4
+
+
+def test_common_reference_from_baselines_streams_without_multi_image_list(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    dataset_root = build_imported_dataset(tmp_path / "dataset", stack_indices=(1, 2, 3, 4, 5))
+    grouped = group_imported_stacks_by_subject_site_and_stack(
+        iter_imported_stack_records(dataset_root)
+    )
+
+    def _fail_if_old_list_builder_is_used(*_args, **_kwargs):
+        raise AssertionError("reference construction should stream bounds")
+
+    monkeypatch.setattr(
+        "timelapsedhrpqct.workflows.apply_transforms._make_multi_union_reference_image",
+        _fail_if_old_list_builder_is_used,
+    )
+
+    reference = _make_subject_common_reference_from_baselines(
+        stacks_by_index=grouped[("001", "radius")],
+        baseline_session="baseline",
+    )
+
+    assert reference.GetDimension() == 3
+    assert all(size > 0 for size in reference.GetSize())
 
 
 def test_pipeline_runs_end_to_end_with_deterministic_registration_backend(
