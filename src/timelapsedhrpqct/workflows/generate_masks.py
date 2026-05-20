@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import SimpleITK as sitk
+import numpy as np
 
 from timelapsedhrpqct.config.models import AppConfig
 from timelapsedhrpqct.dataset.artifacts import (
@@ -13,6 +14,8 @@ from timelapsedhrpqct.dataset.artifacts import (
     iter_imported_stack_records,
     upsert_imported_stack_records,
 )
+from timelapsedhrpqct.dataset.models import StackSliceRange
+from timelapsedhrpqct.io.aim import read_aim
 from timelapsedhrpqct.processing.contour_generation import (
     ContourGenerationParams,
     generate_masks_from_image,
@@ -73,6 +76,197 @@ def _load_metadata(path: Path) -> dict:
 def _write_metadata(path: Path, meta: dict) -> None:
     """Helper for write metadata."""
     path.write_text(json.dumps(meta, indent=2), encoding="utf-8")
+
+
+def _copy_information_from_reference(image: sitk.Image, reference: sitk.Image) -> sitk.Image:
+    """Return image with reference geometry when sizes match."""
+    if image.GetSize() != reference.GetSize():
+        raise ValueError(
+            f"Cannot copy geometry: image size {image.GetSize()} != reference size {reference.GetSize()}"
+        )
+    out = sitk.Image(image)
+    out.CopyInformation(reference)
+    return out
+
+
+def _crop_image(
+    image: sitk.Image,
+    index_xyz: tuple[int, int, int],
+    size_xyz: tuple[int, int, int],
+    pad_value: float | int = 0,
+) -> sitk.Image:
+    """Crop image with centered padding semantics matching AIM import."""
+    img_size = image.GetSize()
+    pad_lower = [0, 0, 0]
+    pad_upper = [0, 0, 0]
+
+    for i in range(3):
+        start = int(index_xyz[i])
+        end = int(index_xyz[i] + size_xyz[i])
+        if start < 0:
+            pad_lower[i] = -start
+        if end > img_size[i]:
+            pad_upper[i] = end - img_size[i]
+
+    if any(pad_lower) or any(pad_upper):
+        image = sitk.ConstantPad(
+            image,
+            padLowerBound=pad_lower,
+            padUpperBound=pad_upper,
+            constant=pad_value,
+        )
+        index_xyz = tuple(int(index_xyz[i] + pad_lower[i]) for i in range(3))
+
+    return sitk.RegionOfInterest(
+        image,
+        size=[int(v) for v in size_xyz],
+        index=[int(v) for v in index_xyz],
+    )
+
+
+def _reset_origin_to_zero(image: sitk.Image) -> sitk.Image:
+    """Return a copy of an image with zeroed origin."""
+    out = sitk.Image(image)
+    out.SetOrigin((0.0,) * image.GetDimension())
+    return out
+
+
+def _slice_image(image: sitk.Image, slice_range: StackSliceRange) -> sitk.Image:
+    """Extract a z-range stack slab from a full-session image volume."""
+    size = list(image.GetSize())
+    index = [0, 0, 0]
+    index[2] = int(slice_range.z_start)
+    size[2] = int(slice_range.depth)
+    return sitk.RegionOfInterest(image, size=size, index=index)
+
+
+def _metadata_raw_image_path(metadata: dict) -> Path:
+    """Resolve the raw AIM path to use for Scanco-convention LH segmentation."""
+    copied = metadata.get("copied_raw_paths") or {}
+    candidates = []
+    if isinstance(copied, dict):
+        candidates.append(copied.get("image"))
+    candidates.append(metadata.get("source_image"))
+    for candidate in candidates:
+        if not candidate:
+            continue
+        path = Path(candidate)
+        if path.exists():
+            return path
+    raise FileNotFoundError(
+        "Laplace-Hamming segmentation requires the original raw AIM image. "
+        "No existing path was found in stack metadata keys 'copied_raw_paths.image' "
+        "or 'source_image'."
+    )
+
+
+def _read_laplace_hamming_aim(path: Path) -> sitk.Image:
+    """
+    Read AIM voxels using the same Scanco HU convention as the LH reference.
+
+    The reference ScancoImageIO path exposes signed-short HU values. py_aimio's
+    native counts are affine-related but are not on that scale; applying the
+    AIM HU calibration and truncating to int16 reproduces ScancoImageIO's array
+    convention without depending on itk-ioscanco at runtime.
+    """
+    hu_image, _meta = read_aim(path, scaling="hu")
+    arr_zyx = sitk.GetArrayFromImage(hu_image).astype(np.int16, copy=False)
+    image = sitk.GetImageFromArray(arr_zyx)
+    image.CopyInformation(hu_image)
+    return image
+
+
+def _stack_slice_range_from_metadata(metadata: dict, reference_image: sitk.Image) -> StackSliceRange:
+    """Return the source z-slab recorded by AIM import metadata."""
+    raw = metadata.get("slice_range") or {}
+    z_start = int(raw.get("z_start", 0))
+    depth = int(raw.get("depth", reference_image.GetSize()[2]))
+    return StackSliceRange(
+        stack_index=int(raw.get("stack_index", 1)),
+        z_start=z_start,
+        z_stop=int(raw.get("z_stop", z_start + depth)),
+    )
+
+
+def _laplace_hamming_stack_image(
+    item: StackImageInput,
+    metadata: dict,
+    reference_image: sitk.Image,
+) -> sitk.Image:
+    """
+    Reconstruct the imported stack in Scanco-convention signed-short HU for LH.
+
+    Imported `_image.mha` artifacts intentionally store calibrated BMD/density
+    values for registration and remodeling. The Sadoughi/Kazakia LH threshold
+    is calibrated for Scanco signed-short HU values plus the reference IPL
+    mapping, so the segmentation image must be re-read from the raw AIM on that
+    scale and then cropped/sliced exactly like the imported stack.
+    """
+    raw_image_path = _metadata_raw_image_path(metadata)
+    scanco_image = _read_laplace_hamming_aim(raw_image_path)
+
+    crop = metadata.get("crop") or {}
+    if bool(crop.get("applied", False)):
+        index = crop.get("applied_roi_index_xyz")
+        size = crop.get("applied_roi_size_xyz")
+        if index is None or size is None:
+            raise ValueError(
+                f"Missing crop ROI metadata for Laplace-Hamming stack {item.stem}."
+            )
+        scanco_image = _crop_image(
+            scanco_image,
+            index_xyz=tuple(int(v) for v in index),
+            size_xyz=tuple(int(v) for v in size),
+            pad_value=0,
+        )
+        scanco_image = _reset_origin_to_zero(scanco_image)
+
+    scanco_stack = _slice_image(
+        scanco_image,
+        _stack_slice_range_from_metadata(metadata, reference_image),
+    )
+    return _copy_information_from_reference(scanco_stack, reference_image)
+
+
+def _generate_segmentation_image(
+    *,
+    item: StackImageInput,
+    metadata: dict,
+    reference_image: sitk.Image,
+    full_mask: sitk.Image,
+    trab_mask: sitk.Image,
+    cort_mask: sitk.Image,
+    params: ContourGenerationParams,
+    verbose: bool,
+) -> tuple[sitk.Image, dict[str, object]]:
+    """Generate stack segmentation, using Scanco-convention HU values for LH."""
+    seg_input = reference_image
+    source_meta: dict[str, object] = {
+        "segmentation_input_unit": "bmd",
+        "segmentation_input_path": str(item.image_path),
+    }
+    if params.segmentation.method == "laplace_hamming":
+        seg_input = _laplace_hamming_stack_image(
+            item=item,
+            metadata=metadata,
+            reference_image=reference_image,
+        )
+        source_meta = {
+            "segmentation_input_unit": "scanco_hu_int16",
+            "segmentation_input_reader": "py_aimio_hu_truncated_to_int16",
+            "segmentation_input_path": str(_metadata_raw_image_path(metadata)),
+            "segmentation_input_reason": "Laplace-Hamming threshold is calibrated for Scanco signed-short HU AIM values.",
+        }
+
+    seg = generate_seg_from_existing_masks(
+        image=seg_input,
+        full_mask=full_mask,
+        trab_mask=trab_mask,
+        cort_mask=cort_mask,
+        params=params,
+        verbose=verbose,
+    )
+    return _copy_information_from_reference(seg, reference_image), source_meta
 
 
 def _derive_params(config: AppConfig) -> ContourGenerationParams:
@@ -301,6 +495,7 @@ def run_mask_generation(dataset_root: str | Path, config: AppConfig) -> None:
         print(f"[timelapse]   selected mask site preset: {site}")
         print(f"[timelapse]   segmentation method: {seg_method}")
         wrote: list[str] = []
+        segmentation_source_meta: dict[str, object] = {}
 
         # Case 1: one or more masks missing -> generate masks + seg
         if need_generate_masks:
@@ -328,6 +523,22 @@ def run_mask_generation(dataset_root: str | Path, config: AppConfig) -> None:
                 wrote.append("cort")
 
             if need_generate_seg:
+                if seg_method == "laplace_hamming":
+                    print("[timelapse]   regenerating segmentation from Scanco HU AIM values")
+                    seg, segmentation_source_meta = _generate_segmentation_image(
+                        item=item,
+                        metadata=meta,
+                        reference_image=image,
+                        full_mask=result.full,
+                        trab_mask=result.trab,
+                        cort_mask=result.cort,
+                        params=params,
+                        verbose=verbose_masks,
+                    )
+                    result.seg = seg
+                    result.metadata.setdefault("voxel_counts", {})["seg"] = int(
+                        sitk.GetArrayViewFromImage(result.seg).sum()
+                    )
                 print("[timelapse]   writing segmentation")
                 sitk.WriteImage(result.seg, str(paths["seg"]))
                 wrote.append("seg")
@@ -348,6 +559,7 @@ def run_mask_generation(dataset_root: str | Path, config: AppConfig) -> None:
                 "generated_seg_this_run": bool(need_generate_seg),
                 "configured_mask_roles": sorted(configured_roles),
                 "generate_segmentation": generate_seg,
+                **segmentation_source_meta,
                 **result.metadata,
             }
 
@@ -364,8 +576,10 @@ def run_mask_generation(dataset_root: str | Path, config: AppConfig) -> None:
             cort_mask = sitk.ReadImage(str(paths["cort"]))
 
             print("[timelapse]   generating segmentation from existing masks")
-            seg = generate_seg_from_existing_masks(
-                image=image,
+            seg, segmentation_source_meta = _generate_segmentation_image(
+                item=item,
+                metadata=meta,
+                reference_image=image,
                 full_mask=full_mask,
                 trab_mask=trab_mask,
                 cort_mask=cort_mask,
@@ -384,6 +598,7 @@ def run_mask_generation(dataset_root: str | Path, config: AppConfig) -> None:
                 "segmentation_method": seg_method,
                 "generated_masks_this_run": False,
                 "generated_seg_this_run": True,
+                **segmentation_source_meta,
             }
 
         _write_metadata(paths["metadata"], meta)

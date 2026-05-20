@@ -911,7 +911,9 @@ def _segment_bone_xyz(
 
     seg = _safe_remove_small_objects(seg, params.min_size_voxels)
 
-    if params.keep_largest_component and np.any(seg):
+    # The LH reference method removes small 6-connected components but does not
+    # prune to a single largest component after thresholding.
+    if params.method != "laplace_hamming" and params.keep_largest_component and np.any(seg):
         seg = _largest_connected_component(seg)
 
     return _ensure_bool(seg)
