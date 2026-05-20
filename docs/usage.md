@@ -234,3 +234,36 @@ Analysis CSV notes:
 
 - Pairwise remodelling CSV includes `site`, `scan_date_t0`, `scan_date_t1`, `followup_days`, and `followup_years` when scan dates are available in imported stack metadata.
 - Trajectory CSV includes `site`, `followup_days_total`, and `followup_years_total` over the available series.
+
+## Final CSV Outputs
+
+Analysis writes final tabular outputs under each subject/site analysis folder:
+
+- `pairwise_remodelling.csv`: one row per subject, site, compartment, timepoint pair, threshold, and cluster-size setting.
+- `trajectory_metrics.csv`: one row per subject, site, compartment, threshold, and cluster-size setting summarizing adjacent-pair formation/resorption trajectories.
+
+Important pairwise columns:
+
+- `subject_id`, `site`, `compartment`: identify the subject, anatomical site, and mask/ROI compartment used for the row.
+- `t0`, `t1`: session ids for the fixed/reference and follow-up session in that pair.
+- `threshold`, `cluster_min_size`: remodelling parameters used to create the row.
+- `common_region_path`: common valid-region mask used for that compartment.
+- `binary_source_t0`, `binary_source_t1`: segmentation inputs used when the selected method needs binary bone state.
+- `BV0_vox`, `BV1_vox`, `TV_valid_vox`, `BVTV_t0`, `BVTV_t1`: valid-region bone and tissue-volume summaries.
+- `formation_vox`, `resorption_vox`, `mineralisation_vox`, `demineralisation_vox`, `quiescent_vox`: voxel counts for remodelling classes.
+- `*_frac_bv0`: remodelling class volume normalized to baseline bone volume.
+- `*_n_clusters`, `*_largest_cluster_vox`: connected-component counts and largest cluster sizes after cluster filtering.
+- `mean_inside_valid_*`, `sd_inside_valid_*`, `delta_*`, `corr_valid`, `rmse_valid`: density summary and agreement metrics inside the valid region.
+- `scan_date_t0`, `scan_date_t1`, `followup_days`, `followup_years`: populated when imported stack metadata contains scan dates.
+- `session_t0_original`, `session_t1_original`, `session_t0_generic`, `session_t1_generic`: original and anonymized/generic session identifiers when available.
+
+Important trajectory columns:
+
+- `subject_id`, `site`, `compartment`, `threshold`, `cluster_min_size`: identify the trajectory summary and parameter set.
+- `common_region_path`: common valid-region mask used for the trajectory compartment.
+- `selected_adjacent_pairs`: adjacent intervals included in the trajectory summary when a subset was requested.
+- `formation_trajectory_vox`, `resorption_trajectory_vox`: unique formation/resorption voxels accumulated across selected adjacent intervals.
+- `formation_repeated_vox`, `resorption_repeated_vox`: voxels counted in more than one selected adjacent interval.
+- `followup_days_total`, `followup_years_total`: total observed follow-up duration when scan dates are available.
+
+When multiple thresholds or cluster sizes are requested, the transformed images are prepared once per pair and reused across the parameter grid; only the remodelling classification and summaries are recomputed for each threshold/cluster combination.

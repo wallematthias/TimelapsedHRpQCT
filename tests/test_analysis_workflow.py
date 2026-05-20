@@ -48,6 +48,7 @@ from timelapsedhrpqct.processing.analysis_io import (
     discover_analysis_subject_ids,
 )
 from timelapsedhrpqct.processing.segmentation import generate_bone_segmentation
+import timelapsedhrpqct.workflows.analysis as analysis_workflow
 from timelapsedhrpqct.workflows.analysis import run_analysis
 
 from tests._pipeline_helpers import write_image
@@ -1079,6 +1080,51 @@ def test_run_analysis_pairwise_fixed_t0_records_space_in_metadata(tmp_path: Path
 
     assert meta["space"] == "pairwise_fixed_t0"
     assert int(pairwise_df.iloc[0]["formation_vox"]) == 1
+
+
+def test_run_analysis_pairwise_fixed_t0_reuses_resampled_density_across_parameter_grid(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    dataset_root = _build_pairwise_t0_single_stack_dataset(tmp_path / "dataset")
+    config = AppConfig()
+    config.analysis = SimpleNamespace(
+        space="pairwise_fixed_t0",
+        method="grayscale_delta_only",
+        compartments=["full"],
+        thresholds=[100.0, 225.0],
+        cluster_sizes=[1, 2],
+        pair_mode="adjacent",
+        use_filled_images=False,
+        gaussian_filter=False,
+        valid_region=SimpleNamespace(erosion_voxels=0),
+    )
+    config.visualization = SimpleNamespace(enabled=False, threshold=None, cluster_size=None)
+
+    original_resample_image = analysis_workflow._resample_image
+    density_resample_calls = 0
+
+    def _counting_resample_image(*args, **kwargs):
+        nonlocal density_resample_calls
+        if not kwargs.get("is_mask", False):
+            density_resample_calls += 1
+        return original_resample_image(*args, **kwargs)
+
+    monkeypatch.setattr(analysis_workflow, "_resample_image", _counting_resample_image)
+
+    run_analysis(
+        dataset_root=dataset_root,
+        config=config,
+        thresholds=[100.0, 225.0],
+        clusters=[1, 2],
+    )
+
+    pairwise_df = pd.read_csv(pairwise_remodelling_csv_path(dataset_root, "001"))
+
+    assert density_resample_calls == 2
+    assert len(pairwise_df) == 4
+    assert set(pairwise_df["threshold"]) == {100.0, 225.0}
+    assert set(pairwise_df["cluster_min_size"]) == {1, 2}
 
 
 def test_run_analysis_pairwise_fixed_t0_uses_baseline_resample_direction(
