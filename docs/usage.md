@@ -48,6 +48,17 @@ timelapse inspect /path/to/raw_data/TimelapsedHRpQCT
 timelapse config show low-memory
 ```
 
+Processed images and masks can be exported back to AIM. The exporter uses pipeline JSON
+sidecars to recover the original AIM calibration and processing log when available:
+
+```bash
+timelapse export-aim fused_image.nii.gz fused_image.AIM
+timelapse export-aim fused_mask.nii.gz fused_mask.AIM --mask
+```
+
+Use `--metadata-json stack.json` when exporting an image outside the normal derivative
+folder layout.
+
 ## Typical Workflows
 
 ### Default run (regular mode)

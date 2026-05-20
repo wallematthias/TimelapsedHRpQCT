@@ -118,7 +118,18 @@ def test_parser_accepts_scanco_transform_commands() -> None:
             "/tmp/dataset/out.DAT",
         ]
     )
-    aim_args = parser.parse_args(["export-aim", "/tmp/dataset/in.nii.gz", "/tmp/dataset/out.AIM"])
+    aim_args = parser.parse_args(
+        [
+            "export-aim",
+            "/tmp/dataset/in.nii.gz",
+            "/tmp/dataset/out.AIM",
+            "--metadata-json",
+            "/tmp/dataset/in.json",
+            "--mask",
+            "--log",
+            "converted",
+        ]
+    )
 
     assert import_args.command == "import-transforms"
     assert import_args.input_root == Path("/tmp/raw")
@@ -129,6 +140,9 @@ def test_parser_accepts_scanco_transform_commands() -> None:
     assert aim_args.command == "export-aim"
     assert aim_args.image_path == Path("/tmp/dataset/in.nii.gz")
     assert aim_args.output_path == Path("/tmp/dataset/out.AIM")
+    assert aim_args.metadata_json == Path("/tmp/dataset/in.json")
+    assert aim_args.mask is True
+    assert aim_args.log == "converted"
 
 
 def test_parser_accepts_professional_cli_commands() -> None:

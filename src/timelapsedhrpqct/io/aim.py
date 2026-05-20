@@ -3,6 +3,8 @@
 from pathlib import Path
 from typing import Any
 import importlib
+from datetime import datetime
+import json
 
 import numpy as np
 import SimpleITK as sitk
@@ -225,17 +227,49 @@ def write_aim(
     image: sitk.Image,
     path: Path,
     metadata: dict[str, Any] | None = None,
+    *,
+    unit: str | None = None,
+    mask: bool = False,
 ) -> None:
     """Write a SimpleITK image to Scanco AIM through py_aimio."""
     py_aimio = _load_py_aimio()
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     arr_zyx = sitk.GetArrayFromImage(image)
-    arr_xyz = np.transpose(arr_zyx, (2, 1, 0))
+    if mask:
+        arr_zyx = (127 * (arr_zyx > 0)).astype(np.int8)
     meta = dict(metadata or {})
     meta.setdefault("dimensions", tuple(int(v) for v in image.GetSize()))
     meta.setdefault("spacing", tuple(float(v) for v in image.GetSpacing()))
     meta.setdefault("element_size", tuple(float(v) for v in image.GetSpacing()))
     meta.setdefault("origin", tuple(float(v) for v in image.GetOrigin()))
     meta.setdefault("direction", tuple(float(v) for v in image.GetDirection()))
-    py_aimio.write_aim(str(path), arr_xyz, meta)
+    py_aimio.write_aim(str(path), arr_zyx, meta, unit=unit)
+
+
+def aim_metadata_from_import_json(
+    metadata_json: Path,
+    image: sitk.Image,
+    *,
+    log: str = "",
+) -> dict[str, Any]:
+    """Build AIM write metadata from pipeline JSON plus output image geometry."""
+    payload = json.loads(Path(metadata_json).read_text(encoding="utf-8"))
+    source_meta = payload.get("image_metadata") or {}
+    out = dict(source_meta)
+    processing_log = str(source_meta.get("processing_log_raw") or source_meta.get("processing_log", ""))
+    if log:
+        stamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        processing_log = f"{processing_log}\n[{stamp}] {log}."
+    out["processing_log"] = processing_log
+    out["processing_log_raw"] = processing_log
+    out["dimensions"] = tuple(int(v) for v in image.GetSize())
+    out["spacing"] = tuple(float(v) for v in image.GetSpacing())
+    out["element_size"] = tuple(float(v) for v in image.GetSpacing())
+    out["origin"] = tuple(float(v) for v in image.GetOrigin())
+    out["direction"] = tuple(float(v) for v in image.GetDirection())
+    # Multistack/fused exports live in pipeline common space; keep AIM position
+    # zeroed rather than pretending they retain the original scanner location.
+    out["position"] = (0, 0, 0)
+    out["offset"] = (0, 0, 0)
+    return out

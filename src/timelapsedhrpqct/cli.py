@@ -544,6 +544,27 @@ def _build_parser() -> argparse.ArgumentParser:
         type=Path,
         help="Output .AIM path.",
     )
+    export_aim_parser.add_argument(
+        "--metadata-json",
+        type=Path,
+        default=None,
+        help=(
+            "Optional imported-stack JSON whose AIM calibration/processing log "
+            "should be used for export. If omitted, the CLI tries to infer it "
+            "from pipeline metadata."
+        ),
+    )
+    export_aim_parser.add_argument(
+        "--mask",
+        action="store_true",
+        help="Export as a binary mask using native signed-char values 0/127.",
+    )
+    export_aim_parser.add_argument(
+        "--log",
+        type=str,
+        default="Exported by TimelapsedHRpQCT",
+        help="Processing-log message appended when metadata JSON is available.",
+    )
 
     return parser
 
@@ -1477,18 +1498,67 @@ def _cmd_export_transform_dat(args: argparse.Namespace) -> int:
     return 0
 
 
+def _metadata_sibling_for_image(path: Path) -> Path:
+    """Return imported-stack metadata sibling for an image path."""
+    name = path.name
+    if name.endswith(".nii.gz"):
+        stem = name[: -len(".nii.gz")]
+    else:
+        stem = path.stem
+    for suffix in ("_image", "_mask-full", "_mask-cort", "_mask-trab", "_seg"):
+        if stem.endswith(suffix):
+            stem = stem[: -len(suffix)]
+            break
+    return path.with_name(f"{stem}.json")
+
+
+def _infer_export_aim_metadata_json(image_path: Path) -> Path | None:
+    """Infer imported-stack metadata JSON for AIM export when possible."""
+    direct = _metadata_sibling_for_image(image_path)
+    if direct.exists() and "image_metadata" in json.loads(direct.read_text(encoding="utf-8")):
+        return direct
+
+    for meta_path in sorted(image_path.parent.glob("*_fused.json")) + sorted(
+        image_path.parent.glob("*_filling.json")
+    ):
+        try:
+            payload = json.loads(meta_path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+        contributors = payload.get("contributors") or []
+        if not contributors:
+            continue
+        source_image = contributors[0].get("image_path")
+        if not source_image:
+            continue
+        candidate = _metadata_sibling_for_image(Path(source_image))
+        if candidate.exists():
+            return candidate
+    return None
+
+
 def _cmd_export_aim(args: argparse.Namespace) -> int:
     """Export a processed SimpleITK-readable image as Scanco AIM."""
     import SimpleITK as sitk
 
-    from timelapsedhrpqct.io.aim import write_aim
+    from timelapsedhrpqct.io.aim import aim_metadata_from_import_json, write_aim
 
     image_path: Path = args.image_path
     output_path: Path = args.output_path
     if not image_path.exists():
         raise FileNotFoundError(f"Image does not exist: {image_path}")
-    write_aim(sitk.ReadImage(str(image_path)), output_path)
+    image = sitk.ReadImage(str(image_path))
+    metadata_json = args.metadata_json or _infer_export_aim_metadata_json(image_path)
+    metadata = None
+    unit = "native" if args.mask else None
+    if metadata_json is not None:
+        metadata = aim_metadata_from_import_json(metadata_json, image, log=args.log)
+        if args.mask:
+            metadata["unit"] = "native"
+    write_aim(image, output_path, metadata=metadata, unit=unit, mask=args.mask)
     print(f"[timelapse] Wrote AIM image: {output_path}")
+    if metadata_json is not None:
+        print(f"[timelapse] AIM metadata source: {metadata_json}")
     return 0
 
 
