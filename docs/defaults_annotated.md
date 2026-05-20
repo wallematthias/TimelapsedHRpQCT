@@ -39,7 +39,7 @@ Controls outer contour extraction (`periosteal_threshold`, `periosteal_kernelsiz
 ### `masks.segmentation`
 
 - `method: adaptive`
-- Adaptive/global thresholds and filtering controls (`adaptive_*`, `trab_threshold`, `cort_threshold`, `min_size_voxels`).
+- Adaptive/global/Laplace-Hamming thresholds and filtering controls (`adaptive_*`, `trab_threshold`, `cort_threshold`, `laplace_hamming_*`, `min_size_voxels`).
 
 ## `timelapsed_registration`
 

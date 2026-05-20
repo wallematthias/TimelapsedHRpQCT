@@ -270,7 +270,7 @@ def run_mask_generation(dataset_root: str | Path, config: AppConfig) -> None:
             params = _apply_site_defaults(_derive_params(config), config, site)
             seg_method = params.segmentation.method
 
-            if seg_method == "global":
+            if seg_method in {"global", "laplace_hamming"}:
                 need_generate_masks = missing_any_mask
                 need_generate_seg = generate_seg and ((not has_seg) or need_generate_masks)
             elif seg_method == "adaptive":

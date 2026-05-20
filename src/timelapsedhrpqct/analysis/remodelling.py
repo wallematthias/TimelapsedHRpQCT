@@ -300,7 +300,7 @@ def build_pair_marrow_overlap_mask(
     support_mask_t0: np.ndarray | None = None,
     support_mask_t1: np.ndarray | None = None,
 ) -> np.ndarray:
-    """Build marrow overlap mask from segmentation complements within support."""
+    """Build bone-union eligibility mask for marrow-shell remodelling mode."""
     valid = np.asarray(valid_mask, dtype=bool)
     if seg_arr_t0 is None or seg_arr_t1 is None:
         raise ValueError("grayscale_marrow_mask requires both segmentation arrays.")
@@ -308,7 +308,7 @@ def build_pair_marrow_overlap_mask(
     seg1 = np.asarray(seg_arr_t1, dtype=bool)
     support0 = np.asarray(support_mask_t0, dtype=bool) if support_mask_t0 is not None else valid
     support1 = np.asarray(support_mask_t1, dtype=bool) if support_mask_t1 is not None else valid
-    return support0 & support1 & (~seg0) & (~seg1) & valid
+    return support0 & support1 & (seg0 | seg1) & valid
 
 
 def compute_pair_trajectory_summary(

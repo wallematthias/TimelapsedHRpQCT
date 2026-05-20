@@ -8,6 +8,10 @@ from timelapsedhrpqct.processing.contour_generation import (
     generate_masks_from_image,
     sitk_to_numpy_xyz,
 )
+from timelapsedhrpqct.processing.laplace_hamming import (
+    LaplaceHammingParams,
+    laplace_hamming_binarize_xyz,
+)
 
 
 def test_generate_masks_from_image_with_sitk_contour_pipeline() -> None:
@@ -129,3 +133,36 @@ def test_generate_masks_preserves_boundary_trabecular_compartment() -> None:
     # Boundary slices should not collapse to all-cortical from z-direction peeling.
     assert trab_mask[:, :, -1].any()
     assert not np.array_equal(cort_mask[:, :, -2], full[:, :, -2])
+
+
+def test_laplace_hamming_binarize_restricts_to_full_mask_and_removes_small_components() -> None:
+    shape = (8, 8, 8)
+    image_xyz = np.zeros(shape, dtype=np.float32)
+    image_xyz[2:4, 2:4, 2:4] = 900.0
+    image_xyz[6, 6, 6] = 900.0
+
+    full_mask = np.zeros(shape, dtype=bool)
+    full_mask[1:5, 1:5, 1:5] = True
+
+    params = LaplaceHammingParams(
+        low_pass_cutoff=1.0,
+        laplace_epsilon=0.0,
+        hamming_amplitude=0.0,
+        input_offset=0.0,
+        ipl_scale_a=1.0,
+        ipl_scale_b=0.0,
+        ipl_float_max=10000.0,
+        int16_max=10000.0,
+        threshold=500.0,
+        min_size_voxels=2,
+    )
+
+    binary = laplace_hamming_binarize_xyz(
+        image_xyz,
+        full_mask_xyz=full_mask,
+        spacing_xyz=(1.0, 1.0, 1.0),
+        params=params,
+    )
+
+    assert binary[2:4, 2:4, 2:4].all()
+    assert not bool(binary[6, 6, 6])

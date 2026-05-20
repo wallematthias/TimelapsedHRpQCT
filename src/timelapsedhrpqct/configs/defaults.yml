@@ -146,7 +146,7 @@ masks:
         morphology_refine_band_voxels: 3
 
   segmentation:
-    method: adaptive # global | adaptive
+    method: adaptive # global | adaptive | laplace_hamming
     enabled: true
     gaussian_sigma: 0.8
     trab_threshold: 320
@@ -156,6 +156,20 @@ masks:
     adaptive_block_size: 13
     min_size_voxels: 64
     keep_largest_component: true
+    # Laplace-Hamming defaults follow Sadoughi et al. / Kazakia Lab reference
+    # values for second-generation Scanco XtremeCT II at 60.7 um isotropic.
+    laplace_hamming_low_pass_cutoff: 0.3
+    laplace_hamming_high_pass_cutoff: 0.0
+    laplace_hamming_epsilon: 0.45
+    laplace_hamming_amplitude: 1.0
+    laplace_hamming_amplification: 1.0
+    laplace_hamming_input_offset: 32768.0
+    laplace_hamming_ipl_scale_a: 77.7911
+    laplace_hamming_ipl_scale_b: -1359190.17
+    laplace_hamming_ipl_float_max: 200000.0
+    laplace_hamming_int16_max: 32768.0
+    laplace_hamming_threshold: 15564
+    laplace_hamming_min_size_voxels: 70
 
 # -----------------------------------------------------------------------------
 # Timelapsed registration

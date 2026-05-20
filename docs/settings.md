@@ -82,7 +82,7 @@ Key options:
 
 Controls segmentation from stack images and masks.
 
-- `method`: `global` or `adaptive`
+- `method`: `global`, `adaptive`, or `laplace_hamming`
 - `gaussian_sigma`: Gaussian smoothing sigma before `global` thresholding; converted internally to physical units using image spacing
 - `trab_threshold`
 - `cort_threshold`
@@ -91,6 +91,7 @@ Controls segmentation from stack images and masks.
 - `adaptive_block_size`
 - `min_size_voxels`
 - `keep_largest_component`
+- `laplace_hamming_*`: frequency filter, IPL scaling, threshold, and connected-component cleanup settings for Laplace-Hamming binarization. Defaults follow the MIT-licensed Kazakia Lab / UCSF XtremeCT II reference implementation and operate on already-imported pipeline images.
 
 ## `timelapsed_registration`
 

@@ -8,6 +8,10 @@ import numpy as np
 import SimpleITK as sitk
 
 from timelapsedhrpqct.processing.masks import resolve_masks
+from timelapsedhrpqct.processing.laplace_hamming import (
+    LaplaceHammingParams,
+    laplace_hamming_binarize_xyz,
+)
 
 
 # -----------------------------------------------------------------------------
@@ -55,7 +59,7 @@ class InnerContourParams:
 @dataclass(slots=True)
 class SegmentationParams:
     enabled: bool = True
-    method: str = "global"  # "global" | "adaptive"
+    method: str = "global"  # "global" | "adaptive" | "laplace_hamming"
     gaussian_sigma: float = 0.8
     trab_threshold: float = 320.0
     cort_threshold: float = 450.0
@@ -64,6 +68,18 @@ class SegmentationParams:
     adaptive_block_size: int = 13
     min_size_voxels: int = 64
     keep_largest_component: bool = True
+    laplace_hamming_low_pass_cutoff: float = 0.3
+    laplace_hamming_high_pass_cutoff: float = 0.0
+    laplace_hamming_epsilon: float = 0.45
+    laplace_hamming_amplitude: float = 1.0
+    laplace_hamming_amplification: float = 1.0
+    laplace_hamming_input_offset: float = 32768.0
+    laplace_hamming_ipl_scale_a: float = 77.7911
+    laplace_hamming_ipl_scale_b: float = -1359190.17
+    laplace_hamming_ipl_float_max: float = 200000.0
+    laplace_hamming_int16_max: float = 32768.0
+    laplace_hamming_threshold: float = 15564.0
+    laplace_hamming_min_size_voxels: int = 70
 
 
 @dataclass(slots=True)
@@ -868,6 +884,27 @@ def _segment_bone_xyz(
             min_size=params.min_size_voxels,
         )
         seg = seg & full_mask_xyz
+
+    elif params.method == "laplace_hamming":
+        seg = laplace_hamming_binarize_xyz(
+            image_xyz,
+            full_mask_xyz=full_mask_xyz,
+            spacing_xyz=spacing_xyz,
+            params=LaplaceHammingParams(
+                low_pass_cutoff=float(params.laplace_hamming_low_pass_cutoff),
+                high_pass_cutoff=float(params.laplace_hamming_high_pass_cutoff),
+                laplace_epsilon=float(params.laplace_hamming_epsilon),
+                hamming_amplitude=float(params.laplace_hamming_amplitude),
+                amplification=float(params.laplace_hamming_amplification),
+                input_offset=float(params.laplace_hamming_input_offset),
+                ipl_scale_a=float(params.laplace_hamming_ipl_scale_a),
+                ipl_scale_b=float(params.laplace_hamming_ipl_scale_b),
+                ipl_float_max=float(params.laplace_hamming_ipl_float_max),
+                int16_max=float(params.laplace_hamming_int16_max),
+                threshold=float(params.laplace_hamming_threshold),
+                min_size_voxels=int(params.laplace_hamming_min_size_voxels),
+            ),
+        )
 
     else:
         raise ValueError(f"Unsupported segmentation method: {params.method}")
