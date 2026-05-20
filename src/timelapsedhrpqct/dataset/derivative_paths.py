@@ -6,6 +6,33 @@ from timelapsedhrpqct.dataset.layout import get_derivatives_root
 from timelapsedhrpqct.dataset.models import RawSession
 
 
+DERIVATIVE_IMAGE_SUFFIX = ".nii.gz"
+LEGACY_DERIVATIVE_IMAGE_SUFFIX = ".mha"
+
+
+def derivative_image_filename(stem: str) -> str:
+    """Return the default derivative image filename for a stem."""
+    return f"{stem}{DERIVATIVE_IMAGE_SUFFIX}"
+
+
+def legacy_image_path(path: Path) -> Path:
+    """Return the legacy .mha sibling for a derivative image path."""
+    name = path.name
+    if name.endswith(DERIVATIVE_IMAGE_SUFFIX):
+        return path.with_name(name[: -len(DERIVATIVE_IMAGE_SUFFIX)] + LEGACY_DERIVATIVE_IMAGE_SUFFIX)
+    return path.with_suffix(LEGACY_DERIVATIVE_IMAGE_SUFFIX)
+
+
+def existing_image_path(path: Path) -> Path:
+    """Return preferred path when present, otherwise a legacy .mha sibling."""
+    if path.exists():
+        return path
+    legacy = legacy_image_path(path)
+    if legacy.exists():
+        return legacy
+    return path
+
+
 def _parse_site_session_args(
     site_or_session_id: str | None,
     session_id: str | None,
@@ -286,9 +313,9 @@ def timelapse_baseline_registered_image_path(
         subject_id,
         None if legacy else site,
         stack_index,
-    ) / "baseline_qc" / (
+    ) / "baseline_qc" / derivative_image_filename(
         f"{_subject_prefix(subject_id, site, legacy)}_stack-{stack_index:02d}_"
-        f"from-ses-{moving_session}_to-ses-{baseline_session}_baseline_registered.mha"
+        f"from-ses-{moving_session}_to-ses-{baseline_session}_baseline_registered"
     )
 
 
@@ -312,9 +339,9 @@ def timelapse_baseline_overlay_path(
         subject_id,
         None if legacy else site,
         stack_index,
-    ) / "baseline_qc" / (
+    ) / "baseline_qc" / derivative_image_filename(
         f"{_subject_prefix(subject_id, site, legacy)}_stack-{stack_index:02d}_"
-        f"from-ses-{moving_session}_to-ses-{baseline_session}_baseline_overlay.mha"
+        f"from-ses-{moving_session}_to-ses-{baseline_session}_baseline_overlay"
     )
 
 
@@ -338,9 +365,9 @@ def timelapse_baseline_checkerboard_path(
         subject_id,
         None if legacy else site,
         stack_index,
-    ) / "baseline_qc" / (
+    ) / "baseline_qc" / derivative_image_filename(
         f"{_subject_prefix(subject_id, site, legacy)}_stack-{stack_index:02d}_"
-        f"from-ses-{moving_session}_to-ses-{baseline_session}_baseline_checkerboard.mha"
+        f"from-ses-{moving_session}_to-ses-{baseline_session}_baseline_checkerboard"
     )
 
 
@@ -416,8 +443,8 @@ def common_reference_path(dataset_root: Path, subject_id: str, site: str | None 
     """Return common reference path."""
     legacy = site is None
     site = "radius" if site is None else site
-    return stack_correction_dir(dataset_root, subject_id, None if legacy else site) / "common" / (
-        f"{_subject_prefix(subject_id, site, legacy)}_stack-common_reference.mha"
+    return stack_correction_dir(dataset_root, subject_id, None if legacy else site) / "common" / derivative_image_filename(
+        f"{_subject_prefix(subject_id, site, legacy)}_stack-common_reference"
     )
 
 
@@ -447,8 +474,8 @@ def fused_image_path(
 ) -> Path:
     """Return fused image path."""
     site, session_id, legacy = _parse_site_session_args(site, session_id)
-    return transformed_session_dir(dataset_root, subject_id, site, session_id) / (
-        f"{_subject_prefix(subject_id, site, legacy)}_ses-{session_id}_image_fused.mha"
+    return transformed_session_dir(dataset_root, subject_id, None if legacy else site, session_id) / derivative_image_filename(
+        f"{_subject_prefix(subject_id, site, legacy)}_ses-{session_id}_image_fused"
     )
 
 
@@ -460,8 +487,8 @@ def fused_seg_path(
 ) -> Path:
     """Return fused seg path."""
     site, session_id, legacy = _parse_site_session_args(site, session_id)
-    return transformed_session_dir(dataset_root, subject_id, site, session_id) / (
-        f"{_subject_prefix(subject_id, site, legacy)}_ses-{session_id}_seg_fused.mha"
+    return transformed_session_dir(dataset_root, subject_id, None if legacy else site, session_id) / derivative_image_filename(
+        f"{_subject_prefix(subject_id, site, legacy)}_ses-{session_id}_seg_fused"
     )
 
 
@@ -476,8 +503,8 @@ def fused_mask_path(
     if session_id_or_role is None:
         raise ValueError("session_id is required")
     site, session_id, role, legacy = _parse_site_session_role_args(site, session_id_or_role, role)
-    return transformed_session_dir(dataset_root, subject_id, site, session_id) / (
-        f"{_subject_prefix(subject_id, site, legacy)}_ses-{session_id}_mask-{role}_fused.mha"
+    return transformed_session_dir(dataset_root, subject_id, None if legacy else site, session_id) / derivative_image_filename(
+        f"{_subject_prefix(subject_id, site, legacy)}_ses-{session_id}_mask-{role}_fused"
     )
 
 
@@ -521,8 +548,8 @@ def imported_stack_image_path(
     stack_index: int,
 ) -> Path:
     """Return imported stack image path."""
-    return imported_stack_dir(dataset_root, session) / (
-        f"{imported_stack_prefix(session, stack_index)}_image.mha"
+    return imported_stack_dir(dataset_root, session) / derivative_image_filename(
+        f"{imported_stack_prefix(session, stack_index)}_image"
     )
 
 
@@ -533,8 +560,8 @@ def imported_stack_mask_path(
     role: str,
 ) -> Path:
     """Return imported stack mask path."""
-    return imported_stack_dir(dataset_root, session) / (
-        f"{imported_stack_prefix(session, stack_index)}_mask-{role}.mha"
+    return imported_stack_dir(dataset_root, session) / derivative_image_filename(
+        f"{imported_stack_prefix(session, stack_index)}_mask-{role}"
     )
 
 
@@ -544,8 +571,8 @@ def imported_stack_seg_path(
     stack_index: int,
 ) -> Path:
     """Return imported stack seg path."""
-    return imported_stack_dir(dataset_root, session) / (
-        f"{imported_stack_prefix(session, stack_index)}_seg.mha"
+    return imported_stack_dir(dataset_root, session) / derivative_image_filename(
+        f"{imported_stack_prefix(session, stack_index)}_seg"
     )
 
 
@@ -576,40 +603,40 @@ def filled_session_dir(dataset_root: Path, subject_id: str, site: str | None = N
 def filled_image_path(dataset_root: Path, subject_id: str, site: str | None = None, session_id: str | None = None) -> Path:
     """Return filled image path."""
     site, session_id, legacy = _parse_site_session_args(site, session_id)
-    return filled_session_dir(dataset_root, subject_id, site, session_id) / (
-        f"{_subject_prefix(subject_id, site, legacy)}_ses-{session_id}_image_fusedfilled.mha"
+    return filled_session_dir(dataset_root, subject_id, None if legacy else site, session_id) / derivative_image_filename(
+        f"{_subject_prefix(subject_id, site, legacy)}_ses-{session_id}_image_fusedfilled"
     )
 
 
 def filled_seg_path(dataset_root: Path, subject_id: str, site: str | None = None, session_id: str | None = None) -> Path:
     """Return filled seg path."""
     site, session_id, legacy = _parse_site_session_args(site, session_id)
-    return filled_session_dir(dataset_root, subject_id, site, session_id) / (
-        f"{_subject_prefix(subject_id, site, legacy)}_ses-{session_id}_seg_fusedfilled.mha"
+    return filled_session_dir(dataset_root, subject_id, None if legacy else site, session_id) / derivative_image_filename(
+        f"{_subject_prefix(subject_id, site, legacy)}_ses-{session_id}_seg_fusedfilled"
     )
 
 
 def filled_full_mask_path(dataset_root: Path, subject_id: str, site: str | None = None, session_id: str | None = None) -> Path:
     """Return filled full mask path."""
     site, session_id, legacy = _parse_site_session_args(site, session_id)
-    return filled_session_dir(dataset_root, subject_id, site, session_id) / (
-        f"{_subject_prefix(subject_id, site, legacy)}_ses-{session_id}_mask-full_fusedfilled.mha"
+    return filled_session_dir(dataset_root, subject_id, None if legacy else site, session_id) / derivative_image_filename(
+        f"{_subject_prefix(subject_id, site, legacy)}_ses-{session_id}_mask-full_fusedfilled"
     )
 
 
 def filladded_mask_path(dataset_root: Path, subject_id: str, site: str | None = None, session_id: str | None = None) -> Path:
     """Return filladded mask path."""
     site, session_id, legacy = _parse_site_session_args(site, session_id)
-    return filled_session_dir(dataset_root, subject_id, site, session_id) / (
-        f"{_subject_prefix(subject_id, site, legacy)}_ses-{session_id}_mask-filladded.mha"
+    return filled_session_dir(dataset_root, subject_id, None if legacy else site, session_id) / derivative_image_filename(
+        f"{_subject_prefix(subject_id, site, legacy)}_ses-{session_id}_mask-filladded"
     )
 
 
 def seg_filladded_path(dataset_root: Path, subject_id: str, site: str | None = None, session_id: str | None = None) -> Path:
     """Return seg filladded path."""
     site, session_id, legacy = _parse_site_session_args(site, session_id)
-    return filled_session_dir(dataset_root, subject_id, site, session_id) / (
-        f"{_subject_prefix(subject_id, site, legacy)}_ses-{session_id}_seg-filladded.mha"
+    return filled_session_dir(dataset_root, subject_id, None if legacy else site, session_id) / derivative_image_filename(
+        f"{_subject_prefix(subject_id, site, legacy)}_ses-{session_id}_seg-filladded"
     )
 
 
@@ -617,8 +644,8 @@ def support_mask_path(dataset_root: Path, subject_id: str, site: str | None = No
     """Return support mask path."""
     legacy = site is None
     site = "radius" if site is None else site
-    return filled_dir(dataset_root, subject_id, site) / (
-        f"{_subject_prefix(subject_id, site, legacy)}_mask-supportclosed.mha"
+    return filled_dir(dataset_root, subject_id, None if legacy else site) / derivative_image_filename(
+        f"{_subject_prefix(subject_id, site, legacy)}_mask-supportclosed"
     )
 
 
@@ -696,9 +723,9 @@ def analysis_visualize_path(
         cluster_size,
     )
     thr_txt = str(thr).replace(".", "p")
-    return analysis_visualize_dir(dataset_root, subject_id, None if legacy else site) / (
+    return analysis_visualize_dir(dataset_root, subject_id, None if legacy else site) / derivative_image_filename(
         f"{_subject_prefix(subject_id, site, legacy)}_comp-{compartment}_t0-{t0}_t1-{t1}_"
-        f"thr-{thr_txt}_cluster-{cluster_size}_remodelling.mha"
+        f"thr-{thr_txt}_cluster-{cluster_size}_remodelling"
     )
 
 
@@ -715,8 +742,8 @@ def common_region_path(
 ) -> Path:
     """Return common region path."""
     site, compartment, legacy = _parse_site_compartment_args(site, compartment)
-    return common_regions_dir(dataset_root, subject_id, None if legacy else site) / (
-        f"{_subject_prefix(subject_id, site, legacy)}_comp-{compartment}_common-alltimepoints.mha"
+    return common_regions_dir(dataset_root, subject_id, None if legacy else site) / derivative_image_filename(
+        f"{_subject_prefix(subject_id, site, legacy)}_comp-{compartment}_common-alltimepoints"
     )
 
 
