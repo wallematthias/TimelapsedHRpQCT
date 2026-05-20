@@ -25,7 +25,7 @@ This page summarizes the active settings in `src/timelapsedhrpqct/configs/defaul
 - `overwrite: false`: existing outputs are reused.
 - `roles: [full, trab, cort]`: expected mask roles.
 - `generate_segmentation: true`: produce segmentation when needed.
-- `site_selection`: filename-based site inference overrides.
+- `site_selection`: fallback site used only when discovery did not identify a site.
 - `site_defaults`: per-site contour defaults (`radius`, `tibia`, `knee`).
 
 ### `masks.inner`

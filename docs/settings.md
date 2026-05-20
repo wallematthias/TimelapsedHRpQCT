@@ -44,7 +44,7 @@ Controls generated mask and segmentation behavior on imported stacks.
 - `overwrite`: regenerate masks even if outputs already exist
 - `roles`: mask roles to keep and use. Typical values are `["full", "trab", "cort"]` or `["full"]`
 - `generate_segmentation`: whether the mask-generation stage should also write segmentation outputs
-- `site_selection`: filename-based rules used to infer `radius`, `tibia`, or `knee` per scan
+- `site_selection`: fallback site used when discovery did not identify a site
 - `site_defaults`: per-site contour overrides applied after the shared base mask settings
 
 If you only want to work with a total mask, set `roles: ["full"]`. In that case the pipeline will not require `trab` or `cort` masks.

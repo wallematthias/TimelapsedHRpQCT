@@ -82,7 +82,7 @@ def test_run_mask_generation_refreshes_imported_artifacts_for_existing_outputs(
     assert records[0].metadata_path == metadata_path
 
 
-def test_site_is_inferred_from_source_filename_and_applies_site_defaults(tmp_path: Path) -> None:
+def test_site_comes_from_imported_stack_record_and_applies_site_defaults(tmp_path: Path) -> None:
     config = AppConfig()
 
     item = type(
@@ -90,10 +90,11 @@ def test_site_is_inferred_from_source_filename_and_applies_site_defaults(tmp_pat
         (),
         {
             "stem": "sub-001_ses-T1_stack-01",
+            "site": "tibia",
             "image_path": tmp_path / "sub-001_ses-T1_stack-01_image.mha",
         },
     )()
-    metadata = {"source_image": "/tmp/Subject_TIBIA_Followup.AIM"}
+    metadata = {"source_image": "/tmp/Subject_RADIUS_Followup.AIM"}
 
     site = _infer_scan_site(item, config, metadata)
     params = _apply_site_defaults(_derive_params(config), config, site)

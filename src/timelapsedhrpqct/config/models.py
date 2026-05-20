@@ -113,11 +113,6 @@ class MasksConfig:
     site_selection: dict[str, object] = field(
         default_factory=lambda: {
             "default_site": "tibia",
-            "patterns": {
-                "radius": ["radius", "rad"],
-                "tibia": ["tibia", "tib"],
-                "knee": ["knee"],
-            },
         }
     )
     site_defaults: dict[str, dict[str, dict[str, object]]] = field(

@@ -114,20 +114,11 @@ def _infer_scan_site(item: StackImageInput, config: AppConfig, metadata: dict | 
     if metadata and metadata.get("scan_site"):
         return str(metadata["scan_site"]).lower()
 
+    if item.site:
+        return str(item.site).lower()
+
     selection = getattr(masks_cfg, "site_selection", {}) or {}
-    default_site = str(selection.get("default_site", getattr(masks_cfg.inner, "site", "radius"))).lower()
-    patterns = selection.get("patterns", {}) or {}
-
-    haystacks = [item.stem, str(item.image_path)]
-    if metadata:
-        haystacks.append(str(metadata.get("source_image", "")))
-
-    haystack = " ".join(part.lower() for part in haystacks if part)
-    for site, aliases in patterns.items():
-        if any(str(alias).lower() in haystack for alias in aliases):
-            return str(site).lower()
-
-    return default_site
+    return str(selection.get("default_site", getattr(masks_cfg.inner, "site", "radius"))).lower()
 
 
 def _apply_site_defaults(

@@ -120,14 +120,6 @@ masks:
     # Site used when the path/metadata does not identify radius/tibia/knee.
     # Options: radius | tibia | knee.
     default_site: tibia
-    # Text patterns searched in path/site strings to choose site defaults.
-    patterns:
-      # Radius path/name tokens.
-      radius: [radius, rad]
-      # Tibia path/name tokens.
-      tibia: [tibia, tib]
-      # Knee path/name tokens.
-      knee: [knee]
 
   # Site-specific contour defaults. Thresholds are in BMD units. Kernel/radius,
   # padding, peel, and margin values are voxel counts.
