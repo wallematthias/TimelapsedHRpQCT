@@ -24,6 +24,10 @@ from timelapsedhrpqct.config.models import (
     VisualizationConfig,
     VisualizationLabelMapConfig,
 )
+from timelapsedhrpqct.config.profiles import read_profile
+
+
+DEFAULT_CONFIG_PATH = Path(__file__).resolve().parents[1] / "configs" / "defaults.yml"
 
 
 def _read_yaml(path: Path) -> dict[str, Any]:
@@ -33,6 +37,18 @@ def _read_yaml(path: Path) -> dict[str, Any]:
     if not isinstance(data, dict):
         raise ValueError(f"Config file must contain a mapping at top level: {path}")
     return data
+
+
+def _deep_merge(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
+    """Return a recursive merge where override wins."""
+    merged = dict(base)
+    for key, value in override.items():
+        base_value = merged.get(key)
+        if isinstance(base_value, dict) and isinstance(value, dict):
+            merged[key] = _deep_merge(base_value, value)
+        else:
+            merged[key] = value
+    return merged
 
 
 def _filter_dataclass_kwargs(cls: type, values: dict[str, Any]) -> dict[str, Any]:
@@ -58,10 +74,19 @@ def _warn_unknown_keys(
         )
 
 
-def load_config(path: str | Path) -> AppConfig:
+def load_config(path: str | Path | None = None, *, profile: str | None = None) -> AppConfig:
     """Load config."""
-    cfg_path = Path(path)
-    raw = _read_yaml(cfg_path)
+    raw = _read_yaml(DEFAULT_CONFIG_PATH) if DEFAULT_CONFIG_PATH.is_file() else {}
+    if profile:
+        raw = _deep_merge(raw, read_profile(profile))
+    if path is not None:
+        cfg_path = Path(path)
+        try:
+            is_default = cfg_path.resolve() == DEFAULT_CONFIG_PATH.resolve()
+        except FileNotFoundError:
+            is_default = False
+        if not is_default:
+            raw = _deep_merge(raw, _read_yaml(cfg_path))
 
     import_raw = raw.get("import", {})
     discovery_raw = raw.get("discovery", {})

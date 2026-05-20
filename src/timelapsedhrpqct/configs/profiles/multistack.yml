@@ -1,0 +1,13 @@
+profile: multistack
+description: Explicit multistack workflow profile for multi-stack acquisitions.
+
+multistack_correction:
+  enabled: true
+  method: superstack
+
+analysis:
+  space: pairwise_fixed_t0
+  pair_mode: adjacent
+
+visualization:
+  enabled: true

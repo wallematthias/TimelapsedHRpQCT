@@ -131,6 +131,31 @@ def test_parser_accepts_scanco_transform_commands() -> None:
     assert aim_args.output_path == Path("/tmp/dataset/out.AIM")
 
 
+def test_parser_accepts_professional_cli_commands() -> None:
+    parser = _build_parser()
+
+    doctor_args = parser.parse_args(["doctor", "--profile", "low-memory"])
+    inspect_args = parser.parse_args(["inspect", "/tmp/dataset"])
+    list_args = parser.parse_args(["config", "list"])
+    show_args = parser.parse_args(["config", "show", "multistack"])
+    write_args = parser.parse_args(
+        ["config", "write", "--profile", "standard", "--output", "/tmp/config.yml"]
+    )
+    explain_args = parser.parse_args(
+        ["config", "explain", "--profile", "standard", "--config", "/tmp/user.yml"]
+    )
+
+    assert doctor_args.command == "doctor"
+    assert doctor_args.profile == "low-memory"
+    assert inspect_args.command == "inspect"
+    assert inspect_args.dataset_root == Path("/tmp/dataset")
+    assert list_args.command == "config"
+    assert list_args.config_command == "list"
+    assert show_args.profile == "multistack"
+    assert write_args.output == Path("/tmp/config.yml")
+    assert explain_args.config == Path("/tmp/user.yml")
+
+
 def test_sessions_needing_import_skips_already_imported_complete_sessions(tmp_path: Path, monkeypatch) -> None:
     dataset_root = tmp_path / "dataset"
     raw_sessions = [

@@ -15,8 +15,38 @@ Available subcommands:
 - `analyse`
 - `run`
 - `undo-restructure`
+- `doctor`
+- `inspect`
+- `config`
+- `import-transforms`
+- `export-transform-dat`
+- `export-aim`
 
 If `--config` is omitted, the CLI uses the bundled package default config (`src/timelapsedhrpqct/configs/defaults.yml`).
+
+For routine use, prefer a built-in profile plus a small user config file:
+
+```bash
+timelapse config list
+timelapse config write --profile multistack --output study.yml
+timelapse run /path/to/raw_data --mode multistack --profile multistack --config study.yml
+```
+
+Config precedence is:
+
+1. bundled defaults
+2. selected `--profile`
+3. user `--config`
+
+This means users usually edit only `study.yml`. Use `timelapse config explain --profile multistack --config study.yml` to inspect the effective settings.
+
+Useful setup and inspection commands:
+
+```bash
+timelapse doctor --profile low-memory
+timelapse inspect /path/to/raw_data/TimelapsedHRpQCT
+timelapse config show low-memory
+```
 
 ## Typical Workflows
 

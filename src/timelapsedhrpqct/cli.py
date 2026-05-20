@@ -6,11 +6,18 @@ import json
 import os
 import shutil
 from collections import defaultdict
+from dataclasses import asdict
+from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Sequence
 
 from timelapsedhrpqct.config.loader import load_config
 from timelapsedhrpqct.config.models import AppConfig
+from timelapsedhrpqct.config.profiles import (
+    list_config_profiles,
+    profile_text,
+    write_user_config_template,
+)
 from timelapsedhrpqct.dataset.artifacts import (
     group_filled_sessions_by_subject_site,
     group_fused_sessions_by_subject_site,
@@ -75,6 +82,29 @@ def _add_config_argument(parser: argparse.ArgumentParser) -> None:
     )
 
 
+def _add_profile_argument(parser: argparse.ArgumentParser) -> None:
+    """Add a built-in profile selector."""
+    parser.add_argument(
+        "--profile",
+        choices=list_config_profiles(),
+        default=None,
+        help=(
+            "Optional built-in config profile. Values from --config override "
+            "the selected profile."
+        ),
+    )
+
+
+def _package_version() -> str:
+    """Return installed package version with a source-tree fallback."""
+    try:
+        return version("timelapsed-hrpqct")
+    except PackageNotFoundError:
+        from timelapsedhrpqct import __version__
+
+        return __version__
+
+
 def _build_parser() -> argparse.ArgumentParser:
     """Build parser."""
     parser = argparse.ArgumentParser(
@@ -85,8 +115,74 @@ def _build_parser() -> argparse.ArgumentParser:
             "optional filling, and analysis."
         ),
     )
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"%(prog)s {_package_version()}",
+    )
 
     subparsers = parser.add_subparsers(dest="command", required=True)
+
+    # ------------------------------------------------------------------
+    # doctor
+    # ------------------------------------------------------------------
+    doctor_parser = subparsers.add_parser(
+        "doctor",
+        help="Check the local TimelapsedHRpQCT command line environment.",
+    )
+    _add_config_argument(doctor_parser)
+    _add_profile_argument(doctor_parser)
+
+    # ------------------------------------------------------------------
+    # inspect
+    # ------------------------------------------------------------------
+    inspect_parser = subparsers.add_parser(
+        "inspect",
+        help="Summarize imported dataset artifacts without running processing.",
+    )
+    inspect_parser.add_argument(
+        "dataset_root",
+        type=Path,
+        help="Dataset root to inspect.",
+    )
+
+    # ------------------------------------------------------------------
+    # config
+    # ------------------------------------------------------------------
+    config_parser = subparsers.add_parser(
+        "config",
+        help="List, show, write, and explain TimelapsedHRpQCT config profiles.",
+    )
+    config_subparsers = config_parser.add_subparsers(dest="config_command", required=True)
+
+    config_subparsers.add_parser("list", help="List built-in config profiles.")
+
+    config_show = config_subparsers.add_parser("show", help="Print a built-in profile YAML.")
+    config_show.add_argument("profile", choices=list_config_profiles())
+
+    config_write = config_subparsers.add_parser(
+        "write",
+        help="Write a compact user config template.",
+    )
+    config_write.add_argument("--profile", choices=list_config_profiles(), default="standard")
+    config_write.add_argument(
+        "--output",
+        type=Path,
+        required=True,
+        help="Output YAML path.",
+    )
+
+    config_explain = config_subparsers.add_parser(
+        "explain",
+        help="Show the effective high-level settings for a profile/config pair.",
+    )
+    config_explain.add_argument("--profile", choices=list_config_profiles(), default=None)
+    config_explain.add_argument(
+        "--config",
+        type=Path,
+        default=None,
+        help="Optional user config YAML to layer over the selected profile.",
+    )
 
     # ------------------------------------------------------------------
     # import
@@ -110,6 +206,7 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     _add_config_argument(import_parser)
+    _add_profile_argument(import_parser)
     import_parser.add_argument(
         "--dry-run",
         action="store_true",
@@ -156,6 +253,7 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Dataset root containing imported stack artifacts.",
     )
     _add_config_argument(gm_parser)
+    _add_profile_argument(gm_parser)
 
     # ------------------------------------------------------------------
     # register
@@ -173,6 +271,7 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Dataset root containing imported stack artifacts.",
     )
     _add_config_argument(tl_parser)
+    _add_profile_argument(tl_parser)
 
     # ------------------------------------------------------------------
     # stackcorrect
@@ -190,6 +289,7 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Dataset root containing imported stack artifacts and timelapse transforms.",
     )
     _add_config_argument(sc_parser)
+    _add_profile_argument(sc_parser)
 
     # ------------------------------------------------------------------
     # transform
@@ -207,6 +307,7 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Dataset root containing imported stack artifacts and final transforms.",
     )
     _add_config_argument(at_parser)
+    _add_profile_argument(at_parser)
 
     # ------------------------------------------------------------------
     # fill
@@ -221,6 +322,7 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Dataset root containing transformed fused images.",
     )
     _add_config_argument(fill_parser)
+    _add_profile_argument(fill_parser)
 
     # ------------------------------------------------------------------
     # analyse
@@ -235,6 +337,7 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Dataset root containing transformed / filled outputs.",
     )
     _add_config_argument(analyse_parser)
+    _add_profile_argument(analyse_parser)
     analyse_parser.add_argument(
         "--subject",
         type=str,
@@ -301,6 +404,7 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     _add_config_argument(run_parser)
+    _add_profile_argument(run_parser)
     run_parser.add_argument(
         "--mode",
         choices=("regular", "multistack"),
@@ -407,6 +511,7 @@ def _build_parser() -> argparse.ArgumentParser:
         help="Imported dataset root containing stack artifacts.",
     )
     _add_config_argument(import_tfm_parser)
+    _add_profile_argument(import_tfm_parser)
 
     # ------------------------------------------------------------------
     # export-transform-dat
@@ -452,11 +557,138 @@ def _default_output_root(input_root: Path) -> Path:
     return input_root / "TimelapsedHRpQCT"
 
 
-def _load_config_or_die(config_path: Path) -> AppConfig:
+def _load_config_or_die(config_path: Path, profile: str | None = None) -> AppConfig:
     """Load config or die."""
     if not config_path.is_file():
         raise FileNotFoundError(f"Config file not found: {config_path}")
-    return load_config(config_path)
+    return load_config(config_path, profile=profile)
+
+
+def _config_profile(args: argparse.Namespace) -> str | None:
+    """Return optional config profile from parsed args."""
+    return getattr(args, "profile", None)
+
+
+def _load_config_for_args(args: argparse.Namespace) -> AppConfig:
+    """Load config from CLI args while preserving one-argument monkeypatches."""
+    profile = _config_profile(args)
+    if profile is None:
+        return _load_config_or_die(args.config)
+    return _load_config_or_die(args.config, profile=profile)
+
+
+def _print_check(name: str, ok: bool, detail: str = "") -> None:
+    """Print one doctor check line."""
+    status = "ok" if ok else "missing"
+    suffix = f" - {detail}" if detail else ""
+    print(f"[timelapse] {name}: {status}{suffix}")
+
+
+def _cmd_doctor(args: argparse.Namespace) -> int:
+    """Check the local command line environment."""
+    import sys
+
+    print(f"[timelapse] TimelapsedHRpQCT {_package_version()}")
+    print(f"[timelapse] Python {sys.version.split()[0]}")
+    print(f"[timelapse] Config: {args.config}")
+    if args.profile:
+        print(f"[timelapse] Profile: {args.profile}")
+
+    try:
+        _load_config_for_args(args)
+        _print_check("config", True)
+    except Exception as exc:
+        _print_check("config", False, str(exc))
+        return 1
+
+    required_ok = True
+    for module_name in ("SimpleITK", "numpy", "pandas"):
+        try:
+            __import__(module_name)
+            _print_check(module_name, True)
+        except Exception as exc:
+            required_ok = False
+            _print_check(module_name, False, str(exc))
+
+    for module_name in ("itk", "py_aimio"):
+        try:
+            __import__(module_name)
+            _print_check(module_name, True)
+        except Exception as exc:
+            _print_check(module_name, False, f"optional: {exc}")
+
+    return 0 if required_ok else 1
+
+
+def _cmd_inspect(args: argparse.Namespace) -> int:
+    """Summarize a dataset without modifying it."""
+    dataset_root = args.dataset_root.resolve()
+    if not dataset_root.exists():
+        raise FileNotFoundError(f"Dataset root does not exist: {dataset_root}")
+
+    imported = iter_imported_stack_records(dataset_root)
+    fused = iter_fused_session_records(dataset_root)
+    filled = iter_filled_session_records(dataset_root)
+
+    print(f"[timelapse] Dataset: {dataset_root}")
+    print(f"[timelapse] Imported stack artifacts: {len(imported)}")
+    print(f"[timelapse] Fused transformed sessions: {len(fused)}")
+    print(f"[timelapse] Filled sessions: {len(filled)}")
+
+    grouped = group_imported_stacks_by_subject_site_and_stack(imported)
+    for (subject_id, site), stacks_by_index in sorted(grouped.items()):
+        sessions = sorted(
+            {record.session_id for records in stacks_by_index.values() for record in records}
+        )
+        stacks = ", ".join(f"{idx:02d}" for idx in sorted(stacks_by_index))
+        print(
+            f"[timelapse] sub-{subject_id} site-{site}: "
+            f"{len(sessions)} session(s), stack(s) {stacks}"
+        )
+
+    try:
+        from timelapsedhrpqct.dataset.transform_registry import (
+            iter_transform_registry_records,
+        )
+
+        registry_records = iter_transform_registry_records(dataset_root)
+        print(f"[timelapse] Transform registry records: {len(registry_records)}")
+    except Exception:
+        pass
+
+    return 0
+
+
+def _cmd_config(args: argparse.Namespace) -> int:
+    """Handle config helper commands."""
+    if args.config_command == "list":
+        for name in list_config_profiles():
+            print(name)
+        return 0
+
+    if args.config_command == "show":
+        print(profile_text(args.profile), end="")
+        return 0
+
+    if args.config_command == "write":
+        output = write_user_config_template(args.output, profile=args.profile)
+        print(f"[timelapse] Wrote user config template: {output}")
+        return 0
+
+    if args.config_command == "explain":
+        config = load_config(args.config, profile=args.profile)
+        payload = asdict(config)
+        payload["import"] = payload.pop("import_")
+        print("[timelapse] Config precedence: built-in defaults < profile < user config")
+        if args.profile:
+            print(f"[timelapse] Profile: {args.profile}")
+        if args.config:
+            print(f"[timelapse] User config: {args.config}")
+        print("[timelapse] Most users should edit discovery, import, analysis, and visualization.")
+        print(json.dumps(payload, indent=2, sort_keys=True))
+        return 0
+
+    raise ValueError(f"Unknown config command: {args.config_command}")
 
 
 def _print_session_preview(
@@ -871,7 +1103,7 @@ def _multistack_correction_enabled(config: AppConfig) -> bool:
 
 def _cmd_import(args: argparse.Namespace) -> int:
     """Helper for cmd import."""
-    config = _load_config_or_die(args.config)
+    config = _load_config_for_args(args)
 
     input_root: Path = args.input_root.resolve()
     output_root: Path = (args.output_root or _default_output_root(input_root)).resolve()
@@ -967,7 +1199,7 @@ def _cmd_generate_masks(args: argparse.Namespace) -> int:
     """Helper for cmd generate masks."""
     from timelapsedhrpqct.workflows.generate_masks import run_mask_generation
 
-    config = _load_config_or_die(args.config)
+    config = _load_config_for_args(args)
     dataset_root: Path = args.dataset_root
 
     if not dataset_root.exists():
@@ -986,7 +1218,7 @@ def _cmd_timelapse_register(args: argparse.Namespace) -> int:
         run_timelapse_registration,
     )
 
-    config = _load_config_or_die(args.config)
+    config = _load_config_for_args(args)
     dataset_root: Path = args.dataset_root
 
     if not dataset_root.exists():
@@ -1005,7 +1237,7 @@ def _cmd_stack_correct(args: argparse.Namespace) -> int:
         run_stack_correction,
     )
 
-    config = _load_config_or_die(args.config)
+    config = _load_config_for_args(args)
     dataset_root: Path = args.dataset_root
 
     if not dataset_root.exists():
@@ -1022,7 +1254,7 @@ def _cmd_apply_transforms(args: argparse.Namespace) -> int:
     """Helper for cmd apply transforms."""
     from timelapsedhrpqct.workflows.apply_transforms import run_apply_transforms
 
-    config = _load_config_or_die(args.config)
+    config = _load_config_for_args(args)
     dataset_root: Path = args.dataset_root
 
     if not dataset_root.exists():
@@ -1039,7 +1271,7 @@ def _cmd_fill(args: argparse.Namespace) -> int:
     """Helper for cmd fill."""
     from timelapsedhrpqct.workflows.filling import run_filling
 
-    config = _load_config_or_die(args.config)
+    config = _load_config_for_args(args)
     dataset_root: Path = args.dataset_root
 
     if not dataset_root.exists():
@@ -1056,7 +1288,7 @@ def _cmd_analyse(args: argparse.Namespace) -> int:
     """Helper for cmd analyse."""
     from timelapsedhrpqct.workflows.analysis import run_analysis
 
-    config = _load_config_or_die(args.config)
+    config = _load_config_for_args(args)
     dataset_root: Path = args.dataset_root
 
     if not dataset_root.exists():
@@ -1213,7 +1445,7 @@ def _cmd_import_transforms(args: argparse.Namespace) -> int:
         import_manufacturer_pairwise_transforms,
     )
 
-    config = _load_config_or_die(args.config)
+    config = _load_config_for_args(args)
     input_root: Path = args.input_root.resolve()
     dataset_root: Path = args.dataset_root.resolve()
     if not input_root.exists():
@@ -1268,7 +1500,8 @@ def _cmd_run(args: argparse.Namespace) -> int:
     """Helper for cmd run."""
     input_root: Path = args.input_root.resolve()
     output_root: Path = (args.output_root or _default_output_root(input_root)).resolve()
-    config = _load_config_or_die(args.config)
+    config = _load_config_for_args(args)
+    profile = _config_profile(args)
 
     _print_citation_notice()
 
@@ -1287,6 +1520,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
         input_root=input_root,
         output_root=output_root,
         config=args.config,
+        profile=profile,
         dry_run=args.dry_run,
         copy_raw_inputs=bool(getattr(args, "copy_raw_inputs", False)),
         restructure_raw=bool(getattr(args, "restructure_raw", False)),
@@ -1305,6 +1539,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
         gm_args = argparse.Namespace(
             dataset_root=dataset_root,
             config=args.config,
+            profile=profile,
         )
         rc = _cmd_generate_masks(gm_args)
         if rc != 0:
@@ -1317,6 +1552,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
         tl_args = argparse.Namespace(
             dataset_root=dataset_root,
             config=args.config,
+            profile=profile,
         )
         rc = _cmd_timelapse_register(tl_args)
         if rc != 0:
@@ -1330,6 +1566,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
             sc_args = argparse.Namespace(
                 dataset_root=dataset_root,
                 config=args.config,
+                profile=profile,
             )
             rc = _cmd_stack_correct(sc_args)
             if rc != 0:
@@ -1344,6 +1581,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
         at_args = argparse.Namespace(
             dataset_root=dataset_root,
             config=args.config,
+            profile=profile,
         )
         rc = _cmd_apply_transforms(at_args)
         if rc != 0:
@@ -1358,6 +1596,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
                 fill_args = argparse.Namespace(
                     dataset_root=dataset_root,
                     config=args.config,
+                    profile=profile,
                 )
                 rc = _cmd_fill(fill_args)
                 if rc != 0:
@@ -1378,6 +1617,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
         analyse_args = argparse.Namespace(
             dataset_root=dataset_root,
             config=args.config,
+            profile=profile,
             thr=args.thr,
             clusters=args.clusters,
             visualize=args.visualize,
@@ -1407,6 +1647,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser = _build_parser()
     args = parser.parse_args(argv)
 
+    if args.command == "doctor":
+        return _cmd_doctor(args)
+    if args.command == "inspect":
+        return _cmd_inspect(args)
+    if args.command == "config":
+        return _cmd_config(args)
     if args.command == "import":
         return _cmd_import(args)
     if args.command == "generate-masks":
