@@ -53,6 +53,30 @@ filling:
     assert config.filling.support_closing_z == 9
 
 
+def test_laplace_hamming_segmentation_settings_are_loaded(tmp_path: Path) -> None:
+    user_config = tmp_path / "user.yml"
+    user_config.write_text(
+        """
+masks:
+  segmentation:
+    method: laplace_hamming
+    laplace_hamming_threshold: 15000
+    laplace_hamming_epsilon: 0.5
+    laplace_hamming_cutoff: 0.4
+    laplace_hamming_min_size_voxels: 25
+""",
+        encoding="utf-8",
+    )
+
+    config = load_config(user_config)
+
+    assert config.masks.segmentation.method == "laplace_hamming"
+    assert config.masks.segmentation.laplace_hamming_threshold == 15000
+    assert config.masks.segmentation.laplace_hamming_epsilon == 0.5
+    assert config.masks.segmentation.laplace_hamming_cutoff == 0.4
+    assert config.masks.segmentation.laplace_hamming_min_size_voxels == 25
+
+
 def test_user_config_template_marks_common_edit_points() -> None:
     text = build_user_config_template("multistack")
 

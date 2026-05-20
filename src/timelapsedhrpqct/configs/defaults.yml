@@ -115,12 +115,6 @@ masks:
   # Options: true | false.
   generate_segmentation: true
 
-  # Rules for choosing contour defaults by anatomical site.
-  site_selection:
-    # Site used when the path/metadata does not identify radius/tibia/knee.
-    # Options: radius | tibia | knee.
-    default_site: tibia
-
   # Site-specific contour defaults. Thresholds are in BMD units. Kernel/radius,
   # padding, peel, and margin values are voxel counts.
   site_defaults:
@@ -291,11 +285,8 @@ masks:
 
   segmentation:
     # Segmentation method for generating binary/label images from masks/image.
-    # Options: adaptive | global.
+    # Options: adaptive | global | laplace_hamming.
     method: adaptive
-    # Enable segmentation generation.
-    # Options: true | false.
-    enabled: true
     # Gaussian smoothing sigma before global thresholding; range: 0-3 voxels.
     gaussian_sigma: 0.8
     # Trabecular threshold for global segmentation; range: 100-600 mgHA/cm3.
@@ -313,6 +304,15 @@ masks:
     # Keep only the largest connected segmentation component.
     # Options: true | false.
     keep_largest_component: true
+    # Laplace-Hamming fixed threshold in Scanco-like filtered units; range: 8000-25000.
+    # The default corresponds to about 475 per mille in the published LH workflow.
+    laplace_hamming_threshold: 15564
+    # Laplacian edge-enhancement weight; published XCTII parameter range: 0.3-0.6.
+    laplace_hamming_epsilon: 0.45
+    # Hamming frequency cutoff fraction; published XCTII parameter range: 0.2-0.4.
+    laplace_hamming_cutoff: 0.3
+    # Remove LH components smaller than this voxel count; reasonable range: 0-10000.
+    laplace_hamming_min_size_voxels: 70
 
 # -----------------------------------------------------------------------------
 # Within-Stack Longitudinal Registration

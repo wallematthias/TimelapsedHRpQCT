@@ -44,7 +44,6 @@ Controls generated mask and segmentation behavior on imported stacks.
 - `overwrite`: regenerate masks even if outputs already exist
 - `roles`: mask roles to keep and use. Typical values are `["full", "trab", "cort"]` or `["full"]`
 - `generate_segmentation`: whether the mask-generation stage should also write segmentation outputs
-- `site_selection`: fallback site used when discovery did not identify a site
 - `site_defaults`: per-site contour overrides applied after the shared base mask settings
 
 If you only want to work with a total mask, set `roles: ["full"]`. In that case the pipeline will not require `trab` or `cort` masks.
@@ -82,7 +81,7 @@ Key options:
 
 Controls segmentation from stack images and masks.
 
-- `method`: `global` or `adaptive`
+- `method`: `adaptive`, `global`, or `laplace_hamming`
 - `gaussian_sigma`: Gaussian smoothing sigma before `global` thresholding; converted internally to physical units using image spacing
 - `trab_threshold`
 - `cort_threshold`
@@ -91,6 +90,10 @@ Controls segmentation from stack images and masks.
 - `adaptive_block_size`
 - `min_size_voxels`
 - `keep_largest_component`
+- `laplace_hamming_threshold`
+- `laplace_hamming_epsilon`
+- `laplace_hamming_cutoff`
+- `laplace_hamming_min_size_voxels`
 
 ## `timelapsed_registration`
 

@@ -92,8 +92,7 @@ class InnerContourConfig:
 
 @dataclass(slots=True)
 class MaskSegmentationConfig:
-    enabled: bool = True
-    method: str = "adaptive"  # "global" | "adaptive"
+    method: str = "adaptive"  # "global" | "adaptive" | "laplace_hamming"
     gaussian_sigma: float = 0.8
     trab_threshold: float = 320.0
     cort_threshold: float = 450.0
@@ -102,6 +101,10 @@ class MaskSegmentationConfig:
     adaptive_block_size: int = 13
     min_size_voxels: int = 64
     keep_largest_component: bool = True
+    laplace_hamming_threshold: float = 15564.0
+    laplace_hamming_epsilon: float = 0.45
+    laplace_hamming_cutoff: float = 0.3
+    laplace_hamming_min_size_voxels: int = 70
 
 
 @dataclass(slots=True)
@@ -110,11 +113,6 @@ class MasksConfig:
     overwrite: bool = False
     roles: list[str] = field(default_factory=lambda: ["full", "trab", "cort"])
     generate_segmentation: bool = True
-    site_selection: dict[str, object] = field(
-        default_factory=lambda: {
-            "default_site": "tibia",
-        }
-    )
     site_defaults: dict[str, dict[str, dict[str, object]]] = field(
         default_factory=lambda: {
             "radius": {

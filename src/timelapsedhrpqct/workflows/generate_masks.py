@@ -117,8 +117,8 @@ def _infer_scan_site(item: StackImageInput, config: AppConfig, metadata: dict | 
     if item.site:
         return str(item.site).lower()
 
-    selection = getattr(masks_cfg, "site_selection", {}) or {}
-    return str(selection.get("default_site", getattr(masks_cfg.inner, "site", "radius"))).lower()
+    discovery_cfg = getattr(config, "discovery", None)
+    return str(getattr(discovery_cfg, "default_site", getattr(masks_cfg.inner, "site", "radius"))).lower()
 
 
 def _apply_site_defaults(
@@ -265,9 +265,9 @@ def run_mask_generation(dataset_root: str | Path, config: AppConfig) -> None:
             if seg_method == "global":
                 need_generate_masks = missing_any_mask
                 need_generate_seg = generate_seg and ((not has_seg) or need_generate_masks)
-            elif seg_method == "adaptive":
+            elif seg_method in {"adaptive", "laplace_hamming"}:
                 need_generate_masks = missing_any_mask
-                # Keep seg in sync with regenerated masks for adaptive mode too.
+                # Keep seg in sync with regenerated masks for image-driven modes too.
                 need_generate_seg = generate_seg and ((not has_seg) or need_generate_masks)
             else:
                 raise ValueError(f"Unsupported segmentation method: {seg_method}")
