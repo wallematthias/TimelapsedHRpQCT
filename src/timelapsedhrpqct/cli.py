@@ -24,16 +24,13 @@ from timelapsedhrpqct.dataset.derivative_paths import (
     analysis_metadata_path,
     pairwise_remodelling_csv_path,
     trajectory_metrics_csv_path,
-    filled_image_path,
-    filled_seg_path,
-    filling_metadata_path,
     final_transform_path,
     timelapse_baseline_transform_path,
+    timelapse_pairwise_transform_path,
 )
 from timelapsedhrpqct.dataset.discovery import discover_raw_sessions
 from timelapsedhrpqct.dataset.layout import (
     get_derivative_session_dir,
-    get_derivatives_root,
     get_site_session_dir,
     get_sourcedata_session_dir,
 )
@@ -827,6 +824,18 @@ def _cmd_import(args: argparse.Namespace) -> int:
         force_header_discovery=bool(getattr(args, "force_header_discovery", False)),
         canonicalize_sessions=bool(getattr(args, "force_header_discovery", False)),
     )
+    all_sessions = list(sessions)
+
+    from timelapsedhrpqct.processing.manufacturer_transforms import (
+        discover_manufacturer_transform_records,
+        import_manufacturer_pairwise_transforms,
+        raw_manufacturer_transform_path,
+    )
+
+    manufacturer_records = discover_manufacturer_transform_records(
+        input_root,
+        config.discovery,
+    )
 
     if not sessions:
         print(f"[timelapse] No raw sessions found under: {input_root}")
@@ -841,6 +850,11 @@ def _cmd_import(args: argparse.Namespace) -> int:
         print("[timelapse] DRY RUN")
         print()
         print(f"[timelapse] Found {len(sessions)} raw session(s)")
+        if manufacturer_records:
+            print(
+                "[timelapse] Found "
+                f"{len(manufacturer_records)} manufacturer DAT transform(s)"
+            )
         print(f"[timelapse] Output root: {output_root}")
         print()
 
@@ -853,6 +867,29 @@ def _cmd_import(args: argparse.Namespace) -> int:
                 restructure_raw=restructure_raw,
             )
 
+        for record in manufacturer_records:
+            print(
+                "[timelapse] DAT transform: "
+                f"sub-{record.subject_id} site-{record.site} "
+                f"stack-{record.stack_index:02d} "
+                f"{record.moving_session} -> {record.fixed_session}"
+            )
+            print(f"    source : {record.source_path}")
+            print(f"    raw dst: {raw_manufacturer_transform_path(output_root, record)}")
+            tfm_path = timelapse_pairwise_transform_path(
+                output_root,
+                record.subject_id,
+                record.site,
+                record.stack_index,
+                record.moving_session,
+                record.fixed_session,
+            )
+            print(
+                "    tfm dst: "
+                f"{tfm_path}"
+            )
+            print()
+
         print(f"[timelapse] {len(sessions)} session(s) would be imported.")
         return 0
 
@@ -861,15 +898,14 @@ def _cmd_import(args: argparse.Namespace) -> int:
         dataset_root=output_root,
         config=config,
     )
-    if not sessions:
-        print("[timelapse] All discovered raw sessions already imported -> skip")
-        return 0
-
     from timelapsedhrpqct.workflows.import_aim import import_subject_sessions
 
     output_root.mkdir(parents=True, exist_ok=True)
 
-    print(f"[timelapse] Found {len(sessions)} raw session(s)")
+    if not sessions:
+        print("[timelapse] All discovered raw sessions already imported -> skip image import")
+    else:
+        print(f"[timelapse] Found {len(sessions)} raw session(s)")
     print(f"[timelapse] Output root: {output_root}")
 
     sessions_by_subject: dict[str, list] = {}
@@ -902,6 +938,19 @@ def _cmd_import(args: argparse.Namespace) -> int:
 
     print("[timelapse] Import complete")
     print(f"[timelapse] Total stacks written: {total_stacks}")
+    if manufacturer_records:
+        from timelapsedhrpqct.dataset.artifacts import iter_imported_stack_records
+
+        written_transforms = import_manufacturer_pairwise_transforms(
+            records=manufacturer_records,
+            raw_sessions=all_sessions,
+            stack_artifacts=iter_imported_stack_records(output_root),
+            dataset_root=output_root,
+        )
+        print(
+            "[timelapse] Manufacturer DAT transforms imported: "
+            f"{len(written_transforms)}"
+        )
     return 0
 
 

@@ -87,8 +87,16 @@ This creates:
 
 - optional copied raw AIM files under `sourcedata/hrpqct` (only when `--copy-raw-inputs`)
 - optional moved raw AIM files under `sub-*/site-*/ses-*` (only when `--restructure-raw`)
+- discovered SCANCO `.DAT` pairwise transforms copied into `sub-*/site-*/ses-*`
+  and converted to canonical pairwise `.tfm` files under
+  `TimelapsedHRpQCT/sub-*/site-*/timelapse_registration/stack-*`
 - imported stack artifacts under `TimelapsedHRpQCT/sub-*/ses-*/stacks`
 - persistent imported-stack records under `TimelapsedHRpQCT/_artifacts`
+
+Supported raw DAT names include `SAMPLE341_T2-to-T1.DAT` beside the fixed
+session, for example `sub-SAMPLE341/site-tibia/ses-T1/SAMPLE341_T2-to-T1.DAT`.
+The SCANCO matrix is inverted during conversion so the written `.tfm` follows
+the pipeline convention: moving session -> fixed session.
 
 ### 2. Generate missing masks and segmentation
 
