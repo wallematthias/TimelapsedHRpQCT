@@ -7,10 +7,10 @@ import os
 import shutil
 from collections import defaultdict
 from dataclasses import asdict
-from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Sequence
 
+from timelapsedhrpqct import __version__
 from timelapsedhrpqct.config.loader import load_config
 from timelapsedhrpqct.config.models import AppConfig
 from timelapsedhrpqct.config.profiles import (
@@ -98,12 +98,7 @@ def _add_profile_argument(parser: argparse.ArgumentParser) -> None:
 
 def _package_version() -> str:
     """Return installed package version with a source-tree fallback."""
-    try:
-        return version("timelapsed-hrpqct")
-    except PackageNotFoundError:
-        from timelapsedhrpqct import __version__
-
-        return __version__
+    return __version__
 
 
 def _build_parser() -> argparse.ArgumentParser:
