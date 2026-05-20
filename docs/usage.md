@@ -48,6 +48,12 @@ timelapse inspect /path/to/raw_data/TimelapsedHRpQCT
 timelapse config show low-memory
 ```
 
+Bundled study profiles include:
+
+- `standard` / `eth-uofc`: `seg_gauss`, `grayscale_and_binary`, threshold `225`, cluster `12`, Gaussian smoothing before subtraction.
+- `ucsf`: `laplace_hamming`, `grayscale_marrow_mask`, threshold `475`, cluster `5`, no Gaussian smoothing before subtraction, marrow erosion `0`.
+- `shriners`: `seg_gauss`, `grayscale_delta_only`, threshold `225`, cluster `0`, Gaussian smoothing before subtraction.
+
 Processed images and masks can be exported back to AIM. The exporter uses pipeline JSON
 sidecars to recover the original AIM calibration and processing log when available:
 

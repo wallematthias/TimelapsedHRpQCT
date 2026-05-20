@@ -13,6 +13,9 @@ def test_builtin_profiles_are_discoverable() -> None:
     profiles = list_config_profiles()
 
     assert "standard" in profiles
+    assert "eth-uofc" in profiles
+    assert "ucsf" in profiles
+    assert "shriners" in profiles
     assert "low-memory" in profiles
     assert "multistack" in profiles
 
@@ -77,6 +80,33 @@ masks:
     assert config.masks.segmentation.laplace_hamming_low_pass_cutoff == 0.4
     assert config.masks.segmentation.laplace_hamming_high_pass_cutoff == 0.1
     assert config.masks.segmentation.laplace_hamming_min_size_voxels == 25
+
+
+def test_study_profiles_define_expected_analysis_methods() -> None:
+    standard = load_config(profile="standard")
+    eth_uofc = load_config(profile="eth-uofc")
+    ucsf = load_config(profile="ucsf")
+    shriners = load_config(profile="shriners")
+
+    for config in (standard, eth_uofc):
+        assert config.masks.segmentation.method == "seg_gauss"
+        assert config.analysis.method == "grayscale_and_binary"
+        assert config.analysis.thresholds == [225]
+        assert config.analysis.cluster_sizes == [12]
+        assert config.analysis.gaussian_filter is True
+
+    assert ucsf.masks.segmentation.method == "laplace_hamming"
+    assert ucsf.analysis.method == "grayscale_marrow_mask"
+    assert ucsf.analysis.thresholds == [475]
+    assert ucsf.analysis.cluster_sizes == [5]
+    assert ucsf.analysis.gaussian_filter is False
+    assert ucsf.analysis.marrow_mask_erosion_voxels == 0
+
+    assert shriners.masks.segmentation.method == "seg_gauss"
+    assert shriners.analysis.method == "grayscale_delta_only"
+    assert shriners.analysis.thresholds == [225]
+    assert shriners.analysis.cluster_sizes == [0]
+    assert shriners.analysis.gaussian_filter is True
 
 
 def test_user_config_template_marks_common_edit_points() -> None:

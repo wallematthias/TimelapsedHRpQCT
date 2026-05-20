@@ -1,5 +1,5 @@
-profile: standard
-description: "ETH/UofC standard analysis: seg_gauss segmentation with grayscale-and-binary remodelling."
+profile: eth-uofc
+description: ETH/UofC analysis profile using seg_gauss segmentation and grayscale-and-binary remodelling.
 
 multistack_correction:
   enabled: true
