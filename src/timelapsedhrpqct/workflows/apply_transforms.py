@@ -250,9 +250,7 @@ def _make_subject_common_reference_from_baselines(
         baseline_session,
     )
     anchor_image = load_image(anchor_record.image_path)
-
-    moving_images: list[sitk.Image] = []
-    moving_transforms: list[sitk.Transform] = []
+    all_points = _image_physical_corners(anchor_image)
 
     for stack_index in stack_indices[1:]:
         record = _baseline_record_for_stack(
@@ -260,19 +258,24 @@ def _make_subject_common_reference_from_baselines(
             baseline_session,
         )
         image = load_image(record.image_path)
-        moving_images.append(image)
-        moving_transforms.append(sitk.Transform(3, sitk.sitkIdentity))
+        all_points.extend(_image_physical_corners(image))
+        del image
+        _free_memory()
 
-    ref = _make_multi_union_reference_image(
-        reference_image=anchor_image,
-        moving_images=moving_images,
-        moving_to_reference_transforms=moving_transforms,
-        padding_voxels=padding_voxels,
-    )
+    mins = [min(p[i] for p in all_points) for i in range(3)]
+    maxs = [max(p[i] for p in all_points) for i in range(3)]
+    spacing = anchor_image.GetSpacing()
+    direction = anchor_image.GetDirection()
+    mins = [mins[i] - padding_voxels * spacing[i] for i in range(3)]
+    maxs = [maxs[i] + padding_voxels * spacing[i] for i in range(3)]
+    size = [int(np.ceil((maxs[i] - mins[i]) / spacing[i])) + 1 for i in range(3)]
+
+    ref = sitk.Image(size, sitk.sitkFloat32)
+    ref.SetSpacing(spacing)
+    ref.SetOrigin(tuple(mins))
+    ref.SetDirection(direction)
 
     del anchor_image
-    for image in moving_images:
-        del image
     _free_memory()
 
     return ref
