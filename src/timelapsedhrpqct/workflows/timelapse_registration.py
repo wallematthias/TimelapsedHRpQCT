@@ -527,14 +527,6 @@ def run_timelapse_registration(
                     f"moving={moving_mask is not None}"
                 )
 
-                result = register_images(
-                    fixed_image=fixed_image,
-                    moving_image=moving_image,
-                    settings=settings,
-                    fixed_mask=fixed_mask,
-                    moving_mask=moving_mask,
-                )
-
                 tfm_path = _pairwise_transform_path(
                     dataset_root,
                     subject_id,
@@ -543,8 +535,6 @@ def run_timelapse_registration(
                     moving_session=moving_session,
                     fixed_session=fixed_session,
                 )
-                _write_transform(result.transform, tfm_path)
-
                 meta_path = _pairwise_metadata_path(
                     dataset_root,
                     subject_id,
@@ -553,6 +543,36 @@ def run_timelapse_registration(
                     moving_session=moving_session,
                     fixed_session=fixed_session,
                 )
+
+                if tfm_path.exists() and meta_path.exists():
+                    try:
+                        existing_meta = json.loads(meta_path.read_text(encoding="utf-8"))
+                    except json.JSONDecodeError:
+                        existing_meta = {}
+                    if existing_meta.get("source") == "manufacturer_dat":
+                        manufacturer_transform = sitk.ReadTransform(str(tfm_path))
+                        pairwise.append(
+                            PairwiseTransform(
+                                session_id=moving_session,
+                                transform=flatten_transform(manufacturer_transform),
+                            )
+                        )
+                        print(
+                            f"[timelapse]     {moving_session} -> {fixed_session} "
+                            "using imported manufacturer DAT transform"
+                        )
+                        continue
+
+                result = register_images(
+                    fixed_image=fixed_image,
+                    moving_image=moving_image,
+                    settings=settings,
+                    fixed_mask=fixed_mask,
+                    moving_mask=moving_mask,
+                )
+
+                _write_transform(result.transform, tfm_path)
+
                 write_json(
                     build_pairwise_registration_metadata(
                         subject_id=subject_id,

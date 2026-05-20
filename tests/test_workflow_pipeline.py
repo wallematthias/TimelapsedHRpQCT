@@ -21,6 +21,7 @@ from timelapsedhrpqct.workflows.timelapse_registration import (
     _baseline_metadata_path,
     _baseline_transform_path,
     _pairwise_metadata_path,
+    _pairwise_transform_path,
     run_timelapse_registration,
 )
 
@@ -94,6 +95,61 @@ def test_timelapse_registration_writes_pairwise_and_baseline_transforms(
     )
     assert baseline_meta["baseline_session"] == "baseline"
     assert len(fake_register.calls) == 4
+
+
+def test_timelapse_registration_reuses_imported_manufacturer_pairwise_transform(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    dataset_root = build_imported_dataset(
+        tmp_path / "dataset",
+        session_ids=("baseline", "followup1"),
+        stack_indices=(1,),
+    )
+    config = make_test_config()
+
+    tfm_path = _pairwise_transform_path(
+        dataset_root=dataset_root,
+        subject_id="001",
+        stack_index=1,
+        moving_session="followup1",
+        fixed_session="baseline",
+    )
+    tfm_path.parent.mkdir(parents=True, exist_ok=True)
+    sitk.WriteTransform(sitk.TranslationTransform(3, (7.0, 0.0, 0.0)), str(tfm_path))
+    meta_path = _pairwise_metadata_path(
+        dataset_root=dataset_root,
+        subject_id="001",
+        stack_index=1,
+        moving_session="followup1",
+        fixed_session="baseline",
+    )
+    meta_path.write_text(
+        json.dumps({"source": "manufacturer_dat"}),
+        encoding="utf-8",
+    )
+
+    fake_register = make_fake_registration([(99.0, 0.0, 0.0)])
+    monkeypatch.setattr(
+        "timelapsedhrpqct.workflows.timelapse_registration.register_images",
+        fake_register,
+    )
+
+    run_timelapse_registration(dataset_root=dataset_root, config=config)
+
+    baseline_tfm = sitk.ReadTransform(
+        str(
+            _baseline_transform_path(
+                dataset_root=dataset_root,
+                subject_id="001",
+                stack_index=1,
+                moving_session="followup1",
+                baseline_session="baseline",
+            )
+        )
+    )
+    assert transform_offset(baseline_tfm) == (7.0, 0.0, 0.0)
+    assert len(fake_register.calls) == 0
 
 
 def test_pipeline_runs_end_to_end_with_deterministic_registration_backend(
