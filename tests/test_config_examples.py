@@ -42,3 +42,26 @@ timelapsed_registration:
 
     with pytest.warns(UserWarning, match="Ignoring unknown config key"):
         load_config(cfg)
+
+
+def test_seg_gauss_slicer_aliases_override_canonical_thresholds(tmp_path: Path) -> None:
+    cfg = tmp_path / "config.yml"
+    cfg.write_text(
+        """
+masks:
+  segmentation:
+    method: seg_gauss
+    trab_threshold: 225
+    cort_threshold: 1.2
+    seg_gauss_threshold: 225
+    seg_gauss_sigma: 1.2
+""",
+        encoding="utf-8",
+    )
+
+    config = load_config(cfg)
+
+    assert config.masks.segmentation.method == "seg_gauss"
+    assert config.masks.segmentation.trab_threshold == 225
+    assert config.masks.segmentation.cort_threshold == 225
+    assert config.masks.segmentation.gaussian_sigma == 1.2

@@ -75,6 +75,18 @@ def _warn_unknown_keys(
         )
 
 
+def _normalize_segmentation_aliases(values: dict[str, Any]) -> dict[str, Any]:
+    """Translate legacy/Slicer segmentation aliases into canonical config keys."""
+    normalized = dict(values)
+    if "seg_gauss_threshold" in normalized:
+        threshold = normalized["seg_gauss_threshold"]
+        normalized["trab_threshold"] = threshold
+        normalized["cort_threshold"] = threshold
+    if "seg_gauss_sigma" in normalized:
+        normalized["gaussian_sigma"] = normalized["seg_gauss_sigma"]
+    return normalized
+
+
 def load_config(path: str | Path | None = None, *, profile: str | None = None) -> AppConfig:
     """Load config."""
     raw = _read_yaml(DEFAULT_CONFIG_PATH) if DEFAULT_CONFIG_PATH.is_file() else {}
@@ -102,7 +114,7 @@ def load_config(path: str | Path | None = None, *, profile: str | None = None) -
 
     masks_outer_raw = masks_raw.get("outer", {})
     masks_inner_raw = masks_raw.get("inner", {})
-    masks_seg_raw = masks_raw.get("segmentation", {})
+    masks_seg_raw = _normalize_segmentation_aliases(masks_raw.get("segmentation", {}))
     analysis_valid_region_raw = analysis_raw.get("valid_region", {})
     visualization_label_map_raw = visualization_raw.get("label_map", {})
 
@@ -111,7 +123,12 @@ def load_config(path: str | Path | None = None, *, profile: str | None = None) -
     _warn_unknown_keys("masks", MasksConfig, masks_raw, excluded={"outer", "inner", "segmentation"})
     _warn_unknown_keys("masks.outer", OuterContourConfig, masks_outer_raw)
     _warn_unknown_keys("masks.inner", InnerContourConfig, masks_inner_raw)
-    _warn_unknown_keys("masks.segmentation", MaskSegmentationConfig, masks_seg_raw)
+    _warn_unknown_keys(
+        "masks.segmentation",
+        MaskSegmentationConfig,
+        masks_seg_raw,
+        excluded={"seg_gauss_threshold", "seg_gauss_sigma"},
+    )
     _warn_unknown_keys("timelapsed_registration", TimelapsedRegistrationConfig, timelapsed_raw)
     _warn_unknown_keys("multistack_correction", MultistackCorrectionConfig, multistack_raw)
     _warn_unknown_keys("transform", TransformConfig, transform_raw)
