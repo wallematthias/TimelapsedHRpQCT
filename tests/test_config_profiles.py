@@ -112,6 +112,7 @@ def test_study_profiles_define_expected_analysis_methods() -> None:
     assert xct1.analysis.thresholds == [225]
     assert xct1.analysis.cluster_sizes == [5]
     assert xct1.analysis.gaussian_filter is True
+    assert xct1.analysis.gaussian_sigma == 0.8
 
     for config in (eth_uofc,):
         assert config.masks.segmentation.method == "seg_gauss"

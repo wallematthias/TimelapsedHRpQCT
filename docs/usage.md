@@ -51,7 +51,7 @@ timelapse config show low-memory
 Bundled study profiles include:
 
 - `standard`: `laplace_hamming`, `grayscale_and_binary`, threshold `225`, cluster `12`, Gaussian filtering of remodelling sites.
-- `xct1-standard`: `laplace_hamming`, `grayscale_delta_only`, threshold `225`, cluster `5`, Gaussian filtering of remodelling sites.
+- `xct1-standard`: `laplace_hamming`, `grayscale_delta_only`, threshold `225`, cluster `5`, Gaussian filtering of remodelling sites with sigma `0.8`.
 - `eth-uofc`: legacy ETH/UofC `seg_gauss`, `grayscale_and_binary`, threshold `225`, cluster `12`, Gaussian filtering of remodelling sites.
 - `ucsf`: `laplace_hamming`, bone-support-limited grayscale remodelling, threshold `475`, cluster `5`, no Gaussian filtering of remodelling sites, bone support dilation `0`.
 - `shriners`: `seg_gauss`, `grayscale_delta_only`, threshold `220`, cluster `0`, Gaussian filtering of remodelling sites.

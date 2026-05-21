@@ -21,7 +21,7 @@ analysis:
   thresholds: [225]
   cluster_sizes: [5]
   gaussian_filter: true
-  gaussian_sigma: 1.2
+  gaussian_sigma: 0.8
 
 visualization:
   enabled: true
