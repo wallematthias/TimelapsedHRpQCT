@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import yaml
+
 from timelapsedhrpqct.config.loader import load_config
 from timelapsedhrpqct.config.profiles import (
     build_user_config_template,
@@ -104,7 +106,7 @@ def test_study_profiles_define_expected_analysis_methods() -> None:
     assert ucsf.masks.segmentation.method == "laplace_hamming"
     assert ucsf.analysis.method == "auto"
     assert ucsf.analysis.change_region.source == "bone_union"
-    assert ucsf.analysis.change_region.dilation_voxels == 2
+    assert ucsf.analysis.change_region.dilation_voxels == 0
     assert ucsf.analysis.change_region.erosion_voxels == 0
     assert ucsf.analysis.binary_reclassification.enabled is False
     assert _get_analysis_params(ucsf).method == "grayscale_marrow_mask"
@@ -117,9 +119,22 @@ def test_study_profiles_define_expected_analysis_methods() -> None:
     assert shriners.analysis.change_region.source == "common_mask"
     assert shriners.analysis.binary_reclassification.enabled is False
     assert _get_analysis_params(shriners).method == "grayscale_delta_only"
-    assert shriners.analysis.thresholds == [225]
+    assert shriners.analysis.thresholds == [220]
     assert shriners.analysis.cluster_sizes == [0]
     assert shriners.analysis.gaussian_filter is True
+
+
+def test_study_profiles_use_explicit_analysis_controls_not_legacy_method() -> None:
+    profiles_dir = Path(__file__).resolve().parents[1] / "src" / "timelapsedhrpqct" / "configs" / "profiles"
+
+    for profile_name in ("standard", "eth-uofc", "ucsf", "shriners"):
+        data = yaml.safe_load((profiles_dir / f"{profile_name}.yml").read_text(encoding="utf-8"))
+        analysis = data.get("analysis") or {}
+
+        assert "method" not in analysis
+        assert analysis["change_detection"] == "grayscale_delta"
+        assert "change_region" in analysis
+        assert "binary_reclassification" in analysis
 
 
 def test_user_config_template_marks_common_edit_points() -> None:

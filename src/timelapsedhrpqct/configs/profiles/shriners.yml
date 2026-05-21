@@ -10,7 +10,6 @@ masks:
 
 analysis:
   space: pairwise_fixed_t0
-  method: auto
   change_detection: grayscale_delta
   change_region:
     source: common_mask
@@ -19,12 +18,12 @@ analysis:
   binary_reclassification:
     enabled: false
   pair_mode: adjacent
-  thresholds: [225]
+  thresholds: [220]
   cluster_sizes: [0]
   gaussian_filter: true
   gaussian_sigma: 1.2
 
 visualization:
   enabled: true
-  threshold: 225
+  threshold: 220
   cluster_size: 0

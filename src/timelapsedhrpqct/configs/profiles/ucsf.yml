@@ -10,11 +10,10 @@ masks:
 
 analysis:
   space: pairwise_fixed_t0
-  method: auto
   change_detection: grayscale_delta
   change_region:
     source: bone_union
-    dilation_voxels: 2
+    dilation_voxels: 0
     erosion_voxels: 0
   binary_reclassification:
     enabled: false

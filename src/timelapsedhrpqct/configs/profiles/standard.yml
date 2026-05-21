@@ -10,7 +10,6 @@ masks:
 
 analysis:
   space: pairwise_fixed_t0
-  method: auto
   change_detection: grayscale_delta
   change_region:
     source: common_mask
