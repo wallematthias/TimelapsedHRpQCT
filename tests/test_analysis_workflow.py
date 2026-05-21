@@ -401,6 +401,8 @@ def test_compute_pair_remodelling_preview_supports_marrow_mask_mode():
     assert bool(preview.valid_mask[2, 2, 2])
     assert bool(preview.valid_mask[3, 3, 3])
     assert not bool(preview.valid_mask[1, 1, 1])
+    assert int(np.count_nonzero(preview.quiescent)) == 1
+    assert bool(preview.quiescent[2, 2, 2])
     assert bool(preview.formation[3, 3, 3])
     assert not bool(preview.formation[1, 1, 1])
 

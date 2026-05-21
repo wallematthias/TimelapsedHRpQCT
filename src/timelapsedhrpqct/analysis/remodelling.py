@@ -406,7 +406,7 @@ def _classify_pair_remodelling(
         if has_seg:
             b0 = np.asarray(seg_arr_t0, dtype=bool) & valid
             b1 = np.asarray(seg_arr_t1, dtype=bool) & valid
-            quiescent_support = b0 & b1
+            quiescent_support = valid if method == "grayscale_marrow_mask" else b0 & b1
         else:
             b0 = valid
             b1 = valid

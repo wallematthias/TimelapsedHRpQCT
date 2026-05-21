@@ -312,7 +312,7 @@ class AnalysisConfig:
     gaussian_filter: bool = True
     gaussian_sigma: float = 1.2
     full_mask_dilation_voxels: int = 2
-    marrow_mask_erosion_voxels: int = 2
+    marrow_mask_erosion_voxels: int = 0
     valid_region: AnalysisValidRegionConfig = field(default_factory=AnalysisValidRegionConfig)
 
 
