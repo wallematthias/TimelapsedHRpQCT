@@ -107,6 +107,71 @@ def test_parser_accepts_subject_and_site_filters_for_analyse() -> None:
     assert args.site == "tibia"
 
 
+def test_parser_accepts_scanco_transform_commands() -> None:
+    parser = _build_parser()
+
+    import_args = parser.parse_args(["import-transforms", "/tmp/raw", "/tmp/dataset"])
+    export_args = parser.parse_args(
+        [
+            "export-transform-dat",
+            "/tmp/dataset/in.tfm",
+            "/tmp/dataset/out.DAT",
+        ]
+    )
+    aim_args = parser.parse_args(
+        [
+            "export-aim",
+            "/tmp/dataset/in.nii.gz",
+            "/tmp/dataset/out.AIM",
+            "--metadata-json",
+            "/tmp/dataset/in.json",
+            "--mask",
+            "--log",
+            "converted",
+        ]
+    )
+
+    assert import_args.command == "import-transforms"
+    assert import_args.input_root == Path("/tmp/raw")
+    assert import_args.dataset_root == Path("/tmp/dataset")
+    assert export_args.command == "export-transform-dat"
+    assert export_args.transform_path == Path("/tmp/dataset/in.tfm")
+    assert export_args.output_path == Path("/tmp/dataset/out.DAT")
+    assert aim_args.command == "export-aim"
+    assert aim_args.image_path == Path("/tmp/dataset/in.nii.gz")
+    assert aim_args.output_path == Path("/tmp/dataset/out.AIM")
+    assert aim_args.metadata_json == Path("/tmp/dataset/in.json")
+    assert aim_args.mask is True
+    assert aim_args.log == "converted"
+
+
+def test_parser_accepts_professional_cli_commands() -> None:
+    parser = _build_parser()
+
+    doctor_args = parser.parse_args(["doctor", "--profile", "low-memory"])
+    inspect_args = parser.parse_args(["inspect", "/tmp/dataset"])
+    list_args = parser.parse_args(["config", "list"])
+    show_args = parser.parse_args(["config", "show", "multistack"])
+    benchmark_args = parser.parse_args(["analyse", "/tmp/dataset", "--benchmark"])
+    write_args = parser.parse_args(
+        ["config", "write", "--profile", "standard", "--output", "/tmp/config.yml"]
+    )
+    explain_args = parser.parse_args(
+        ["config", "explain", "--profile", "standard", "--config", "/tmp/user.yml"]
+    )
+
+    assert doctor_args.command == "doctor"
+    assert doctor_args.profile == "low-memory"
+    assert inspect_args.command == "inspect"
+    assert inspect_args.dataset_root == Path("/tmp/dataset")
+    assert list_args.command == "config"
+    assert list_args.config_command == "list"
+    assert show_args.profile == "multistack"
+    assert benchmark_args.benchmark is True
+    assert write_args.output == Path("/tmp/config.yml")
+    assert explain_args.config == Path("/tmp/user.yml")
+
+
 def test_sessions_needing_import_skips_already_imported_complete_sessions(tmp_path: Path, monkeypatch) -> None:
     dataset_root = tmp_path / "dataset"
     raw_sessions = [
@@ -252,6 +317,96 @@ def test_needs_apply_transforms_and_filling_reflect_artifact_presence(tmp_path: 
     )
 
     assert _needs_filling(dataset_root) is False
+
+
+def test_needs_apply_transforms_detects_missing_imported_session_fusion(tmp_path: Path) -> None:
+    dataset_root = tmp_path / "dataset"
+    imported_image = tmp_path / "imported_image.mha"
+    _touch(imported_image)
+
+    upsert_imported_stack_records(
+        dataset_root,
+        [
+            ImportedStackRecord(
+                "001",
+                "C1",
+                1,
+                imported_image,
+                {},
+                None,
+                None,
+                site="radius",
+            ),
+            ImportedStackRecord(
+                "001",
+                "C2",
+                1,
+                imported_image,
+                {},
+                None,
+                None,
+                site="radius",
+            ),
+            ImportedStackRecord(
+                "002",
+                "C1",
+                1,
+                imported_image,
+                {},
+                None,
+                None,
+                site="tibia",
+            ),
+        ],
+    )
+
+    fused_image = tmp_path / "fused_image.mha"
+    fused_full = tmp_path / "fused_full.mha"
+    fused_meta = tmp_path / "fused.json"
+    for path in (fused_image, fused_full, fused_meta):
+        _touch(path)
+
+    upsert_fused_session_record(
+        dataset_root,
+        FusedSessionRecord(
+            "001",
+            "C1",
+            fused_image,
+            {"full": fused_full},
+            None,
+            fused_meta,
+            site="radius",
+        ),
+    )
+
+    assert _needs_apply_transforms(dataset_root) is True
+
+    upsert_fused_session_record(
+        dataset_root,
+        FusedSessionRecord(
+            "001",
+            "C2",
+            fused_image,
+            {"full": fused_full},
+            None,
+            fused_meta,
+            site="radius",
+        ),
+    )
+    upsert_fused_session_record(
+        dataset_root,
+        FusedSessionRecord(
+            "002",
+            "C1",
+            fused_image,
+            {"full": fused_full},
+            None,
+            fused_meta,
+            site="tibia",
+        ),
+    )
+
+    assert _needs_apply_transforms(dataset_root) is False
 
 
 def test_needs_analysis_uses_existing_summary_when_no_overrides(tmp_path: Path) -> None:

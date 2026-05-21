@@ -5,7 +5,7 @@ This page summarizes the active settings in `src/timelapsedhrpqct/configs/defaul
 ## `import`
 
 - `stack_depth: 168`: expected z-depth per imported stack.
-- `on_incomplete_stack: error`: fail import when final stack depth is incomplete.
+- `on_incomplete_stack: keep_last`: preserve a final partial stack.
 - `crop_to_subject_box: false`: keep full imported extents by default.
 - `crop_threshold_bmd: 450.0`: threshold used for optional crop detection.
 - `crop_padding_voxels: 5`: padding around detected crop bounds.
@@ -25,7 +25,6 @@ This page summarizes the active settings in `src/timelapsedhrpqct/configs/defaul
 - `overwrite: false`: existing outputs are reused.
 - `roles: [full, trab, cort]`: expected mask roles.
 - `generate_segmentation: true`: produce segmentation when needed.
-- `site_selection`: filename-based site inference overrides.
 - `site_defaults`: per-site contour defaults (`radius`, `tibia`, `knee`).
 
 ### `masks.inner`
@@ -39,18 +38,18 @@ Controls outer contour extraction (`periosteal_threshold`, `periosteal_kernelsiz
 ### `masks.segmentation`
 
 - `method: adaptive`
-- Adaptive/global/Laplace-Hamming thresholds and filtering controls (`adaptive_*`, `trab_threshold`, `cort_threshold`, `laplace_hamming_*`, `min_size_voxels`).
+- Adaptive/seg_gauss/Laplace-Hamming thresholds and filtering controls (`adaptive_*`, `trab_threshold`, `cort_threshold`, `laplace_hamming_*`, `min_size_voxels`).
 
 ## `timelapsed_registration`
 
 Controls within-stack longitudinal registration:
 
 - `transform_type: euler`
-- `metric: correlation`
-- `sampling_percentage: 0.1`
+- `metric: mattes`
+- `sampling_percentage: 0.001`
 - `number_of_iterations: 250`
 - `initializer: geometry`
-- `number_of_resolutions: 4`
+- `number_of_resolutions: 6`
 - `use_masks: true`
 
 ## `multistack_correction`
@@ -58,12 +57,12 @@ Controls within-stack longitudinal registration:
 Controls adjacent stack correction:
 
 - `enabled: true`
-- `method: boundary_2d`
+- `method: superstack`
 - `transform_type: euler`
 - `metric: mattes`
-- `sampling_percentage: 0.5`
-- `number_of_iterations: 1000`
-- `number_of_resolutions: 1`
+- `sampling_percentage: 0.005`
+- `number_of_iterations: 250`
+- `number_of_resolutions: 4`
 - `use_masks: true`
 
 ## `transform`
@@ -73,9 +72,7 @@ Controls adjacent stack correction:
 
 ## `fusion`
 
-- `save_fused: true`
-- `save_fusedfilled: true`
-- `enable_filling: true`
+- `enable_filling: false`
 
 ## `filling`
 
@@ -89,9 +86,9 @@ Spatial/temporal fill controls:
 
 ## `analysis`
 
-- `space: baseline_common`
+- `space: pairwise_fixed_t0`
 - `method: grayscale_and_binary`
-- `compartments: [trab, cort, full]`
+- `compartments: [full, trab, cort]`
 - `thresholds: [225]`
 - `cluster_sizes: [12]`
 - `pair_mode: adjacent`
@@ -116,4 +113,4 @@ Compartment role resolution at runtime:
 ## Notes
 
 - Unknown config keys are now reported by the loader with warnings.
-- Removed dead options from defaults: `import.image_role_patterns`, `masks.derive_full_from_cort_trab`, and `timelapsed_registration.strategy/reference_session`.
+- Removed dead options from defaults: `import.image_role_patterns`, `masks.derive_full_from_cort_trab`, `masks.site_selection`, and `masks.segmentation.enabled`.

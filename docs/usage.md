@@ -15,8 +15,55 @@ Available subcommands:
 - `analyse`
 - `run`
 - `undo-restructure`
+- `doctor`
+- `inspect`
+- `config`
+- `import-transforms`
+- `export-transform-dat`
+- `export-aim`
 
 If `--config` is omitted, the CLI uses the bundled package default config (`src/timelapsedhrpqct/configs/defaults.yml`).
+
+For routine use, prefer a built-in profile plus a small user config file:
+
+```bash
+timelapse config list
+timelapse config write --profile multistack --output study.yml
+timelapse run /path/to/raw_data --mode multistack --profile multistack --config study.yml
+```
+
+Config precedence is:
+
+1. bundled defaults
+2. selected `--profile`
+3. user `--config`
+
+This means users usually edit only `study.yml`. Use `timelapse config explain --profile multistack --config study.yml` to inspect the effective settings.
+
+Useful setup and inspection commands:
+
+```bash
+timelapse doctor --profile low-memory
+timelapse inspect /path/to/raw_data/TimelapsedHRpQCT
+timelapse config show low-memory
+```
+
+Bundled study profiles include:
+
+- `standard` / `eth-uofc`: `seg_gauss`, `grayscale_and_binary`, threshold `225`, cluster `12`, Gaussian smoothing before subtraction.
+- `ucsf`: `laplace_hamming`, `grayscale_marrow_mask`, threshold `475`, cluster `5`, no Gaussian smoothing before subtraction, marrow erosion `0`.
+- `shriners`: `seg_gauss`, `grayscale_delta_only`, threshold `225`, cluster `0`, Gaussian smoothing before subtraction.
+
+Processed images and masks can be exported back to AIM. The exporter uses pipeline JSON
+sidecars to recover the original AIM calibration and processing log when available:
+
+```bash
+timelapse export-aim fused_image.nii.gz fused_image.AIM
+timelapse export-aim fused_mask.nii.gz fused_mask.AIM --mask
+```
+
+Use `--metadata-json stack.json` when exporting an image outside the normal derivative
+folder layout.
 
 ## Typical Workflows
 
@@ -223,10 +270,12 @@ Important output areas:
 - `sub-*/site-*/ses-*/`: optional moved raw AIM files (only when `--restructure-raw`)
 - `TimelapsedHRpQCT/_artifacts/`: persistent artifact indices
 - `TimelapsedHRpQCT/sub-*/ses-*/stacks/`: imported stacks
-- `TimelapsedHRpQCT/sub-*/timelapse_registration/`: within-stack longitudinal transforms
+- `TimelapsedHRpQCT/sub-*/registration/`: within-stack longitudinal transforms
 - `TimelapsedHRpQCT/sub-*/stack_correction/`: multistack correction outputs
 - `TimelapsedHRpQCT/sub-*/transforms/final/`: canonical final transforms
-- `TimelapsedHRpQCT/sub-*/transformed/`: fused transformed sessions
+- `TimelapsedHRpQCT/sub-*/transformed_images/`: fused transformed sessions
+
+Older datasets that used `timelapse_registration/` and `transformed/` remain readable.
 - `TimelapsedHRpQCT/sub-*/filled/`: filled fused sessions
 - `TimelapsedHRpQCT/sub-*/analysis/`: CSV outputs, common regions, visualizations, summary JSON
 

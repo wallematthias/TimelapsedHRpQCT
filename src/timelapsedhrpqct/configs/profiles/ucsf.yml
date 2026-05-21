@@ -1,0 +1,23 @@
+profile: ucsf
+description: UCSF analysis profile using Laplace-Hamming segmentation and marrow-mask grayscale remodelling.
+
+multistack_correction:
+  enabled: true
+
+masks:
+  segmentation:
+    method: laplace_hamming
+
+analysis:
+  space: pairwise_fixed_t0
+  method: grayscale_marrow_mask
+  pair_mode: adjacent
+  thresholds: [475]
+  cluster_sizes: [5]
+  gaussian_filter: false
+  marrow_mask_erosion_voxels: 0
+
+visualization:
+  enabled: true
+  threshold: 475
+  cluster_size: 5

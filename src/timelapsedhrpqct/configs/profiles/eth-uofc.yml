@@ -1,0 +1,23 @@
+profile: eth-uofc
+description: ETH/UofC analysis profile using seg_gauss segmentation and grayscale-and-binary remodelling.
+
+multistack_correction:
+  enabled: true
+
+masks:
+  segmentation:
+    method: seg_gauss
+
+analysis:
+  space: pairwise_fixed_t0
+  method: grayscale_and_binary
+  pair_mode: adjacent
+  thresholds: [225]
+  cluster_sizes: [12]
+  gaussian_filter: true
+  gaussian_sigma: 1.2
+
+visualization:
+  enabled: true
+  threshold: 225
+  cluster_size: 12

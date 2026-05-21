@@ -3,6 +3,8 @@
 from pathlib import Path
 from typing import Any
 import importlib
+from datetime import datetime
+import json
 
 import numpy as np
 import SimpleITK as sitk
@@ -219,3 +221,94 @@ def read_aim(
     }
 
     return sitk_img, metadata
+
+
+def write_aim(
+    image: sitk.Image,
+    path: Path,
+    metadata: dict[str, Any] | None = None,
+    *,
+    unit: str | None = None,
+    mask: bool = False,
+) -> None:
+    """Write a SimpleITK image to Scanco AIM through py_aimio."""
+    py_aimio = _load_py_aimio()
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    arr_zyx = sitk.GetArrayFromImage(image)
+    if mask:
+        arr_zyx = (127 * (arr_zyx > 0)).astype(np.int8)
+    meta = dict(metadata or {})
+    meta.setdefault("dimensions", tuple(int(v) for v in image.GetSize()))
+    meta.setdefault("spacing", tuple(float(v) for v in image.GetSpacing()))
+    meta.setdefault("element_size", tuple(float(v) for v in image.GetSpacing()))
+    meta.setdefault("origin", tuple(float(v) for v in image.GetOrigin()))
+    meta.setdefault("direction", tuple(float(v) for v in image.GetDirection()))
+    if unit is None:
+        unit = _normalize_aim_write_unit(meta.get("unit"))
+    write_unit = unit
+    if unit == "BMD":
+        arr_zyx = _bmd_to_native_int16(arr_zyx, meta)
+        write_unit = "native"
+        meta["unit"] = "native"
+    elif unit is not None:
+        meta["unit"] = unit
+    py_aimio.write_aim(str(path), arr_zyx, meta, unit=write_unit)
+
+
+def _normalize_aim_write_unit(unit: Any) -> str | None:
+    """Normalize pipeline unit names to py_aimio write unit names."""
+    if unit is None:
+        return None
+    text = str(unit).strip()
+    normalized = text.lower()
+    if normalized in {"bmd", "density"}:
+        return "BMD"
+    if normalized == "hu":
+        return "HU"
+    if normalized in {"native", "none"}:
+        return "native"
+    return text
+
+
+def _bmd_to_native_int16(array: np.ndarray, metadata: dict[str, Any]) -> np.ndarray:
+    """Convert BMD/density values back to native Scanco values for AIM writing."""
+    processing_log = str(
+        metadata.get("processing_log_raw") or metadata.get("processing_log") or ""
+    )
+    mu_scaling, _hu_mu_water, _hu_mu_air, density_slope, density_intercept = (
+        _get_aim_calibration_constants_from_processing_log(processing_log)
+    )
+    slope = float(density_slope) / float(mu_scaling)
+    native = (array.astype(np.float32) - float(density_intercept)) / slope
+    native = np.rint(native)
+    native = np.clip(native, np.iinfo(np.int16).min, np.iinfo(np.int16).max)
+    return native.astype(np.int16)
+
+
+def aim_metadata_from_import_json(
+    metadata_json: Path,
+    image: sitk.Image,
+    *,
+    log: str = "",
+) -> dict[str, Any]:
+    """Build AIM write metadata from pipeline JSON plus output image geometry."""
+    payload = json.loads(Path(metadata_json).read_text(encoding="utf-8"))
+    source_meta = payload.get("image_metadata") or {}
+    out = dict(source_meta)
+    processing_log = str(source_meta.get("processing_log_raw") or source_meta.get("processing_log", ""))
+    if log:
+        stamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        processing_log = f"{processing_log}\n[{stamp}] {log}."
+    out["processing_log"] = processing_log
+    out["processing_log_raw"] = processing_log
+    out["dimensions"] = tuple(int(v) for v in image.GetSize())
+    out["spacing"] = tuple(float(v) for v in image.GetSpacing())
+    out["element_size"] = tuple(float(v) for v in image.GetSpacing())
+    out["origin"] = tuple(float(v) for v in image.GetOrigin())
+    out["direction"] = tuple(float(v) for v in image.GetDirection())
+    # Multistack/fused exports live in pipeline common space; keep AIM position
+    # zeroed rather than pretending they retain the original scanner location.
+    out["position"] = (0, 0, 0)
+    out["offset"] = (0, 0, 0)
+    return out

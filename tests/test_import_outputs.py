@@ -29,10 +29,10 @@ def test_build_stack_output_paths_matches_existing_layout() -> None:
     )
 
     assert str(paths["image"]).endswith(
-        "TimelapsedHRpQCT/sub-001/ses-baseline/stacks/sub-001_ses-baseline_stack-02_image.mha"
+        "TimelapsedHRpQCT/sub-001/ses-baseline/stacks/sub-001_ses-baseline_stack-02_image.nii.gz"
     )
-    assert str(paths["masks"]["full"]).endswith("_mask-full.mha")
-    assert str(paths["seg"]).endswith("_seg.mha")
+    assert str(paths["masks"]["full"]).endswith("_mask-full.nii.gz")
+    assert str(paths["seg"]).endswith("_seg.nii.gz")
     assert str(paths["metadata"]).endswith("_stack-02.json")
 
 

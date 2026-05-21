@@ -166,3 +166,69 @@ def test_laplace_hamming_binarize_restricts_to_full_mask_and_removes_small_compo
 
     assert binary[2:4, 2:4, 2:4].all()
     assert not bool(binary[6, 6, 6])
+
+
+def test_laplace_hamming_auto_backend_falls_back_to_cpu_without_torch() -> None:
+    shape = (8, 8, 8)
+    image_xyz = np.zeros(shape, dtype=np.float32)
+    image_xyz[2:4, 2:4, 2:4] = 900.0
+    params = LaplaceHammingParams(
+        low_pass_cutoff=1.0,
+        laplace_epsilon=0.0,
+        hamming_amplitude=0.0,
+        input_offset=0.0,
+        ipl_scale_a=1.0,
+        ipl_scale_b=0.0,
+        ipl_float_max=10000.0,
+        int16_max=10000.0,
+        threshold=500.0,
+        min_size_voxels=0,
+        backend="auto",
+    )
+
+    auto = laplace_hamming_binarize_xyz(
+        image_xyz,
+        spacing_xyz=(1.0, 1.0, 1.0),
+        params=params,
+    )
+    params.backend = "cpu"
+    cpu = laplace_hamming_binarize_xyz(
+        image_xyz,
+        spacing_xyz=(1.0, 1.0, 1.0),
+        params=params,
+    )
+
+    np.testing.assert_array_equal(auto, cpu)
+
+
+def test_generate_masks_from_image_supports_laplace_hamming_segmentation() -> None:
+    shape = (64, 64, 32)
+    x, y, z = np.indices(shape)
+    cx, cy = shape[0] // 2, shape[1] // 2
+    radius = np.sqrt((x - cx) ** 2 + (y - cy) ** 2)
+
+    image_xyz = np.zeros(shape, dtype=np.float32)
+    peri = (radius <= 16) & (z >= 4) & (z <= 27)
+    cortex = peri & (radius >= 11)
+    trab = peri & ~cortex & ((((x - cx) % 4) == 0) | (((y - cy) % 4) == 0))
+    image_xyz[cortex] = 950.0
+    image_xyz[trab] = 700.0
+
+    image = sitk.GetImageFromArray(np.transpose(image_xyz, (2, 1, 0)))
+    params = ContourGenerationParams()
+    params.outer.use_adaptive_threshold = False
+    params.outer.periosteal_threshold = 300.0
+    params.inner.use_adaptive_threshold = False
+    params.inner.endosteal_threshold = 500.0
+    params.inner.site = "radius"
+    params.segmentation.method = "laplace_hamming"
+    params.segmentation.laplace_hamming_threshold = 8000.0
+    params.segmentation.laplace_hamming_low_pass_cutoff = 0.5
+    params.segmentation.laplace_hamming_min_size_voxels = 5
+
+    result = generate_masks_from_image(image, params)
+    seg = sitk_to_numpy_xyz(result.seg) > 0
+
+    assert result.metadata["segmentation_method"] == "laplace_hamming"
+    assert seg.any()
+    assert np.all(seg <= (sitk_to_numpy_xyz(result.full) > 0))

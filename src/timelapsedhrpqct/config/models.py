@@ -92,8 +92,7 @@ class InnerContourConfig:
 
 @dataclass(slots=True)
 class MaskSegmentationConfig:
-    enabled: bool = True
-    method: str = "adaptive"  # "global" | "adaptive" | "laplace_hamming"
+    method: str = "adaptive"  # "adaptive" | "seg_gauss" | "laplace_hamming"
     gaussian_sigma: float = 0.8
     trab_threshold: float = 320.0
     cort_threshold: float = 450.0
@@ -104,6 +103,7 @@ class MaskSegmentationConfig:
     keep_largest_component: bool = True
     laplace_hamming_low_pass_cutoff: float = 0.3
     laplace_hamming_high_pass_cutoff: float = 0.0
+    laplace_hamming_threshold: float = 15564.0
     laplace_hamming_epsilon: float = 0.45
     laplace_hamming_amplitude: float = 1.0
     laplace_hamming_amplification: float = 1.0
@@ -112,8 +112,8 @@ class MaskSegmentationConfig:
     laplace_hamming_ipl_scale_b: float = -1359190.17
     laplace_hamming_ipl_float_max: float = 200000.0
     laplace_hamming_int16_max: float = 32768.0
-    laplace_hamming_threshold: float = 15564.0
     laplace_hamming_min_size_voxels: int = 70
+    laplace_hamming_backend: str = "cpu"  # "cpu" | "auto" | "torch_mps"
 
 
 @dataclass(slots=True)
@@ -122,16 +122,6 @@ class MasksConfig:
     overwrite: bool = False
     roles: list[str] = field(default_factory=lambda: ["full", "trab", "cort"])
     generate_segmentation: bool = True
-    site_selection: dict[str, object] = field(
-        default_factory=lambda: {
-            "default_site": "tibia",
-            "patterns": {
-                "radius": ["radius", "rad"],
-                "tibia": ["tibia", "tib"],
-                "knee": ["knee"],
-            },
-        }
-    )
     site_defaults: dict[str, dict[str, dict[str, object]]] = field(
         default_factory=lambda: {
             "radius": {
@@ -290,9 +280,19 @@ class TransformConfig:
 
 @dataclass(slots=True)
 class FusionConfig:
-    save_fused: bool = True
-    save_fusedfilled: bool = False
     enable_filling: bool = False
+
+
+@dataclass(slots=True)
+class FillingConfig:
+    spatial_min_size: int = 3
+    spatial_max_size: int = 23
+    spatial_step: int = 5
+    temporal_n_images: int = 3
+    small_object_min_size_factor: int = 9
+    support_closing_z: int = 11
+    roi_margin_xy: int = 3
+    roi_margin_z_extra: int = 2
 
 
 @dataclass(slots=True)
@@ -346,5 +346,6 @@ class AppConfig:
     )
     transform: TransformConfig = field(default_factory=TransformConfig)
     fusion: FusionConfig = field(default_factory=FusionConfig)
+    filling: FillingConfig = field(default_factory=FillingConfig)
     analysis: AnalysisConfig = field(default_factory=AnalysisConfig)
     visualization: VisualizationConfig = field(default_factory=VisualizationConfig)

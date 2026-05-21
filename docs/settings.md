@@ -44,7 +44,6 @@ Controls generated mask and segmentation behavior on imported stacks.
 - `overwrite`: regenerate masks even if outputs already exist
 - `roles`: mask roles to keep and use. Typical values are `["full", "trab", "cort"]` or `["full"]`
 - `generate_segmentation`: whether the mask-generation stage should also write segmentation outputs
-- `site_selection`: filename-based rules used to infer `radius`, `tibia`, or `knee` per scan
 - `site_defaults`: per-site contour overrides applied after the shared base mask settings
 
 If you only want to work with a total mask, set `roles: ["full"]`. In that case the pipeline will not require `trab` or `cort` masks.
@@ -82,8 +81,8 @@ Key options:
 
 Controls segmentation from stack images and masks.
 
-- `method`: `global`, `adaptive`, or `laplace_hamming`
-- `gaussian_sigma`: Gaussian smoothing sigma before `global` thresholding; converted internally to physical units using image spacing
+- `method`: `adaptive`, `seg_gauss`, or `laplace_hamming`
+- `gaussian_sigma`: Gaussian smoothing sigma before `seg_gauss` thresholding; converted internally to physical units using image spacing
 - `trab_threshold`
 - `cort_threshold`
 - `adaptive_low_threshold`
@@ -91,7 +90,22 @@ Controls segmentation from stack images and masks.
 - `adaptive_block_size`
 - `min_size_voxels`
 - `keep_largest_component`
-- `laplace_hamming_*`: frequency filter, IPL scaling, threshold, and connected-component cleanup settings for Laplace-Hamming binarization. Defaults follow the MIT-licensed Kazakia Lab / UCSF XtremeCT II reference implementation and operate on already-imported pipeline images.
+- `laplace_hamming_low_pass_cutoff`
+- `laplace_hamming_high_pass_cutoff`
+- `laplace_hamming_threshold`
+- `laplace_hamming_epsilon`
+- `laplace_hamming_amplitude`
+- `laplace_hamming_amplification`
+- `laplace_hamming_input_offset`
+- `laplace_hamming_ipl_scale_a`
+- `laplace_hamming_ipl_scale_b`
+- `laplace_hamming_ipl_float_max`
+- `laplace_hamming_int16_max`
+- `laplace_hamming_min_size_voxels`
+
+`seg_gauss` is the former `global` method: Gaussian smoothing followed by trabecular/cortical thresholds. Old configs that say `global` are still accepted as a compatibility alias.
+
+For `laplace_hamming`, generated masks still come from the imported BMD image, but the segmentation itself re-reads the original AIM as Scanco-style signed-short HU values because the reference threshold is calibrated on that scale.
 
 ## `timelapsed_registration`
 
@@ -157,10 +171,8 @@ Typical choices are linear for grayscale and nearest-neighbor for masks.
 
 ## `fusion`
 
-Controls whether fused outputs are written and whether filling is part of the working pipeline.
+Controls whether filling is part of the working pipeline. Fused outputs are always written by the transform stage.
 
-- `save_fused`
-- `save_fusedfilled`
 - `enable_filling`
 
 ## `filling`

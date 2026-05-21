@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import importlib.util
 
 import numpy as np
 from scipy.ndimage import label
@@ -22,6 +23,7 @@ class LaplaceHammingParams:
     int16_max: float = 32768.0
     threshold: float = 15564.0
     min_size_voxels: int = 70
+    backend: str = "cpu"
 
 
 _CC_STRUCT_6 = np.array(
@@ -58,11 +60,25 @@ def laplace_hamming_filter_xyz(
     """
     Apply the Laplace-Hamming frequency-domain filter to an x/y/z image array.
 
-    This internal implementation follows the MIT-licensed Kazakia Lab / UCSF
-    reference implementation parameters, but operates on already-imported image
-    arrays rather than reading Scanco AIM files directly.
+    This follows the MIT-licensed Kazakia Lab / UCSF reference implementation
+    parameters, but operates on already-imported image arrays rather than
+    reading Scanco AIM files directly.
     """
     p = params or LaplaceHammingParams()
+    backend = str(getattr(p, "backend", "cpu")).strip().lower()
+    if backend in {"auto", "torch_mps", "mps"}:
+        try:
+            return _laplace_hamming_filter_xyz_torch_mps(
+                image_xyz,
+                spacing_xyz=spacing_xyz,
+                params=p,
+            )
+        except Exception:
+            if backend in {"torch_mps", "mps"}:
+                raise
+            # Auto mode must remain safe on machines without PyTorch/MPS support
+            # or with an incomplete FFT backend.
+
     pixels = np.asarray(image_xyz, dtype=np.float64) + float(p.input_offset)
     if pixels.ndim != 3:
         raise ValueError(f"Laplace-Hamming expects a 3D array, got ndim={pixels.ndim}")
@@ -101,6 +117,70 @@ def laplace_hamming_filter_xyz(
     filtered_fft = np.zeros_like(fft)
     filtered_fft[band] = fft[band] * kernel[band]
     return np.real(np.fft.ifftn(np.fft.ifftshift(filtered_fft)))
+
+
+def _laplace_hamming_filter_xyz_torch_mps(
+    image_xyz: np.ndarray,
+    *,
+    spacing_xyz: tuple[float, float, float] | None = None,
+    params: LaplaceHammingParams,
+) -> np.ndarray:
+    """Apply the LH FFT filter on Apple Metal through PyTorch MPS."""
+    if importlib.util.find_spec("torch") is None:
+        raise RuntimeError("PyTorch is not installed; cannot use Laplace-Hamming torch_mps backend.")
+
+    import torch
+
+    if not hasattr(torch.backends, "mps") or not torch.backends.mps.is_available():
+        raise RuntimeError("PyTorch MPS backend is not available on this machine.")
+
+    p = params
+    pixels_np = np.asarray(image_xyz, dtype=np.float32)
+    if pixels_np.ndim != 3:
+        raise ValueError(f"Laplace-Hamming expects a 3D array, got ndim={pixels_np.ndim}")
+
+    spacing = np.asarray(spacing_xyz or (0.0607, 0.0607, 0.0607), dtype=np.float32)
+    if spacing.shape != (3,) or np.any(spacing <= 0):
+        raise ValueError(f"spacing_xyz must contain three positive values, got {spacing_xyz!r}")
+
+    device = torch.device("mps")
+    pixels = torch.as_tensor(pixels_np, device=device, dtype=torch.float32) + float(p.input_offset)
+    dims = torch.tensor(tuple(pixels.shape), device=device, dtype=torch.float32)
+    spacing_t = torch.tensor(tuple(float(v) for v in spacing), device=device, dtype=torch.float32)
+    phys = dims * spacing_t
+    origin = torch.floor(dims / 2.0)
+    max_freq = 1.0 / torch.min(spacing_t)
+    lp_freq2 = (max_freq * float(p.low_pass_cutoff)) ** 2
+    hp_freq2 = (max_freq * float(p.high_pass_cutoff)) ** 2
+    if float(lp_freq2.cpu()) <= 0:
+        raise ValueError("Laplace-Hamming low_pass_cutoff must be positive.")
+
+    axes = [
+        torch.arange(int(size), device=device, dtype=torch.float32)
+        for size in pixels.shape
+    ]
+    posx, posy, posz = torch.meshgrid(*axes, indexing="ij")
+    freq2 = (
+        ((posx - origin[0]) / phys[0]) ** 2
+        + ((posy - origin[1]) / phys[1]) ** 2
+        + ((posz - origin[2]) / phys[2]) ** 2
+    )
+    band = (freq2 <= lp_freq2) & (freq2 >= hp_freq2)
+    kernel = (
+        float(p.amplification)
+        * (1.0 + float(p.laplace_epsilon) * (freq2 - 1.0))
+        * (
+            1.0
+            + (float(p.hamming_amplitude) / 2.0)
+            * (torch.cos(torch.pi * torch.sqrt(freq2 / lp_freq2)) - 1.0)
+        )
+    )
+
+    fft = torch.fft.fftshift(torch.fft.fftn(pixels.to(torch.complex64)))
+    filtered_fft = torch.zeros_like(fft)
+    filtered_fft[band] = fft[band] * kernel[band].to(torch.complex64)
+    out = torch.real(torch.fft.ifftn(torch.fft.ifftshift(filtered_fft)))
+    return out.cpu().numpy()
 
 
 def laplace_hamming_binarize_xyz(

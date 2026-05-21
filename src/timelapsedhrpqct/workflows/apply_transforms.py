@@ -15,6 +15,8 @@ from timelapsedhrpqct.dataset.artifacts import (
 )
 from timelapsedhrpqct.dataset.derivative_paths import (
     common_reference_path,
+    existing_derivative_path,
+    existing_image_path,
     final_transform_dir,
     final_transform_path,
     fused_image_path,
@@ -249,9 +251,7 @@ def _make_subject_common_reference_from_baselines(
         baseline_session,
     )
     anchor_image = load_image(anchor_record.image_path)
-
-    moving_images: list[sitk.Image] = []
-    moving_transforms: list[sitk.Transform] = []
+    all_points = _image_physical_corners(anchor_image)
 
     for stack_index in stack_indices[1:]:
         record = _baseline_record_for_stack(
@@ -259,19 +259,24 @@ def _make_subject_common_reference_from_baselines(
             baseline_session,
         )
         image = load_image(record.image_path)
-        moving_images.append(image)
-        moving_transforms.append(sitk.Transform(3, sitk.sitkIdentity))
+        all_points.extend(_image_physical_corners(image))
+        del image
+        _free_memory()
 
-    ref = _make_multi_union_reference_image(
-        reference_image=anchor_image,
-        moving_images=moving_images,
-        moving_to_reference_transforms=moving_transforms,
-        padding_voxels=padding_voxels,
-    )
+    mins = [min(p[i] for p in all_points) for i in range(3)]
+    maxs = [max(p[i] for p in all_points) for i in range(3)]
+    spacing = anchor_image.GetSpacing()
+    direction = anchor_image.GetDirection()
+    mins = [mins[i] - padding_voxels * spacing[i] for i in range(3)]
+    maxs = [maxs[i] + padding_voxels * spacing[i] for i in range(3)]
+    size = [int(np.ceil((maxs[i] - mins[i]) / spacing[i])) + 1 for i in range(3)]
+
+    ref = sitk.Image(size, sitk.sitkFloat32)
+    ref.SetSpacing(spacing)
+    ref.SetOrigin(tuple(mins))
+    ref.SetDirection(direction)
 
     del anchor_image
-    for image in moving_images:
-        del image
     _free_memory()
 
     return ref
@@ -287,8 +292,9 @@ def _resolve_reference_image(
 ) -> tuple[sitk.Image, str]:
     """Resolve reference image."""
     reference_path = _common_reference_path(dataset_root, subject_id, site)
-    if reference_path.exists():
-        return load_image(reference_path), str(reference_path)
+    existing_reference_path = existing_image_path(reference_path)
+    if existing_reference_path.exists():
+        return load_image(existing_reference_path), str(existing_reference_path)
 
     ref = _make_subject_common_reference_from_baselines(
         stacks_by_index=stacks_by_index,
@@ -315,6 +321,7 @@ def _resolve_transform_for_record(
         moving_session=session_id,
         baseline_session=baseline_session,
     )
+    final_path = existing_derivative_path(final_path)
     if final_path.exists():
         return _load_transform(final_path), str(final_path), "final"
 
@@ -326,6 +333,7 @@ def _resolve_transform_for_record(
         moving_session=session_id,
         baseline_session=baseline_session,
     )
+    baseline_path = existing_derivative_path(baseline_path)
     if baseline_path.exists():
         return _load_transform(baseline_path), str(baseline_path), "timelapse_fallback"
 

@@ -7,11 +7,11 @@ from typing import Any
 import numpy as np
 import SimpleITK as sitk
 
-from timelapsedhrpqct.processing.masks import resolve_masks
 from timelapsedhrpqct.processing.laplace_hamming import (
     LaplaceHammingParams,
     laplace_hamming_binarize_xyz,
 )
+from timelapsedhrpqct.processing.masks import resolve_masks
 
 
 # -----------------------------------------------------------------------------
@@ -59,7 +59,7 @@ class InnerContourParams:
 @dataclass(slots=True)
 class SegmentationParams:
     enabled: bool = True
-    method: str = "global"  # "global" | "adaptive" | "laplace_hamming"
+    method: str = "seg_gauss"  # "adaptive" | "seg_gauss" | "laplace_hamming"
     gaussian_sigma: float = 0.8
     trab_threshold: float = 320.0
     cort_threshold: float = 450.0
@@ -70,6 +70,7 @@ class SegmentationParams:
     keep_largest_component: bool = True
     laplace_hamming_low_pass_cutoff: float = 0.3
     laplace_hamming_high_pass_cutoff: float = 0.0
+    laplace_hamming_threshold: float = 15564.0
     laplace_hamming_epsilon: float = 0.45
     laplace_hamming_amplitude: float = 1.0
     laplace_hamming_amplification: float = 1.0
@@ -78,8 +79,8 @@ class SegmentationParams:
     laplace_hamming_ipl_scale_b: float = -1359190.17
     laplace_hamming_ipl_float_max: float = 200000.0
     laplace_hamming_int16_max: float = 32768.0
-    laplace_hamming_threshold: float = 15564.0
     laplace_hamming_min_size_voxels: int = 70
+    laplace_hamming_backend: str = "cpu"
 
 
 @dataclass(slots=True)
@@ -868,13 +869,15 @@ def _segment_bone_xyz(
     if not params.enabled:
         return _ensure_bool(full_mask_xyz)
 
-    if params.method == "global":
+    method = "seg_gauss" if params.method == "global" else params.method
+
+    if method == "seg_gauss":
         filtered = _smooth_density_xyz(image_xyz, sigma=params.gaussian_sigma, truncate=4.0, spacing_xyz=spacing_xyz)
         trab_seg = (filtered >= params.trab_threshold) & trab_mask_xyz
         cort_seg = (filtered >= params.cort_threshold) & cort_mask_xyz
         seg = trab_seg | cort_seg
 
-    elif params.method == "adaptive":
+    elif method == "adaptive":
         seg = combined_threshold(
             image_xyz,
             spacing_xyz=spacing_xyz,
@@ -885,7 +888,7 @@ def _segment_bone_xyz(
         )
         seg = seg & full_mask_xyz
 
-    elif params.method == "laplace_hamming":
+    elif method == "laplace_hamming":
         seg = laplace_hamming_binarize_xyz(
             image_xyz,
             full_mask_xyz=full_mask_xyz,
@@ -903,6 +906,7 @@ def _segment_bone_xyz(
                 int16_max=float(params.laplace_hamming_int16_max),
                 threshold=float(params.laplace_hamming_threshold),
                 min_size_voxels=int(params.laplace_hamming_min_size_voxels),
+                backend=str(params.laplace_hamming_backend),
             ),
         )
 
@@ -911,7 +915,9 @@ def _segment_bone_xyz(
 
     seg = _safe_remove_small_objects(seg, params.min_size_voxels)
 
-    if params.keep_largest_component and np.any(seg):
+    # The LH reference removes small 6-connected components but does not prune
+    # the result to one largest component after thresholding.
+    if method != "laplace_hamming" and params.keep_largest_component and np.any(seg):
         seg = _largest_connected_component(seg)
 
     return _ensure_bool(seg)

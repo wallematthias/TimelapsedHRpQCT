@@ -8,8 +8,8 @@ from timelapsedhrpqct.dataset.artifacts import (
     group_fused_sessions_by_subject_site,
     iter_fused_session_records,
 )
-from timelapsedhrpqct.dataset.layout import get_derivatives_root
 from timelapsedhrpqct.dataset.derivative_paths import (
+    existing_image_path,
     filladded_mask_path,
     filled_full_mask_path,
     filled_image_path,
@@ -144,53 +144,27 @@ def build_filled_session_record(
     """Build filled session record."""
     legacy = site is None
     site_value = "radius" if site is None else site
-    if legacy:
-        filled_root = get_derivatives_root(dataset_root) / f"sub-{subject_id}" / "filled" / f"ses-{session_id}"
-        image_path = filled_root / f"sub-{subject_id}_ses-{session_id}_image_fusedfilled.mha"
-        full_mask_path = filled_root / f"sub-{subject_id}_ses-{session_id}_mask-full_fusedfilled.mha"
-        filladded_path = filled_root / f"sub-{subject_id}_ses-{session_id}_mask-filladded.mha"
-        seg_path = filled_root / f"sub-{subject_id}_ses-{session_id}_seg_fusedfilled.mha"
-        seg_filladded = filled_root / f"sub-{subject_id}_ses-{session_id}_seg-filladded.mha"
-        metadata_path = filled_root / f"sub-{subject_id}_ses-{session_id}_filling.json"
-        return FilledSessionRecord(
-            subject_id=subject_id,
-            site=site_value,
-            session_id=session_id,
-            image_path=image_path,
-            full_mask_path=full_mask_path,
-            filladded_mask_path=filladded_path,
-            seg_path=seg_path if seg_path.exists() else None,
-            seg_filladded_path=seg_filladded if seg_filladded.exists() else None,
-            metadata_path=metadata_path,
-        )
-
+    seg_candidate = existing_image_path(
+        filled_seg_path(dataset_root, subject_id, None if legacy else site_value, session_id)
+    )
+    seg_filladded_candidate = existing_image_path(
+        seg_filladded_path(dataset_root, subject_id, None if legacy else site_value, session_id)
+    )
     return FilledSessionRecord(
         subject_id=subject_id,
         site=site_value,
         session_id=session_id,
-        image_path=filled_image_path(dataset_root, subject_id, None if legacy else site_value, session_id),
-        full_mask_path=filled_full_mask_path(
-            dataset_root, subject_id, None if legacy else site_value, session_id
+        image_path=existing_image_path(
+            filled_image_path(dataset_root, subject_id, None if legacy else site_value, session_id)
         ),
-        filladded_mask_path=filladded_mask_path(
-            dataset_root, subject_id, None if legacy else site_value, session_id
+        full_mask_path=existing_image_path(
+            filled_full_mask_path(dataset_root, subject_id, None if legacy else site_value, session_id)
         ),
-        seg_path=(
-            filled_seg_path(dataset_root, subject_id, None if legacy else site_value, session_id)
-            if filled_seg_path(
-                dataset_root, subject_id, None if legacy else site_value, session_id
-            ).exists()
-            else None
+        filladded_mask_path=existing_image_path(
+            filladded_mask_path(dataset_root, subject_id, None if legacy else site_value, session_id)
         ),
-        seg_filladded_path=(
-            seg_filladded_path(
-                dataset_root, subject_id, None if legacy else site_value, session_id
-            )
-            if seg_filladded_path(
-                dataset_root, subject_id, None if legacy else site_value, session_id
-            ).exists()
-            else None
-        ),
+        seg_path=seg_candidate if seg_candidate.exists() else None,
+        seg_filladded_path=seg_filladded_candidate if seg_filladded_candidate.exists() else None,
         metadata_path=filling_metadata_path(
             dataset_root, subject_id, None if legacy else site_value, session_id
         ),

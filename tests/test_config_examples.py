@@ -28,6 +28,11 @@ import:
   stack_depth: 168
   image_role_patterns:
     image: [".AIM"]
+masks:
+  site_selection:
+    default_site: tibia
+  segmentation:
+    enabled: true
 timelapsed_registration:
   strategy: sequential_to_baseline
   reference_session: baseline

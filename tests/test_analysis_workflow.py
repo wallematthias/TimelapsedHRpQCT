@@ -1125,7 +1125,7 @@ def test_run_analysis_pairwise_fixed_t0_reuses_resampled_density_across_paramete
 
     pairwise_df = pd.read_csv(pairwise_remodelling_csv_path(dataset_root, "001"))
 
-    assert density_resample_calls == 2
+    assert density_resample_calls == 1
     assert len(pairwise_df) == 4
     assert set(pairwise_df["threshold"]) == {100.0, 225.0}
     assert set(pairwise_df["cluster_min_size"]) == {1, 2}

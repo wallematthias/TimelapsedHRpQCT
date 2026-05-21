@@ -1,284 +1,554 @@
-# -----------------------------------------------------------------------------
-# TimelapsedHRpQCT default configuration
-# -----------------------------------------------------------------------------
+# TimelapsedHRpQCT default configuration.
+#
+# This file is the base layer for every run. Profiles and user configs are
+# merged on top of it:
+#
+#   defaults.yml < --profile < --config
+#
+# In normal use, keep this file unchanged and put study-specific overrides in a
+# small user config generated with:
+#
+#   timelapse config write --profile multistack --output study.yml
 
 # -----------------------------------------------------------------------------
 # Import
 # -----------------------------------------------------------------------------
 import:
+  # Number of axial slices in one scanner stack; typical XtremeCT II value is 168.
+  # Reasonable range: 80-336, depending on acquisition protocol.
   stack_depth: 168
-  on_incomplete_stack: keep_last # error | drop_last | keep_last
 
+  # What to do when the axial size is not an exact multiple of stack_depth.
+  # Options: keep_last | drop_last | error.
+  on_incomplete_stack: keep_last
+
+  # Crop imported images to a subject-wise bounding box before stack splitting.
+  # Options: true | false.
   crop_to_subject_box: false
+
+  # BMD threshold used to detect the subject support for optional cropping.
+  # Reasonable range: 100-800 mgHA/cm3; higher is stricter.
   crop_threshold_bmd: 450.0
+
+  # Padding around the detected crop box in voxels.
+  # Reasonable range: 0-50.
   crop_padding_voxels: 5
+
+  # Number of largest connected subject components kept during crop detection.
+  # Reasonable range: 1-5; use 1 for a single limb/ROI.
   crop_num_largest_components: 1
 
 # -----------------------------------------------------------------------------
 # Discovery
 # -----------------------------------------------------------------------------
 discovery:
+  # Filename parser for raw AIM files. Named groups used by the pipeline:
+  # subject, site, stack, session, role. Leave unchanged unless your filenames
+  # differ systematically.
   session_regex: '(?i)^(?P<subject>.+?)(?:_(?P<site>DR|DT|KN|RL|RR|TL|TR|KL|KR|RADIUS|TIBIA|KNEE|RADIUS_LEFT|RADIUS_RIGHT|TIBIA_LEFT|TIBIA_RIGHT|KNEE_LEFT|KNEE_RIGHT))?(?:_STACK(?P<stack>\d+))?_(?P<session>[A-Z][A-Z0-9]*)(?:_(?P<role>.*))?\.aim(?:;\d+)?$'
 
+  # Site assigned when no site can be parsed from filename/path/header.
+  # Options: radius | tibia | knee | radius_left | radius_right | tibia_left | tibia_right | knee_left | knee_right.
   default_site: tibia
+
+  # Site aliases accepted during discovery. Edit only when your scanner/export
+  # naming uses different site tokens.
   site_aliases:
+    # Tokens mapped to the canonical radius site.
     radius: [DR, RADIUS, RAD]
+    # Tokens mapped to the canonical tibia site.
     tibia: [DT, TIBIA, TIB]
+    # Tokens mapped to the canonical knee site.
     knee: [KN, KNEE]
+    # Tokens mapped to the canonical left radius site.
     radius_left: [RL, RADIUS_LEFT, RADL, LEFT_RADIUS]
+    # Tokens mapped to the canonical right radius site.
     radius_right: [RR, RADIUS_RIGHT, RADR, RIGHT_RADIUS]
+    # Tokens mapped to the canonical left tibia site.
     tibia_left: [TL, TIBIA_LEFT, TIBL, LEFT_TIBIA]
+    # Tokens mapped to the canonical right tibia site.
     tibia_right: [TR, TIBIA_RIGHT, TIBR, RIGHT_TIBIA]
+    # Tokens mapped to the canonical left knee site.
     knee_left: [KL, KNL, KNEE_LEFT, KNEEL, LEFT_KNEE]
+    # Tokens mapped to the canonical right knee site.
     knee_right: [KR, KNR, KNEE_RIGHT, KNEER, RIGHT_KNEE]
+
+  # Session aliases normalized during discovery. Add study-specific names here
+  # if needed, for example M00 -> T1 or M12 -> T2.
   session_aliases:
+    # Baseline session aliases.
     T1: [BASELINE, BL]
+    # First follow-up aliases.
     T2: [FOLLOWUP, FOLLOWUP1, FL, FU]
 
+  # Role aliases used to identify masks/segmentations. ROI masks are also
+  # auto-detected from suffixes like _ROI1, _ROI2, and do not need aliases here.
   role_aliases:
+    # Cortical mask role.
     cort: ["CORT_MASK", "_CORT", "CORTICAL"]
+    # Trabecular mask role.
     trab: ["TRAB_MASK", "_TRAB", "TRABECULAR"]
+    # Whole-bone/full support mask role.
     full: ["FULL_MASK", "_FULL"]
-    # Optional explicit registration mask role.
+    # Explicit registration mask role; preferred over trab+cort/full for registration.
     regmask: ["REGMASK", "_REGMASK", "_REG"]
+    # Binary/label segmentation role.
     seg: ["_SEG", "SEG"]
-  # Note: ROI-style masks are auto-detected by filename suffixes like _ROI1, _ROI2 (no alias needed).
 
 # -----------------------------------------------------------------------------
-# Mask generation on imported stacks
+# Mask Generation
 # -----------------------------------------------------------------------------
 masks:
+  # Generate missing masks after import/generate-masks.
+  # Options: true | false.
   generate: true
+
+  # Replace existing generated masks/segmentations.
+  # Options: true | false.
   overwrite: false
-  # Typical values: [full, trab, cort] or [full]
+
+  # Canonical mask roles to create or require.
+  # Options: any subset of [full, trab, cort].
   roles: [full, trab, cort]
+
+  # Generate a segmentation volume from masks/image when possible.
+  # Options: true | false.
   generate_segmentation: true
-  site_selection:
-    default_site: tibia
-    patterns:
-      radius: [radius, rad]
-      tibia: [tibia, tib]
-      knee: [knee]
+
+  # Site-specific contour defaults. Thresholds are in BMD units. Kernel/radius,
+  # padding, peel, and margin values are voxel counts.
   site_defaults:
     radius:
       inner:
+        # Endosteal threshold; reasonable range: 250-800.
         endosteal_threshold: 500
+        # Endosteal morphology kernel size; reasonable odd range: 1-15.
         endosteal_kernelsize: 3
+        # Gaussian smoothing sigma in voxels before contouring; range: 0-3.
         gaussian_sigma: 1.5
+        # Gaussian truncation radius in sigma units; range: 0.5-4.
         gaussian_truncate: 1.0
+        # Voxels peeled from cortex/marrow boundary; range: 0-8.
         peel: 3
+        # Closing radius for trabecular/marrow cavity support; range: 5-50.
         trabecular_close_radius: 15
+        # Initial padding around contour operations; range: 0-80 voxels.
         init_pad: 30
+        # Use adaptive rather than fixed thresholding for this contour.
+        # Options: true | false.
         use_adaptive_threshold: false
+        # Downsample factor for morphology; range: 1-4.
         morphology_downsample_factor: 1
+        # Refine contour edges after coarse morphology.
+        # Options: true | false.
         morphology_refine_edges: false
+        # Width of edge refinement band in voxels; range: 1-10.
         morphology_refine_band_voxels: 3
-
       outer:
+        # Periosteal threshold; reasonable range: 100-600.
         periosteal_threshold: 300
+        # Periosteal morphology kernel size; reasonable odd range: 1-25.
         periosteal_kernelsize: 5
+        # Opening radius for small exterior connections; range: 0-15.
         periosteal_open_radius: 2
+        # Gaussian smoothing sigma in voxels before contouring; range: 0-3.
         gaussian_sigma: 1.5
+        # Gaussian truncation radius in sigma units; range: 0.5-4.
         gaussian_truncate: 1.0
+        # Depth interval used for expansion/refinement; two voxel counts, range: 0-20.
         expansion_depth: [0, 5]
+        # Initial padding around contour operations; range: 0-80 voxels.
         init_pad: 15
+        # Fill holes in the periosteal mask.
+        # Options: true | false.
         fill_holes: true
+        # Use adaptive rather than fixed thresholding for this contour.
+        # Options: true | false.
         use_adaptive_threshold: true
+        # Downsample factor for morphology; range: 1-4.
         morphology_downsample_factor: 1
+        # Refine contour edges after coarse morphology.
+        # Options: true | false.
         morphology_refine_edges: false
+        # Width of edge refinement band in voxels; range: 1-10.
         morphology_refine_band_voxels: 3
 
     tibia:
       inner:
+        # Endosteal threshold; reasonable range: 250-800.
         endosteal_threshold: 500
+        # Endosteal morphology kernel size; reasonable odd range: 1-15.
         endosteal_kernelsize: 3
+        # Gaussian smoothing sigma in voxels before contouring; range: 0-3.
         gaussian_sigma: 1.5
+        # Gaussian truncation radius in sigma units; range: 0.5-4.
         gaussian_truncate: 1.0
+        # Voxels peeled from cortex/marrow boundary; range: 0-8.
         peel: 3
+        # Closing radius for trabecular/marrow cavity support; range: 5-60.
         trabecular_close_radius: 25
+        # Initial padding around contour operations; range: 0-80 voxels.
         init_pad: 30
+        # Use adaptive rather than fixed thresholding for this contour.
+        # Options: true | false.
         use_adaptive_threshold: false
+        # Downsample factor for morphology; range: 1-4.
         morphology_downsample_factor: 1
+        # Refine contour edges after coarse morphology.
+        # Options: true | false.
         morphology_refine_edges: false
+        # Width of edge refinement band in voxels; range: 1-10.
         morphology_refine_band_voxels: 3
-
       outer:
+        # Periosteal threshold; reasonable range: 100-600.
         periosteal_threshold: 300
+        # Periosteal morphology kernel size; reasonable odd range: 1-25.
         periosteal_kernelsize: 5
+        # Opening radius for small exterior connections; range: 0-15.
         periosteal_open_radius: 2
+        # Gaussian smoothing sigma in voxels before contouring; range: 0-3.
         gaussian_sigma: 1.5
+        # Gaussian truncation radius in sigma units; range: 0.5-4.
         gaussian_truncate: 1.0
+        # Depth interval used for expansion/refinement; two voxel counts, range: 0-20.
         expansion_depth: [0, 5]
+        # Initial padding around contour operations; range: 0-80 voxels.
         init_pad: 15
+        # Fill holes in the periosteal mask.
+        # Options: true | false.
         fill_holes: true
+        # Use adaptive rather than fixed thresholding for this contour.
+        # Options: true | false.
         use_adaptive_threshold: false
+        # Downsample factor for morphology; range: 1-4.
         morphology_downsample_factor: 1
+        # Refine contour edges after coarse morphology.
+        # Options: true | false.
         morphology_refine_edges: false
+        # Width of edge refinement band in voxels; range: 1-10.
         morphology_refine_band_voxels: 3
-
 
     knee:
       inner:
-        endosteal_threshold: 250   # endo_lower in AutocontourKnee
-        endosteal_kernelsize: 3    # endo_open_radius
-        gaussian_sigma: 2.0        # endo_sigma
+        # Knee endosteal threshold; reasonable range: 100-600.
+        endosteal_threshold: 250
+        # Knee endosteal morphology kernel size; reasonable odd range: 1-25.
+        endosteal_kernelsize: 3
+        # Gaussian smoothing sigma in voxels before contouring; range: 0-4.
+        gaussian_sigma: 2.0
+        # Gaussian truncation radius in sigma units; range: 0.5-4.
         gaussian_truncate: 1.0
-        peel: 4                    # endo_min_cort_th
-        trabecular_close_radius: 36  # 50 endo_close_radius (final fill of marrow cavity)
+        # Voxels peeled from cortex/marrow boundary; range: 0-10.
+        peel: 4
+        # Closing radius for knee trabecular/marrow cavity support; range: 10-80.
+        trabecular_close_radius: 36
+        # Initial padding around contour operations; range: 0-120 voxels.
         init_pad: 30
+        # Use adaptive rather than fixed thresholding for this contour.
+        # Options: true | false.
         use_adaptive_threshold: false
+        # Downsample factor for morphology; range: 1-5.
         morphology_downsample_factor: 3
+        # Refine contour edges after coarse morphology.
+        # Options: true | false.
         morphology_refine_edges: false
+        # Width of edge refinement band in voxels; range: 1-15.
         morphology_refine_band_voxels: 3
-
       outer:
-        periosteal_threshold: 150  # peri_s1/s3_lower
-        periosteal_kernelsize: 16  # peri_s4_close_radius (final smoothing close)
-        periosteal_open_radius: 8  # peri_s4_open_radius
+        # Knee periosteal threshold; reasonable range: 50-400.
+        periosteal_threshold: 150
+        # Knee periosteal morphology kernel size; reasonable odd range: 3-35.
+        periosteal_kernelsize: 16
+        # Opening radius for small exterior connections; range: 0-20.
+        periosteal_open_radius: 8
+        # Gaussian smoothing sigma in voxels before contouring; range: 0-4.
         gaussian_sigma: 1.5
+        # Gaussian truncation radius in sigma units; range: 0.5-4.
         gaussian_truncate: 1.0
+        # Depth interval used for expansion/refinement; two voxel counts, range: 0-20.
         expansion_depth: [0, 5]
+        # Initial padding around contour operations; range: 0-120 voxels.
         init_pad: 15
+        # Fill holes in the periosteal mask.
+        # Options: true | false.
         fill_holes: true
-        use_adaptive_threshold: false  # use fixed threshold like AutocontourKnee
+        # Use adaptive rather than fixed thresholding for this contour.
+        # Options: true | false.
+        use_adaptive_threshold: false
+        # Downsample factor for morphology; range: 1-5.
         morphology_downsample_factor: 3
+        # Refine contour edges after coarse morphology.
+        # Options: true | false.
         morphology_refine_edges: false
+        # Width of edge refinement band in voxels; range: 1-15.
         morphology_refine_band_voxels: 3
 
   segmentation:
-    method: adaptive # global | adaptive | laplace_hamming
-    enabled: true
+    # Segmentation method for generating binary/label images from masks/image.
+    # Options: adaptive | seg_gauss | laplace_hamming.
+    method: adaptive
+    # Gaussian smoothing sigma before seg_gauss thresholding; range: 0-3 voxels.
     gaussian_sigma: 0.8
+    # Trabecular threshold for seg_gauss segmentation; range: 100-600 mgHA/cm3.
     trab_threshold: 320
+    # Cortical threshold for seg_gauss segmentation; range: 200-900 mgHA/cm3.
     cort_threshold: 450
-    adaptive_low_threshold: 100 #original publication is 190
-    adaptive_high_threshold: 300 #original publication is 450
+    # Lower adaptive threshold; range: 50-300 mgHA/cm3.
+    adaptive_low_threshold: 100
+    # Upper adaptive threshold; range: 150-700 mgHA/cm3.
+    adaptive_high_threshold: 300
+    # Adaptive local block size; must be odd. Reasonable range: 5-51.
     adaptive_block_size: 13
+    # Remove connected components smaller than this voxel count; range: 0-10000.
     min_size_voxels: 64
+    # Keep only the largest connected segmentation component.
+    # Options: true | false.
     keep_largest_component: true
-    # Laplace-Hamming defaults follow Sadoughi et al. / Kazakia Lab reference
-    # values for second-generation Scanco XtremeCT II at 60.7 um isotropic.
+    # Laplace-Hamming low-pass cutoff for the frequency-domain Hamming filter; range: 0.1-1.0.
     laplace_hamming_low_pass_cutoff: 0.3
+    # Laplace-Hamming high-pass cutoff; keep 0.0 for the reference low-pass workflow, range: 0.0-0.5.
     laplace_hamming_high_pass_cutoff: 0.0
+    # Laplacian edge-enhancement weight from the reference workflow; range: 0.3-0.6.
     laplace_hamming_epsilon: 0.45
+    # Hamming window amplitude; keep 1.0 for the reference workflow, range: 0.0-1.0.
     laplace_hamming_amplitude: 1.0
+    # Overall frequency-domain amplification; keep 1.0 unless validating against a scanner-specific reference.
+    # Reasonable range: 0.1-5.0.
     laplace_hamming_amplification: 1.0
+    # Offset added before filtering to match the reference signed-short HU convention.
+    # Reasonable range: 0-32768.
     laplace_hamming_input_offset: 32768.0
+    # IPL linear scaling slope applied after filtering; scanner/reference-specific.
+    # Reasonable range: 1-200.
     laplace_hamming_ipl_scale_a: 77.7911
+    # IPL linear scaling intercept applied after filtering; scanner/reference-specific.
+    # Reasonable range: -3000000-0.
     laplace_hamming_ipl_scale_b: -1359190.17
+    # Upper clipping value before int16-style scaling; reference value is 200000.
+    # Reasonable range: 10000-500000.
     laplace_hamming_ipl_float_max: 200000.0
+    # Final integer scaling maximum; reference value is 32768.
+    # Reasonable range: 32767-65535.
     laplace_hamming_int16_max: 32768.0
+    # Laplace-Hamming fixed threshold in filtered/scaled units; reference value corresponds to 475 per mille.
+    # Reasonable range: 8000-25000.
     laplace_hamming_threshold: 15564
+    # Remove LH components smaller than this voxel count; reasonable range: 0-10000.
     laplace_hamming_min_size_voxels: 70
+    # Compute backend for LH FFT filtering.
+    # Options: cpu | auto | torch_mps.
+    # cpu is reproducible and dependency-free. auto tries Apple Metal/PyTorch MPS when available and falls back to CPU.
+    laplace_hamming_backend: cpu
 
 # -----------------------------------------------------------------------------
-# Timelapsed registration
+# Within-Stack Longitudinal Registration
 # -----------------------------------------------------------------------------
 timelapsed_registration:
+  # Write registration QC/debug images and verbose backend logs.
+  # Options: true | false.
   debug: false
-  strategy: sequential_to_baseline # currently the only supported strategy
+  # Composition strategy for pairwise-to-baseline transforms.
+  # Options: sequential_to_baseline.
+  strategy: sequential_to_baseline
+  # Baseline session selector.
+  # Options: baseline | first.
   reference_session: baseline
-  transform_type: euler # euler | translation
-  metric: mattes # correlation | mattes
+  # Transform model estimated by elastix.
+  # Options: euler | translation.
+  transform_type: euler
+  # Image similarity metric.
+  # Options: mattes | correlation.
+  metric: mattes
+  # Fraction of voxels sampled for metric evaluation; range: 0.0001-0.05.
   sampling_percentage: 0.001
-  interpolator: linear # linear | nearest
-  optimizer: adaptive_stochastic_gradient_descent # current supported default
+  # Registration interpolator.
+  # Options: linear | nearest.
+  interpolator: linear
+  # Optimizer backend.
+  # Options: adaptive_stochastic_gradient_descent | adaptive_stochastic.
+  optimizer: adaptive_stochastic_gradient_descent
+  # Maximum optimizer iterations per resolution; range: 50-2000.
   number_of_iterations: 250
+  # Let elastix estimate ASGD parameters.
+  # Options: true | false.
   automatic_parameter_estimation: true
-  initializer: geometry # geometry
+  # ASGD SP_A when automatic_parameter_estimation is false; range: 1-1000.
+  sp_a: 20.0
+  # Maximum physical step length when automatic_parameter_estimation is false.
+  # Use null to default to the minimum image spacing; otherwise range: 0.001-5.0 mm.
+  maximum_step_length: null
+  # ASGD sigmoid scale factor when automatic_parameter_estimation is false; range: 0.01-10.
+  sigmoid_scale_factor: 0.1
+  # Number of gradient measurements when automatic_parameter_estimation is false; range: 0-100.
+  number_of_gradient_measurements: 0
+  # Number of Jacobian measurements when automatic_parameter_estimation is false; range: 100-10000.
+  number_of_jacobian_measurements: 1000
+  # Initial transform method.
+  # Options: geometry | moments | identity | none.
+  initializer: geometry
+  # Multi-resolution pyramid levels; range: 1-8.
   number_of_resolutions: 6
+  # Use available registration masks.
+  # Options: true | false.
   use_masks: true
 
 # -----------------------------------------------------------------------------
-# Multistack correction
+# Multistack Correction
 # -----------------------------------------------------------------------------
 multistack_correction:
-  debug: false
+  # Run multistack correction when command/mode requests it.
+  # Options: true | false.
   enabled: true
-  method: superstack # superstack | boundary_2d
-  transform_type: euler # euler | translation
-  # Mattes is the recommended default for multistack superstack registration.
-  metric: mattes # correlation | mattes
+  # Write multistack correction QC/debug outputs and verbose backend logs.
+  # Options: true | false.
+  debug: false
+  # Correction algorithm.
+  # Options: superstack | boundary_2d.
+  method: superstack
+  # Transform model estimated for adjacent stack correction.
+  # Options: euler | translation.
+  transform_type: euler
+  # Image similarity metric.
+  # Options: mattes | correlation.
+  metric: mattes
+  # Fraction of voxels sampled for metric evaluation; range: 0.0005-0.10.
   sampling_percentage: 0.005
-  interpolator: linear # linear | nearest
-  optimizer: adaptive_stochastic_gradient_descent # current supported default
+  # Registration interpolator.
+  # Options: linear | nearest.
+  interpolator: linear
+  # Optimizer backend.
+  # Options: adaptive_stochastic_gradient_descent | adaptive_stochastic.
+  optimizer: adaptive_stochastic_gradient_descent
+  # Maximum optimizer iterations per resolution; range: 50-2000.
   number_of_iterations: 250
+  # Let elastix estimate ASGD parameters.
+  # Options: true | false.
   automatic_parameter_estimation: true
-  initializer: identity 
+  # ASGD SP_A when automatic_parameter_estimation is false; range: 1-1000.
+  sp_a: 20.0
+  # Maximum physical step length when automatic_parameter_estimation is false.
+  # Use null to default to the minimum image spacing; otherwise range: 0.001-5.0 mm.
+  maximum_step_length: null
+  # ASGD sigmoid scale factor when automatic_parameter_estimation is false; range: 0.01-10.
+  sigmoid_scale_factor: 0.1
+  # Number of gradient measurements when automatic_parameter_estimation is false; range: 0-100.
+  number_of_gradient_measurements: 0
+  # Number of Jacobian measurements when automatic_parameter_estimation is false; range: 100-10000.
+  number_of_jacobian_measurements: 1000
+  # Initial transform method.
+  # Options: geometry | moments | identity | none.
+  initializer: identity
+  # Initial x/y/z translation in voxels for stack-to-stack correction; range: -100 to 100 each.
   initial_translation_voxels: [0, 0, -20]
+  # Crop buffer around the mask overlap when preparing stack-correction inputs; range: 0-120 voxels.
   overlap_crop_buffer_voxels: 40
+  # Multi-resolution pyramid levels; range: 1-8.
   number_of_resolutions: 4
+  # Use available full masks for stack correction.
+  # Options: true | false.
   use_masks: true
 
 # -----------------------------------------------------------------------------
-# Transform application
+# Transform Application
 # -----------------------------------------------------------------------------
 transform:
-  image_interpolator: linear # linear | nearest
-  mask_interpolator: nearest # nearest recommended for masks/seg
+  # Interpolator for grayscale image resampling.
+  # Options: linear | nearest.
+  image_interpolator: linear
+  # Interpolator for masks and segmentations.
+  # Options: nearest | linear.
+  mask_interpolator: nearest
 
 # -----------------------------------------------------------------------------
-# Fusion and optional filling
+# Fusion and Filling
 # -----------------------------------------------------------------------------
 fusion:
-  save_fused: true
-  save_fusedfilled: false
+  # Enable fill stage in multistack run mode.
+  # Options: true | false.
   enable_filling: false
 
-# -----------------------------------------------------------------------------
-# Filling
-# -----------------------------------------------------------------------------
 filling:
+  # Smallest z-kernel size for spatial grayscale/segmentation filling; odd values preferred, range: 1-15.
   spatial_min_size: 3
+  # Largest z-kernel size tried for spatial filling; odd values preferred, range: 3-51.
   spatial_max_size: 23
+  # Increment between spatial kernel sizes; range: 1-10.
   spatial_step: 5
+  # Neighboring timepoints considered during temporal filling; range: 1-10.
   temporal_n_images: 3
+  # Multiplier controlling small-object removal during filling; range: 0-50.
   small_object_min_size_factor: 9
+  # z-only closing kernel for allowed support; odd values preferred, range: 1-51.
   support_closing_z: 11
+  # x/y ROI margin around fill candidates; range: 0-20 voxels.
   roi_margin_xy: 3
+  # Additional z ROI margin around fill candidates; range: 0-20 voxels.
   roi_margin_z_extra: 2
 
 # -----------------------------------------------------------------------------
 # Analysis
 # -----------------------------------------------------------------------------
 analysis:
-  space: pairwise_fixed_t0 # baseline_common | pairwise_fixed_t0
-  method: grayscale_and_binary # grayscale_and_binary | grayscale_delta_only | grayscale_marrow_mask
-  # Auto compartment selection priority:
-  # 1) ROI masks (roi*) if present in all sessions
-  # 2) regmask if ROI masks are absent
-  # 3) configured compartments below (filtered by availability)
-  # 4) fallback to available trab/cort/full
+  # Coordinate space for pairwise remodelling analysis.
+  # Options: pairwise_fixed_t0 | baseline_common.
+  space: pairwise_fixed_t0
+  # Remodelling classification method.
+  # Options: grayscale_and_binary | grayscale_delta_only | grayscale_marrow_mask.
+  method: grayscale_and_binary
+  # Compartments evaluated when ROI/regmask masks are not available.
+  # Options: any subset of [full, trab, cort, regmask] plus ROI roles discovered from files.
   compartments:
     - full
     - trab
     - cort
+  # Absolute BMD delta thresholds for formation/resorption; range: 20-1000 mgHA/cm3.
   thresholds:
     - 225
+  # Minimum connected cluster sizes retained in remodelling maps; range: 1-10000 voxels.
   cluster_sizes:
     - 12
-  pair_mode: adjacent # adjacent | baseline | all_pairs
+  # Session-pair schedule.
+  # Options: adjacent | baseline | all_pairs.
+  pair_mode: adjacent
+  # Use filled images instead of fused transformed images for analysis.
+  # Options: true | false.
   use_filled_images: false
+  # Smooth grayscale images before delta calculation.
+  # Options: true | false.
   gaussian_filter: true
-  gaussian_sigma: 1.2 # voxels
+  # Gaussian smoothing sigma in voxels; range: 0-5.
+  gaussian_sigma: 1.2
+  # Dilation applied to full mask before common-region construction; range: 0-10 voxels.
   full_mask_dilation_voxels: 2
+  # Erosion applied to marrow mask for marrow-mask analysis; range: 0-10 voxels.
   marrow_mask_erosion_voxels: 2
 
   valid_region:
+    # Erosion applied to valid common region before analysis; range: 0-10 voxels.
     erosion_voxels: 1
 
 # -----------------------------------------------------------------------------
 # Visualization
 # -----------------------------------------------------------------------------
 visualization:
+  # Write remodelling label volumes for one threshold/cluster combination.
+  # Options: true | false.
   enabled: true
+  # Threshold selected for visualization; use null to disable profile-selected visualization.
+  # Reasonable range: one of analysis.thresholds.
   threshold: 225
+  # Cluster size selected for visualization; use null to disable profile-selected visualization.
+  # Reasonable range: one of analysis.cluster_sizes.
   cluster_size: 12
 
   label_map:
-    # Output labels in the exported visualization volume.
+    # Integer label for resorption voxels; range: 0-255.
     resorption: 1
+    # Integer label for demineralisation voxels; range: 0-255.
     demineralisation: 2
+    # Integer label for unchanged/quiescent voxels; range: 0-255.
     quiescent: 2
+    # Integer label for formation voxels; range: 0-255.
     formation: 3
+    # Integer label for mineralisation voxels; range: 0-255.
     mineralisation: 2
