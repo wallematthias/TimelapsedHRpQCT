@@ -190,6 +190,30 @@ def _analysis_requires_seg(method: str) -> bool:
     return method in {"grayscale_and_binary", "grayscale_marrow_mask"}
 
 
+def _resolve_analysis_method(cfg) -> str:
+    """Resolve explicit analysis controls into the legacy internal method name."""
+    legacy_method = str(getattr(cfg, "method", "auto") or "auto").strip().lower()
+    if legacy_method and legacy_method != "auto":
+        return legacy_method
+
+    change_detection = str(getattr(cfg, "change_detection", "grayscale_delta") or "").strip().lower()
+    if change_detection != "grayscale_delta":
+        raise ValueError(f"Unsupported analysis.change_detection: {change_detection}")
+
+    change_region = getattr(cfg, "change_region", None)
+    source = str(getattr(change_region, "source", "common_mask") or "common_mask").strip().lower()
+    binary = getattr(cfg, "binary_reclassification", None)
+    enforce_binary = True if binary is None else bool(getattr(binary, "enabled", False))
+
+    if enforce_binary:
+        return "grayscale_and_binary"
+    if source in {"bone_union", "segmentation_union"}:
+        return "grayscale_marrow_mask"
+    if source == "common_mask":
+        return "grayscale_delta_only"
+    raise ValueError(f"Unsupported analysis.change_region.source: {source}")
+
+
 def _parse_creation_date(value: object) -> date | None:
     """Parse an AIM-style creation date string into a `date`."""
     if value is None:
@@ -456,11 +480,12 @@ def _get_analysis_params(config: AppConfig) -> AnalysisParams:
     gaussian_filter = True
     gaussian_sigma = 1.2
     full_mask_dilation_voxels = 2
-    marrow_mask_erosion_voxels = 2
+    marrow_mask_dilation_voxels = 2
+    marrow_mask_erosion_voxels = 0
 
     if cfg is not None:
         space = str(getattr(cfg, "space", space))
-        method = str(getattr(cfg, "method", method))
+        method = _resolve_analysis_method(cfg)
         compartments = list(getattr(cfg, "compartments", compartments))
         remodeling_thresholds = [float(x) for x in getattr(cfg, "thresholds", remodeling_thresholds)]
         cluster_sizes = [int(x) for x in getattr(cfg, "cluster_sizes", cluster_sizes)]
@@ -474,8 +499,20 @@ def _get_analysis_params(config: AppConfig) -> AnalysisParams:
         full_mask_dilation_voxels = int(
             getattr(cfg, "full_mask_dilation_voxels", full_mask_dilation_voxels)
         )
+        change_region = getattr(cfg, "change_region", None)
+        marrow_mask_dilation_voxels = int(
+            getattr(
+                change_region,
+                "dilation_voxels",
+                getattr(cfg, "marrow_mask_dilation_voxels", marrow_mask_dilation_voxels),
+            )
+        )
         marrow_mask_erosion_voxels = int(
-            getattr(cfg, "marrow_mask_erosion_voxels", marrow_mask_erosion_voxels)
+            getattr(
+                change_region,
+                "erosion_voxels",
+                getattr(cfg, "marrow_mask_erosion_voxels", marrow_mask_erosion_voxels),
+            )
         )
 
     vis_cfg = getattr(config, "visualization", None)
@@ -523,6 +560,7 @@ def _get_analysis_params(config: AppConfig) -> AnalysisParams:
         gaussian_filter=gaussian_filter,
         gaussian_sigma=gaussian_sigma,
         full_mask_dilation_voxels=full_mask_dilation_voxels,
+        marrow_mask_dilation_voxels=marrow_mask_dilation_voxels,
         marrow_mask_erosion_voxels=marrow_mask_erosion_voxels,
         trajectory_selected_adjacent_pairs=None,
         visualize_enabled=visualize_enabled,
@@ -1256,6 +1294,7 @@ def _pairwise_fixed_t0_outputs(
                 seg_arr_t1=seg1_for_analysis,
                 support_mask_t0=full0,
                 support_mask_t1=full1,
+                marrow_mask_dilation_voxels=params.marrow_mask_dilation_voxels,
                 marrow_mask_erosion_voxels=params.marrow_mask_erosion_voxels,
             )
 
@@ -1658,6 +1697,7 @@ def run_analysis(
             gaussian_filter=params.gaussian_filter,
             gaussian_sigma=params.gaussian_sigma,
             full_mask_dilation_voxels=params.full_mask_dilation_voxels,
+            marrow_mask_dilation_voxels=params.marrow_mask_dilation_voxels,
             marrow_mask_erosion_voxels=params.marrow_mask_erosion_voxels,
             trajectory_selected_adjacent_pairs=params.trajectory_selected_adjacent_pairs,
             visualization_enabled=params.visualize_enabled,

@@ -10,7 +10,14 @@ masks:
 
 analysis:
   space: pairwise_fixed_t0
-  method: grayscale_and_binary
+  method: auto
+  change_detection: grayscale_delta
+  change_region:
+    source: common_mask
+    dilation_voxels: 0
+    erosion_voxels: 0
+  binary_reclassification:
+    enabled: true
   pair_mode: adjacent
   thresholds: [225]
   cluster_sizes: [12]

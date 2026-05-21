@@ -10,12 +10,18 @@ masks:
 
 analysis:
   space: pairwise_fixed_t0
-  method: grayscale_marrow_mask
+  method: auto
+  change_detection: grayscale_delta
+  change_region:
+    source: bone_union
+    dilation_voxels: 2
+    erosion_voxels: 0
+  binary_reclassification:
+    enabled: false
   pair_mode: adjacent
   thresholds: [475]
   cluster_sizes: [5]
   gaussian_filter: false
-  marrow_mask_erosion_voxels: 0
 
 visualization:
   enabled: true

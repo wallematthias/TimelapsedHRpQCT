@@ -116,7 +116,8 @@ def build_analysis_summary_metadata(
     gaussian_filter: bool = False,
     gaussian_sigma: float = 1.2,
     full_mask_dilation_voxels: int = 2,
-    marrow_mask_erosion_voxels: int = 2,
+    marrow_mask_dilation_voxels: int = 2,
+    marrow_mask_erosion_voxels: int = 0,
     trajectory_selected_adjacent_pairs: list[str] | None = None,
 ) -> dict:
     """Build analysis summary metadata."""
@@ -140,6 +141,7 @@ def build_analysis_summary_metadata(
         "gaussian_filter": gaussian_filter,
         "gaussian_sigma": gaussian_sigma,
         "full_mask_dilation_voxels": int(full_mask_dilation_voxels),
+        "marrow_mask_dilation_voxels": int(marrow_mask_dilation_voxels),
         "marrow_mask_erosion_voxels": int(marrow_mask_erosion_voxels),
         "visualization_enabled": visualization_enabled,
         "visualization_threshold": visualization_threshold,

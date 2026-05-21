@@ -7,6 +7,7 @@ from timelapsedhrpqct.config.profiles import (
     build_user_config_template,
     list_config_profiles,
 )
+from timelapsedhrpqct.workflows.analysis import _get_analysis_params
 
 
 def test_builtin_profiles_are_discoverable() -> None:
@@ -92,20 +93,30 @@ def test_study_profiles_define_expected_analysis_methods() -> None:
 
     for config in (standard, eth_uofc):
         assert config.masks.segmentation.method == "seg_gauss"
-        assert config.analysis.method == "grayscale_and_binary"
+        assert config.analysis.method == "auto"
+        assert config.analysis.change_region.source == "common_mask"
+        assert config.analysis.binary_reclassification.enabled is True
+        assert _get_analysis_params(config).method == "grayscale_and_binary"
         assert config.analysis.thresholds == [225]
         assert config.analysis.cluster_sizes == [12]
         assert config.analysis.gaussian_filter is True
 
     assert ucsf.masks.segmentation.method == "laplace_hamming"
-    assert ucsf.analysis.method == "grayscale_marrow_mask"
+    assert ucsf.analysis.method == "auto"
+    assert ucsf.analysis.change_region.source == "bone_union"
+    assert ucsf.analysis.change_region.dilation_voxels == 2
+    assert ucsf.analysis.change_region.erosion_voxels == 0
+    assert ucsf.analysis.binary_reclassification.enabled is False
+    assert _get_analysis_params(ucsf).method == "grayscale_marrow_mask"
     assert ucsf.analysis.thresholds == [475]
     assert ucsf.analysis.cluster_sizes == [5]
     assert ucsf.analysis.gaussian_filter is False
-    assert ucsf.analysis.marrow_mask_erosion_voxels == 0
 
     assert shriners.masks.segmentation.method == "seg_gauss"
-    assert shriners.analysis.method == "grayscale_delta_only"
+    assert shriners.analysis.method == "auto"
+    assert shriners.analysis.change_region.source == "common_mask"
+    assert shriners.analysis.binary_reclassification.enabled is False
+    assert _get_analysis_params(shriners).method == "grayscale_delta_only"
     assert shriners.analysis.thresholds == [225]
     assert shriners.analysis.cluster_sizes == [0]
     assert shriners.analysis.gaussian_filter is True

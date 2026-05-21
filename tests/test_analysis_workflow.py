@@ -377,11 +377,11 @@ def test_compute_pair_remodelling_preview_supports_marrow_mask_mode():
     baseline_seg = np.zeros(shape, dtype=bool)
     followup_seg = np.zeros(shape, dtype=bool)
     baseline_seg[2, 2, 2] = True
-    followup_seg[3, 3, 3] = True
+    followup_seg[2, 2, 2] = True
 
     followup_img = np.zeros(shape, dtype=np.float32)
     followup_img[1, 1, 1] = 400.0
-    followup_img[3, 3, 3] = 400.0
+    followup_img[2, 2, 3] = 400.0
 
     preview = compute_pair_remodelling_preview(
         image_arr_t0=np.zeros(shape, dtype=np.float32),
@@ -395,15 +395,16 @@ def test_compute_pair_remodelling_preview_supports_marrow_mask_mode():
         gaussian_filter=False,
         support_mask_t0=support,
         support_mask_t1=support,
+        marrow_mask_dilation_voxels=1,
         marrow_mask_erosion_voxels=0,
     )
 
     assert bool(preview.valid_mask[2, 2, 2])
-    assert bool(preview.valid_mask[3, 3, 3])
+    assert bool(preview.valid_mask[2, 2, 3])
     assert not bool(preview.valid_mask[1, 1, 1])
     assert int(np.count_nonzero(preview.quiescent)) == 1
     assert bool(preview.quiescent[2, 2, 2])
-    assert bool(preview.formation[3, 3, 3])
+    assert bool(preview.formation[2, 2, 3])
     assert not bool(preview.formation[1, 1, 1])
 
 

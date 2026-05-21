@@ -968,8 +968,11 @@ def _requested_analysis_settings(
     args: argparse.Namespace,
 ) -> dict[str, object]:
     """Helper for requested analysis settings."""
+    from timelapsedhrpqct.workflows.analysis import _get_analysis_params
+
     analysis_cfg = getattr(config, "analysis", None)
     vis_cfg = getattr(config, "visualization", None)
+    effective_params = _get_analysis_params(config)
 
     thresholds = [225.0]
     cluster_sizes = [12]
@@ -1022,9 +1025,7 @@ def _requested_analysis_settings(
     )
 
     return {
-        "method": str(getattr(analysis_cfg, "method", "grayscale_and_binary"))
-        if analysis_cfg is not None
-        else "grayscale_and_binary",
+        "method": effective_params.method,
         "space": space,
         "use_filled_images": use_filled_images,
         "compartments": compartments,
