@@ -291,7 +291,7 @@ def test_compute_pair_remodelling_preview_matches_expected_labels():
     )
 
     assert int(preview.label_image[1, 1, 1]) == 1
-    assert int(preview.label_image[1, 2, 2]) == 2
+    assert int(preview.label_image[1, 2, 2]) == 3
     assert int(preview.label_image[2, 2, 2]) == 3
     assert int(preview.label_image[1, 1, 2]) == 4
     assert int(preview.label_image[1, 2, 1]) == 5
@@ -524,6 +524,90 @@ def _build_pairwise_t0_single_stack_dataset(dataset_root: Path, subject_id: str 
             ImportedStackRecord(subject_id, "C2", 1, c2_image, {"full": c2_full}, None, c2_meta),
         ],
     )
+
+    c1_tfm = timelapse_baseline_transform_path(dataset_root, subject_id, 1, "C1", "C1")
+    c2_tfm = timelapse_baseline_transform_path(dataset_root, subject_id, 1, "C2", "C1")
+    c1_tfm.parent.mkdir(parents=True, exist_ok=True)
+    c2_tfm.parent.mkdir(parents=True, exist_ok=True)
+    sitk.WriteTransform(sitk.Transform(3, sitk.sitkIdentity), str(c1_tfm))
+    sitk.WriteTransform(sitk.Transform(3, sitk.sitkIdentity), str(c2_tfm))
+
+    return dataset_root
+
+
+def _build_pairwise_t0_cross_compartment_event_dataset(
+    dataset_root: Path,
+    subject_id: str = "001",
+) -> Path:
+    shape = (5, 5, 5)
+    mask_full = np.zeros(shape, dtype=bool)
+    mask_full[1:4, 1:4, 1:4] = True
+    mask_trab = np.zeros(shape, dtype=bool)
+    mask_trab[:, :, 1:3] = mask_full[:, :, 1:3]
+    mask_cort = mask_full & ~mask_trab
+
+    baseline_img = np.zeros(shape, dtype=np.float32)
+    followup_img = np.zeros(shape, dtype=np.float32)
+    baseline_img[mask_full] = 100.0
+    followup_img[mask_full] = 100.0
+    followup_img[2, 2, 2] = 400.0
+    followup_img[2, 2, 3] = 400.0
+
+    _write_analysis_session(
+        dataset_root,
+        subject_id,
+        "C1",
+        baseline_img,
+        None,
+        mask_full,
+        mask_trab,
+        mask_cort,
+    )
+    _write_analysis_session(
+        dataset_root,
+        subject_id,
+        "C2",
+        followup_img,
+        None,
+        mask_full,
+        mask_trab,
+        mask_cort,
+    )
+
+    session_dir = get_derivatives_root(dataset_root) / f"sub-{subject_id}"
+    stack_dir_c1 = session_dir / "ses-C1" / "stacks"
+    stack_dir_c2 = session_dir / "ses-C2" / "stacks"
+    stack_dir_c1.mkdir(parents=True, exist_ok=True)
+    stack_dir_c2.mkdir(parents=True, exist_ok=True)
+
+    records = []
+    for session_id, image, stack_dir in (
+        ("C1", baseline_img, stack_dir_c1),
+        ("C2", followup_img, stack_dir_c2),
+    ):
+        stem = f"sub-{subject_id}_ses-{session_id}_stack-01"
+        image_path = stack_dir / f"{stem}_image.mha"
+        full_path = stack_dir / f"{stem}_mask-full.mha"
+        trab_path = stack_dir / f"{stem}_mask-trab.mha"
+        cort_path = stack_dir / f"{stem}_mask-cort.mha"
+        meta_path = stack_dir / f"{stem}.json"
+        write_image(image_path, image.astype(np.float32))
+        write_image(full_path, mask_full.astype(np.uint8))
+        write_image(trab_path, mask_trab.astype(np.uint8))
+        write_image(cort_path, mask_cort.astype(np.uint8))
+        meta_path.write_text("{}", encoding="utf-8")
+        records.append(
+            ImportedStackRecord(
+                subject_id,
+                session_id,
+                1,
+                image_path,
+                {"full": full_path, "trab": trab_path, "cort": cort_path},
+                None,
+                meta_path,
+            )
+        )
+    upsert_imported_stack_records(dataset_root, records)
 
     c1_tfm = timelapse_baseline_transform_path(dataset_root, subject_id, 1, "C1", "C1")
     c2_tfm = timelapse_baseline_transform_path(dataset_root, subject_id, 1, "C2", "C1")
@@ -979,7 +1063,7 @@ def test_run_analysis_detects_known_events_at_explicit_threshold(tmp_path: Path)
     assert int(trab_row["resorption_vox"]) == 1
     assert int(trab_row["mineralisation_vox"]) == 1
     assert int(trab_row["demineralisation_vox"]) == 1
-    assert int(trab_row["quiescent_vox"]) == 1
+    assert int(trab_row["quiescent_vox"]) == 3
     assert int(trab_row["formation_n_clusters"]) == 1
     assert int(trab_row["resorption_n_clusters"]) == 1
 
@@ -1278,6 +1362,79 @@ def test_run_analysis_pairwise_fixed_t0_visualization_exports_in_t0_space(
     assert vis_img.GetSize() == c2_ref_img.GetSize()
     assert vis_img.GetOrigin() == c2_ref_img.GetOrigin()
     assert vis_img.GetDirection() == c2_ref_img.GetDirection()
+
+
+def test_run_analysis_pairwise_fixed_t0_measures_compartments_from_full_event_map(
+    tmp_path: Path,
+) -> None:
+    dataset_root = _build_pairwise_t0_cross_compartment_event_dataset(tmp_path / "dataset")
+    config = AppConfig()
+    config.analysis = SimpleNamespace(
+        space="pairwise_fixed_t0",
+        method="grayscale_delta_only",
+        compartments=["trab", "cort", "full"],
+        thresholds=[225.0],
+        cluster_sizes=[2],
+        pair_mode="adjacent",
+        use_filled_images=False,
+        gaussian_filter=False,
+        valid_region=SimpleNamespace(erosion_voxels=0),
+    )
+    config.visualization = SimpleNamespace(
+        enabled=True,
+        threshold=225.0,
+        cluster_size=2,
+        label_map=None,
+    )
+
+    run_analysis(
+        dataset_root=dataset_root,
+        config=config,
+        thresholds=[225.0],
+        clusters=[2],
+    )
+
+    pairwise_df = pd.read_csv(pairwise_remodelling_csv_path(dataset_root, "001"))
+    rows = {
+        row["compartment"]: row
+        for _, row in pairwise_df.iterrows()
+        if row["threshold"] == 225.0 and row["cluster_min_size"] == 2
+    }
+
+    assert int(rows["full"]["formation_vox"]) == 2
+    assert int(rows["trab"]["formation_vox"]) == 1
+    assert int(rows["cort"]["formation_vox"]) == 1
+
+    full_vis = analysis_visualize_path(
+        dataset_root=dataset_root,
+        subject_id="001",
+        compartment="full",
+        t0="C1",
+        t1="C2",
+        thr=225.0,
+        cluster_size=2,
+    )
+    trab_vis = analysis_visualize_path(
+        dataset_root=dataset_root,
+        subject_id="001",
+        compartment="trab",
+        t0="C1",
+        t1="C2",
+        thr=225.0,
+        cluster_size=2,
+    )
+    cort_vis = analysis_visualize_path(
+        dataset_root=dataset_root,
+        subject_id="001",
+        compartment="cort",
+        t0="C1",
+        t1="C2",
+        thr=225.0,
+        cluster_size=2,
+    )
+    assert full_vis.exists()
+    assert not trab_vis.exists()
+    assert not cort_vis.exists()
 
 
 def test_run_analysis_pairwise_fixed_t0_multistack_records_space_in_metadata(tmp_path: Path) -> None:

@@ -1229,22 +1229,21 @@ def _pairwise_fixed_t0_outputs(
         seg0_for_analysis = seg0 if np.any(seg0) else None
         seg1_for_analysis = seg1 if np.any(seg1) else None
 
+        valid_method = (
+            "grayscale_marrow_mask"
+            if params.change_region_source in {"bone_union", "segmentation_union"}
+            else params.method
+        )
+        valid_by_compartment: dict[str, np.ndarray] = {}
+        comp_masks_by_compartment: dict[str, tuple[np.ndarray, np.ndarray]] = {}
         for compartment in effective_compartments:
-            trajectory_event_maps = trajectory_event_maps_by_compartment[compartment]
-
-            print(
-                f"[analysis] sub-{subject_id} site-{site} {mode_desc}: "
-                f"preparing comp-{compartment} t0-{t0} -> t1-{t1} "
-                f"(space=pairwise_fixed_t0)"
-            )
-
             if compartment == "full":
                 comp0 = np.asarray(full0, dtype=bool)
                 comp1 = np.asarray(full1, dtype=bool)
             else:
                 comp0 = np.asarray(comp_masks_t0[compartment], dtype=bool)
                 comp1 = np.asarray(comp_masks_t1[compartment], dtype=bool)
-
+            comp_masks_by_compartment[compartment] = (comp0, comp1)
             common_t0_img = _resample_image(
                 array_to_image(
                     common_masks_baseline[compartment].astype(np.uint8),
@@ -1256,13 +1255,7 @@ def _pairwise_fixed_t0_outputs(
                 is_mask=True,
             )
             common_t0 = (image_to_array(common_t0_img) > 0).astype(bool, copy=False)
-
-            valid_method = (
-                "grayscale_marrow_mask"
-                if params.change_region_source in {"bone_union", "segmentation_union"}
-                else params.method
-            )
-            valid = build_pair_valid_mask(
+            valid_by_compartment[compartment] = build_pair_valid_mask(
                 method=valid_method,
                 valid_mask=common_t0,
                 seg_arr_t0=seg0_for_analysis,
@@ -1272,44 +1265,66 @@ def _pairwise_fixed_t0_outputs(
                 marrow_mask_dilation_voxels=params.marrow_mask_dilation_voxels,
                 marrow_mask_erosion_voxels=params.marrow_mask_erosion_voxels,
             )
+            del common_t0_img
 
-            for thr in params.remodeling_thresholds:
-                thr = float(thr)
-                for cluster_size in params.cluster_sizes:
-                    cluster_size = int(cluster_size)
+        classification_compartment = "full" if "full" in valid_by_compartment else effective_compartments[0]
+        classification_valid = valid_by_compartment[classification_compartment]
 
+        for thr in params.remodeling_thresholds:
+            thr = float(thr)
+            for cluster_size in params.cluster_sizes:
+                cluster_size = int(cluster_size)
+
+                print(
+                    f"[analysis] sub-{subject_id} site-{site} {mode_desc}: "
+                    f"full-map thr-{thr:g} cluster-{cluster_size} "
+                    f"t0-{t0} -> t1-{t1} (space=pairwise_fixed_t0)"
+                )
+
+                classified = _classify_pair_remodelling(
+                    delta=delta,
+                    valid=classification_valid,
+                    threshold=thr,
+                    cluster_size=cluster_size,
+                    method=params.method,
+                    seg_arr_t0=seg0_for_analysis,
+                    seg_arr_t1=seg1_for_analysis,
+                    marrow_mask=None,
+                    marrow_mask_erosion_voxels=params.marrow_mask_erosion_voxels,
+                )
+                formation_full = np.asarray(classified["formation"], dtype=bool)
+                resorption_full = np.asarray(classified["resorption"], dtype=bool)
+                mineralisation_full = np.asarray(classified["mineralisation"], dtype=bool)
+                demineralisation_full = np.asarray(classified["demineralisation"], dtype=bool)
+                b0_full = np.asarray(classified["b0"], dtype=bool)
+                b1_full = np.asarray(classified["b1"], dtype=bool)
+                quiescent_full = np.asarray(classified["quiescent"], dtype=bool)
+
+                for compartment in effective_compartments:
+                    trajectory_event_maps = trajectory_event_maps_by_compartment[compartment]
                     print(
                         f"[analysis] sub-{subject_id} site-{site} {mode_desc}: "
-                        f"comp-{compartment} thr-{thr:g} cluster-{cluster_size} "
-                        f"t0-{t0} -> t1-{t1} (space=pairwise_fixed_t0)"
+                        f"measuring comp-{compartment} thr-{thr:g} cluster-{cluster_size} "
+                        f"t0-{t0} -> t1-{t1} from full-map events (space=pairwise_fixed_t0)"
                     )
-
-                    classified = _classify_pair_remodelling(
-                        delta=delta,
-                        valid=valid,
-                        threshold=thr,
-                        cluster_size=cluster_size,
-                        method=params.method,
-                        seg_arr_t0=seg0_for_analysis,
-                        seg_arr_t1=seg1_for_analysis,
-                        marrow_mask=None,
-                        marrow_mask_erosion_voxels=params.marrow_mask_erosion_voxels,
-                    )
-                    formation = classified["formation"]
-                    resorption = classified["resorption"]
-                    mineralisation = classified["mineralisation"]
-                    demineralisation = classified["demineralisation"]
-                    quiescent = classified["quiescent"]
-                    b0 = classified["b0"]
-                    b1 = classified["b1"]
-                    bv0 = int(classified["bv0_vox"])
-                    bv1 = int(classified["bv1_vox"])
+                    comp0, comp1 = comp_masks_by_compartment[compartment]
+                    valid = valid_by_compartment[compartment]
+                    metric_mask = valid
+                    formation = formation_full & metric_mask
+                    resorption = resorption_full & metric_mask
+                    mineralisation = mineralisation_full & metric_mask
+                    demineralisation = demineralisation_full & metric_mask
+                    b0 = b0_full & metric_mask
+                    b1 = b1_full & metric_mask
+                    quiescent = b0 & ~(formation | resorption)
+                    bv0 = int(np.count_nonzero(b0))
+                    bv1 = int(np.count_nonzero(b1))
                     tv_valid = int(np.count_nonzero(valid))
                     real_overlap = int(np.count_nonzero(full0 & full1 & comp0 & comp1 & valid))
                     union_real = int(np.count_nonzero(((full0 & comp0) | (full1 & comp1)) & valid))
 
-                    formation_vox = int(classified["formation_vox"])
-                    resorption_vox = int(classified["resorption_vox"])
+                    formation_vox = int(np.count_nonzero(formation))
+                    resorption_vox = int(np.count_nonzero(resorption))
                     mineralisation_vox = int(np.count_nonzero(mineralisation))
                     demineralisation_vox = int(np.count_nonzero(demineralisation))
                     quiescent_vox = int(np.count_nonzero(quiescent))
@@ -1404,6 +1419,7 @@ def _pairwise_fixed_t0_outputs(
                         and params.visualize_cluster_size is not None
                         and math.isclose(thr, params.visualize_threshold)
                         and cluster_size == params.visualize_cluster_size
+                        and compartment == classification_compartment
                     ):
                         label_map = params.visualize_label_map
                         effective_label_map = label_map or {
@@ -1413,20 +1429,20 @@ def _pairwise_fixed_t0_outputs(
                             "formation": 4,
                             "mineralisation": 5,
                         }
-                        outputs.label_images[(compartment, t0, t1, thr, cluster_size)] = (
+                        outputs.label_images[("full", t0, t1, thr, cluster_size)] = (
                             build_label_image(
-                                valid,
-                                quiescent,
-                                resorption,
-                                demineralisation,
-                                formation,
-                                mineralisation,
+                                classification_valid,
+                                quiescent_full,
+                                resorption_full,
+                                demineralisation_full,
+                                formation_full,
+                                mineralisation_full,
                                 effective_label_map,
                             ).astype(np.uint8, copy=False)
                         )
 
-            del comp0, comp1, common_t0, common_t0_img, valid
-            _free_memory()
+        del valid_by_compartment, comp_masks_by_compartment
+        _free_memory()
 
         del (
             source0_img,

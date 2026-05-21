@@ -747,6 +747,7 @@ def compute_remodelling_outputs(
                         and params.visualize_cluster_size is not None
                         and math.isclose(thr, params.visualize_threshold)
                         and cluster_size == params.visualize_cluster_size
+                        and compartment == "full"
                     ):
                         outputs.label_images[(compartment, t0, t1, thr, cluster_size)] = (
                             build_label_image(
