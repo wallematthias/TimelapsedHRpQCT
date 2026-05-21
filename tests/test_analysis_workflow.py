@@ -399,6 +399,34 @@ def test_compute_pair_remodelling_preview_binary_mode_uses_baseline_seg_for_quie
     assert preview.bv0_vox == 2
 
 
+def test_compute_pair_remodelling_preview_keeps_mineralised_baseline_bone_quiescent():
+    shape = (5, 5, 5)
+    valid = np.ones(shape, dtype=bool)
+    baseline_seg = np.zeros(shape, dtype=bool)
+    followup_seg = np.zeros(shape, dtype=bool)
+    baseline_seg[2, 2, 2] = True
+    followup_seg[2, 2, 2] = True
+
+    baseline_img = np.zeros(shape, dtype=np.float32)
+    followup_img = np.zeros(shape, dtype=np.float32)
+    followup_img[2, 2, 2] = 400.0
+
+    preview = compute_pair_remodelling_preview(
+        image_arr_t0=baseline_img,
+        image_arr_t1=followup_img,
+        seg_arr_t0=baseline_seg,
+        seg_arr_t1=followup_seg,
+        valid_mask=valid,
+        threshold=225.0,
+        cluster_size=1,
+        method="grayscale_and_binary",
+        gaussian_filter=False,
+    )
+
+    assert bool(preview.mineralisation[2, 2, 2])
+    assert bool(preview.quiescent[2, 2, 2])
+
+
 def test_compute_pair_remodelling_preview_supports_marrow_mask_mode():
     shape = (5, 5, 5)
     valid = np.ones(shape, dtype=bool)

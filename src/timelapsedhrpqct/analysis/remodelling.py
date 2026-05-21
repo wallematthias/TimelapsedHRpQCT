@@ -431,7 +431,7 @@ def _classify_pair_remodelling(
     resorption = remove_small(resorption_raw, cluster_size)
     mineralisation = remove_small(mineralisation_raw, cluster_size)
     demineralisation = remove_small(demineralisation_raw, cluster_size)
-    quiescent = quiescent_support & ~(formation | resorption | mineralisation | demineralisation)
+    quiescent = quiescent_support & ~(formation | resorption)
 
     bv0 = int(np.count_nonzero(b0))
     bv1 = int(np.count_nonzero(b1))
