@@ -1073,13 +1073,20 @@ def _pairwise_fixed_t0_outputs(
         f"space=pairwise_fixed_t0, compartments={effective_compartments} ({compartment_source})"
     )
 
-    pair_base_cache: list[dict[str, object]] = []
-    raw_mask_cache: dict[Path, np.ndarray] = {}
+    trajectory_event_maps_by_compartment: dict[str, dict[tuple[float, int], list[tuple[str, str, np.ndarray, np.ndarray]]]] = {}
+    for compartment in effective_compartments:
+        trajectory_event_maps_by_compartment[compartment] = {
+            (float(thr), int(cluster_size)): []
+            for thr in params.remodeling_thresholds
+            for cluster_size in params.cluster_sizes
+        }
+
     for i0, i1 in pairs:
         rec0 = analysis_sessions[i0]
         rec1 = analysis_sessions[i1]
         t0 = rec0.session_id
         t1 = rec1.session_id
+        raw_mask_cache: dict[Path, np.ndarray] = {}
         with benchmark.section(
             "analysis.prepare_pair_density",
             subject_id=subject_id,
@@ -1217,53 +1224,13 @@ def _pairwise_fixed_t0_outputs(
             )
             support_t0 = (image_to_array(support_t0_img) > 0).astype(bool, copy=False)
 
-        pair_base_cache.append(
-            {
-                "i0": i0,
-                "i1": i1,
-                "t0": t0,
-                "t1": t1,
-                "rec0": rec0,
-                "rec1": rec1,
-                "ref_img": ref_img,
-                "t0_to_t1": t0_to_t1,
-                "dens0": dens0,
-                "dens1": dens1,
-                "seg0": seg0,
-                "seg1": seg1,
-                "full0": full0,
-                "full1": full1,
-                "comp_masks_t0": comp_masks_t0,
-                "comp_masks_t1": comp_masks_t1,
-                "support_t0": support_t0,
-                "delta": dens1 - dens0,
-            }
-        )
-        del source0_img, moving_img, dens0_img, dens1_img
-        _free_memory()
+        raw_mask_cache.clear()
+        delta = dens1 - dens0
+        seg0_for_analysis = seg0 if np.any(seg0) else None
+        seg1_for_analysis = seg1 if np.any(seg1) else None
 
-    raw_mask_cache.clear()
-    _free_memory()
-
-    for compartment in effective_compartments:
-        trajectory_event_maps: dict[tuple[float, int], list[tuple[str, str, np.ndarray, np.ndarray]]] = {}
-        for thr in params.remodeling_thresholds:
-            for cluster_size in params.cluster_sizes:
-                trajectory_event_maps[(float(thr), int(cluster_size))] = []
-
-        for base in pair_base_cache:
-            i0 = int(base["i0"])
-            i1 = int(base["i1"])
-            rec0 = base["rec0"]
-            rec1 = base["rec1"]
-            t0 = str(base["t0"])
-            t1 = str(base["t1"])
-            ref_img = base["ref_img"]
-            t0_to_t1 = base["t0_to_t1"]
-            full0 = base["full0"]
-            full1 = base["full1"]
-            comp_masks_t0 = base["comp_masks_t0"]
-            comp_masks_t1 = base["comp_masks_t1"]
+        for compartment in effective_compartments:
+            trajectory_event_maps = trajectory_event_maps_by_compartment[compartment]
 
             print(
                 f"[analysis] sub-{subject_id} site-{site} {mode_desc}: "
@@ -1290,14 +1257,6 @@ def _pairwise_fixed_t0_outputs(
             )
             common_t0 = (image_to_array(common_t0_img) > 0).astype(bool, copy=False)
 
-            dens0 = base["dens0"]
-            dens1 = base["dens1"]
-            seg0 = base["seg0"]
-            seg1 = base["seg1"]
-            support_t0 = base["support_t0"]
-            delta = base["delta"]
-            seg0_for_analysis = seg0 if np.any(seg0) else None
-            seg1_for_analysis = seg1 if np.any(seg1) else None
             valid_method = (
                 "grayscale_marrow_mask"
                 if params.change_region_source in {"bone_union", "segmentation_union"}
@@ -1466,8 +1425,31 @@ def _pairwise_fixed_t0_outputs(
                             ).astype(np.uint8, copy=False)
                         )
 
-            del comp0, comp1, common_t0
+            del comp0, comp1, common_t0, common_t0_img, valid
+            _free_memory()
 
+        del (
+            source0_img,
+            moving_img,
+            dens0_img,
+            dens1_img,
+            ref_img,
+            dens0,
+            dens1,
+            delta,
+            seg0,
+            seg1,
+            full0,
+            full1,
+            comp_masks_t0,
+            comp_masks_t1,
+            support_t0,
+            support_t0_img,
+        )
+        _free_memory()
+
+    for compartment in effective_compartments:
+        trajectory_event_maps = trajectory_event_maps_by_compartment[compartment]
         for thr in params.remodeling_thresholds:
             thr = float(thr)
             for cluster_size in params.cluster_sizes:
