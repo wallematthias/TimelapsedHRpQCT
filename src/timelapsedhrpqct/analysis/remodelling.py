@@ -22,6 +22,8 @@ class AnalysisParams:
     gaussian_filter: bool
     gaussian_sigma: float
     full_mask_dilation_voxels: int
+    change_region_source: str
+    binary_reclassification_enabled: bool
     marrow_mask_dilation_voxels: int
     marrow_mask_erosion_voxels: int
     trajectory_selected_adjacent_pairs: list[str] | None

@@ -480,6 +480,8 @@ def _get_analysis_params(config: AppConfig) -> AnalysisParams:
     gaussian_filter = True
     gaussian_sigma = 1.2
     full_mask_dilation_voxels = 2
+    change_region_source = "common_mask"
+    binary_reclassification_enabled = True
     marrow_mask_dilation_voxels = 2
     marrow_mask_erosion_voxels = 0
 
@@ -500,6 +502,13 @@ def _get_analysis_params(config: AppConfig) -> AnalysisParams:
             getattr(cfg, "full_mask_dilation_voxels", full_mask_dilation_voxels)
         )
         change_region = getattr(cfg, "change_region", None)
+        change_region_source = str(
+            getattr(change_region, "source", change_region_source) or change_region_source
+        ).strip().lower()
+        binary = getattr(cfg, "binary_reclassification", None)
+        binary_reclassification_enabled = (
+            True if binary is None else bool(getattr(binary, "enabled", False))
+        )
         marrow_mask_dilation_voxels = int(
             getattr(
                 change_region,
@@ -560,6 +569,8 @@ def _get_analysis_params(config: AppConfig) -> AnalysisParams:
         gaussian_filter=gaussian_filter,
         gaussian_sigma=gaussian_sigma,
         full_mask_dilation_voxels=full_mask_dilation_voxels,
+        change_region_source=change_region_source,
+        binary_reclassification_enabled=binary_reclassification_enabled,
         marrow_mask_dilation_voxels=marrow_mask_dilation_voxels,
         marrow_mask_erosion_voxels=marrow_mask_erosion_voxels,
         trajectory_selected_adjacent_pairs=None,
@@ -1287,8 +1298,13 @@ def _pairwise_fixed_t0_outputs(
             delta = base["delta"]
             seg0_for_analysis = seg0 if np.any(seg0) else None
             seg1_for_analysis = seg1 if np.any(seg1) else None
+            valid_method = (
+                "grayscale_marrow_mask"
+                if params.change_region_source in {"bone_union", "segmentation_union"}
+                else params.method
+            )
             valid = build_pair_valid_mask(
-                method=params.method,
+                method=valid_method,
                 valid_mask=common_t0,
                 seg_arr_t0=seg0_for_analysis,
                 seg_arr_t1=seg1_for_analysis,
@@ -1697,6 +1713,8 @@ def run_analysis(
             gaussian_filter=params.gaussian_filter,
             gaussian_sigma=params.gaussian_sigma,
             full_mask_dilation_voxels=params.full_mask_dilation_voxels,
+            change_region_source=params.change_region_source,
+            binary_reclassification_enabled=params.binary_reclassification_enabled,
             marrow_mask_dilation_voxels=params.marrow_mask_dilation_voxels,
             marrow_mask_erosion_voxels=params.marrow_mask_erosion_voxels,
             trajectory_selected_adjacent_pairs=params.trajectory_selected_adjacent_pairs,
