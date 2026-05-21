@@ -16,6 +16,7 @@ def test_builtin_profiles_are_discoverable() -> None:
     profiles = list_config_profiles()
 
     assert "standard" in profiles
+    assert "xct1-standard" in profiles
     assert "eth-uofc" in profiles
     assert "ucsf" in profiles
     assert "shriners" in profiles
@@ -89,11 +90,30 @@ masks:
 
 def test_study_profiles_define_expected_analysis_methods() -> None:
     standard = load_config(profile="standard")
+    xct1 = load_config(profile="xct1-standard")
     eth_uofc = load_config(profile="eth-uofc")
     ucsf = load_config(profile="ucsf")
     shriners = load_config(profile="shriners")
 
-    for config in (standard, eth_uofc):
+    assert standard.masks.segmentation.method == "laplace_hamming"
+    assert standard.analysis.method == "auto"
+    assert standard.analysis.change_region.source == "common_mask"
+    assert standard.analysis.binary_reclassification.enabled is True
+    assert _get_analysis_params(standard).method == "grayscale_and_binary"
+    assert standard.analysis.thresholds == [225]
+    assert standard.analysis.cluster_sizes == [12]
+    assert standard.analysis.gaussian_filter is True
+
+    assert xct1.masks.segmentation.method == "laplace_hamming"
+    assert xct1.analysis.method == "auto"
+    assert xct1.analysis.change_region.source == "common_mask"
+    assert xct1.analysis.binary_reclassification.enabled is False
+    assert _get_analysis_params(xct1).method == "grayscale_delta_only"
+    assert xct1.analysis.thresholds == [225]
+    assert xct1.analysis.cluster_sizes == [5]
+    assert xct1.analysis.gaussian_filter is True
+
+    for config in (eth_uofc,):
         assert config.masks.segmentation.method == "seg_gauss"
         assert config.analysis.method == "auto"
         assert config.analysis.change_region.source == "common_mask"
@@ -127,7 +147,7 @@ def test_study_profiles_define_expected_analysis_methods() -> None:
 def test_study_profiles_use_explicit_analysis_controls_not_legacy_method() -> None:
     profiles_dir = Path(__file__).resolve().parents[1] / "src" / "timelapsedhrpqct" / "configs" / "profiles"
 
-    for profile_name in ("standard", "eth-uofc", "ucsf", "shriners"):
+    for profile_name in ("standard", "xct1-standard", "eth-uofc", "ucsf", "shriners"):
         data = yaml.safe_load((profiles_dir / f"{profile_name}.yml").read_text(encoding="utf-8"))
         analysis = data.get("analysis") or {}
 

@@ -50,9 +50,13 @@ timelapse config show low-memory
 
 Bundled study profiles include:
 
-- `standard` / `eth-uofc`: `seg_gauss`, `grayscale_and_binary`, threshold `225`, cluster `12`, Gaussian smoothing before subtraction.
-- `ucsf`: `laplace_hamming`, `grayscale_marrow_mask`, threshold `475`, cluster `5`, no Gaussian smoothing before subtraction, marrow erosion `0`.
-- `shriners`: `seg_gauss`, `grayscale_delta_only`, threshold `225`, cluster `0`, Gaussian smoothing before subtraction.
+- `standard`: `laplace_hamming`, `grayscale_and_binary`, threshold `225`, cluster `12`, Gaussian filtering of remodelling sites.
+- `xct1-standard`: `laplace_hamming`, `grayscale_delta_only`, threshold `225`, cluster `5`, Gaussian filtering of remodelling sites.
+- `eth-uofc`: legacy ETH/UofC `seg_gauss`, `grayscale_and_binary`, threshold `225`, cluster `12`, Gaussian filtering of remodelling sites.
+- `ucsf`: `laplace_hamming`, bone-support-limited grayscale remodelling, threshold `475`, cluster `5`, no Gaussian filtering of remodelling sites, bone support dilation `0`.
+- `shriners`: `seg_gauss`, `grayscale_delta_only`, threshold `220`, cluster `0`, Gaussian filtering of remodelling sites.
+
+Workflow profiles such as `multistack`, `single-stack`, and `low-memory` adjust processing shape and resource use. They are intentionally separate from study-analysis protocol profiles.
 
 Processed images and masks can be exported back to AIM. The exporter uses pipeline JSON
 sidecars to recover the original AIM calibration and processing log when available:
