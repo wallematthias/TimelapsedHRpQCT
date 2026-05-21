@@ -345,13 +345,14 @@ def test_compute_pair_remodelling_preview_respects_cluster_filter_and_smoothing(
     assert np.allclose(raw.delta, maybe_smooth_density(followup_img, gaussian_filter=False, gaussian_sigma=1.2))
 
 
-def test_compute_pair_remodelling_preview_delta_only_uses_seg_overlap_for_quiescence():
+def test_compute_pair_remodelling_preview_delta_only_uses_baseline_seg_for_quiescence():
     shape = (5, 5, 5)
     valid = np.ones(shape, dtype=bool)
     baseline_seg = np.zeros(shape, dtype=bool)
     followup_seg = np.zeros(shape, dtype=bool)
     baseline_seg[2, 2, 2] = True
     followup_seg[2, 2, 2] = True
+    baseline_seg[1, 1, 1] = True
 
     preview = compute_pair_remodelling_preview(
         image_arr_t0=np.zeros(shape, dtype=np.float32),
@@ -365,9 +366,37 @@ def test_compute_pair_remodelling_preview_delta_only_uses_seg_overlap_for_quiesc
         gaussian_filter=False,
     )
 
-    assert int(np.count_nonzero(preview.quiescent)) == 1
+    assert int(np.count_nonzero(preview.quiescent)) == 2
+    assert bool(preview.quiescent[1, 1, 1])
     assert bool(preview.quiescent[2, 2, 2])
-    assert preview.bv0_vox == 1
+    assert preview.bv0_vox == 2
+
+
+def test_compute_pair_remodelling_preview_binary_mode_uses_baseline_seg_for_quiescence():
+    shape = (5, 5, 5)
+    valid = np.ones(shape, dtype=bool)
+    baseline_seg = np.zeros(shape, dtype=bool)
+    followup_seg = np.zeros(shape, dtype=bool)
+    baseline_seg[2, 2, 2] = True
+    followup_seg[2, 2, 2] = True
+    baseline_seg[1, 1, 1] = True
+
+    preview = compute_pair_remodelling_preview(
+        image_arr_t0=np.zeros(shape, dtype=np.float32),
+        image_arr_t1=np.zeros(shape, dtype=np.float32),
+        seg_arr_t0=baseline_seg,
+        seg_arr_t1=followup_seg,
+        valid_mask=valid,
+        threshold=225.0,
+        cluster_size=1,
+        method="grayscale_and_binary",
+        gaussian_filter=False,
+    )
+
+    assert int(np.count_nonzero(preview.quiescent)) == 2
+    assert bool(preview.quiescent[1, 1, 1])
+    assert bool(preview.quiescent[2, 2, 2])
+    assert preview.bv0_vox == 2
 
 
 def test_compute_pair_remodelling_preview_supports_marrow_mask_mode():
