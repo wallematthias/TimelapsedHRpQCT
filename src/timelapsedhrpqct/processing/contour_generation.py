@@ -80,6 +80,7 @@ class SegmentationParams:
     laplace_hamming_ipl_float_max: float = 200000.0
     laplace_hamming_int16_max: float = 32768.0
     laplace_hamming_min_size_voxels: int = 70
+    laplace_hamming_backend: str = "cpu"
 
 
 @dataclass(slots=True)
@@ -905,6 +906,7 @@ def _segment_bone_xyz(
                 int16_max=float(params.laplace_hamming_int16_max),
                 threshold=float(params.laplace_hamming_threshold),
                 min_size_voxels=int(params.laplace_hamming_min_size_voxels),
+                backend=str(params.laplace_hamming_backend),
             ),
         )
 

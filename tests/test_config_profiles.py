@@ -68,6 +68,7 @@ masks:
     laplace_hamming_low_pass_cutoff: 0.4
     laplace_hamming_high_pass_cutoff: 0.1
     laplace_hamming_min_size_voxels: 25
+    laplace_hamming_backend: auto
 """,
         encoding="utf-8",
     )
@@ -80,6 +81,7 @@ masks:
     assert config.masks.segmentation.laplace_hamming_low_pass_cutoff == 0.4
     assert config.masks.segmentation.laplace_hamming_high_pass_cutoff == 0.1
     assert config.masks.segmentation.laplace_hamming_min_size_voxels == 25
+    assert config.masks.segmentation.laplace_hamming_backend == "auto"
 
 
 def test_study_profiles_define_expected_analysis_methods() -> None:

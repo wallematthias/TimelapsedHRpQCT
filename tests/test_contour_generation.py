@@ -168,6 +168,39 @@ def test_laplace_hamming_binarize_restricts_to_full_mask_and_removes_small_compo
     assert not bool(binary[6, 6, 6])
 
 
+def test_laplace_hamming_auto_backend_falls_back_to_cpu_without_torch() -> None:
+    shape = (8, 8, 8)
+    image_xyz = np.zeros(shape, dtype=np.float32)
+    image_xyz[2:4, 2:4, 2:4] = 900.0
+    params = LaplaceHammingParams(
+        low_pass_cutoff=1.0,
+        laplace_epsilon=0.0,
+        hamming_amplitude=0.0,
+        input_offset=0.0,
+        ipl_scale_a=1.0,
+        ipl_scale_b=0.0,
+        ipl_float_max=10000.0,
+        int16_max=10000.0,
+        threshold=500.0,
+        min_size_voxels=0,
+        backend="auto",
+    )
+
+    auto = laplace_hamming_binarize_xyz(
+        image_xyz,
+        spacing_xyz=(1.0, 1.0, 1.0),
+        params=params,
+    )
+    params.backend = "cpu"
+    cpu = laplace_hamming_binarize_xyz(
+        image_xyz,
+        spacing_xyz=(1.0, 1.0, 1.0),
+        params=params,
+    )
+
+    np.testing.assert_array_equal(auto, cpu)
+
+
 def test_generate_masks_from_image_supports_laplace_hamming_segmentation() -> None:
     shape = (64, 64, 32)
     x, y, z = np.indices(shape)

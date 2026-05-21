@@ -4,6 +4,7 @@ import gc
 import json
 import math
 import re
+from contextlib import nullcontext
 from datetime import date, datetime
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -742,6 +743,7 @@ def _pairwise_fixed_t0_outputs(
     subject_id: str,
     site: str,
     params: AnalysisParams,
+    benchmark=None,
 ) -> tuple[RemodellingOutputs, sitk.Image]:
     """Run pairwise analysis in each t0 session space for single- and multistack subjects."""
     if params.use_filled_images:
@@ -927,131 +929,147 @@ def _pairwise_fixed_t0_outputs(
         rec1 = analysis_sessions[i1]
         t0 = rec0.session_id
         t1 = rec1.session_id
-        ref_img = _load_stack_session_reference_image(
-            dataset_root=dataset_root,
+        with benchmark.section(
+            "analysis.prepare_pair_density",
             subject_id=subject_id,
             site=site,
-            session_id=t0,
+            t0=t0,
+            t1=t1,
             stack_index=stack_index,
-        )
-        source0_to_t0 = _compose_resample_transform_between_sessions(
-            source_from_baseline=source_from_baseline[t0],
-            target_from_baseline=target_from_baseline[t0],
-        )
-        t0_to_t1 = _compose_resample_transform_between_sessions(
-            source_from_baseline=source_from_baseline[t1],
-            target_from_baseline=target_from_baseline[t0],
-        )
+        ) if benchmark is not None else nullcontext():
+            ref_img = _load_stack_session_reference_image(
+                dataset_root=dataset_root,
+                subject_id=subject_id,
+                site=site,
+                session_id=t0,
+                stack_index=stack_index,
+            )
+            source0_to_t0 = _compose_resample_transform_between_sessions(
+                source_from_baseline=source_from_baseline[t0],
+                target_from_baseline=target_from_baseline[t0],
+            )
+            t0_to_t1 = _compose_resample_transform_between_sessions(
+                source_from_baseline=source_from_baseline[t1],
+                target_from_baseline=target_from_baseline[t0],
+            )
 
-        source0_img = load_image(rec0.image_path)
-        dens0_img = _resample_image(source0_img, ref_img, source0_to_t0, is_mask=False)
-        dens0 = _maybe_smooth_density(
-            image_to_array(dens0_img).astype(np.float32, copy=False),
-            params,
-        )
-        moving_img = load_image(rec1.image_path)
-        dens1_img = _resample_image(moving_img, ref_img, t0_to_t1, is_mask=False)
-        dens1 = _maybe_smooth_density(
-            image_to_array(dens1_img).astype(np.float32, copy=False),
-            params,
-        )
+            source0_img = load_image(rec0.image_path)
+            dens0_img = _resample_image(source0_img, ref_img, source0_to_t0, is_mask=False)
+            dens0 = _maybe_smooth_density(
+                image_to_array(dens0_img).astype(np.float32, copy=False),
+                params,
+            )
+            moving_img = load_image(rec1.image_path)
+            dens1_img = _resample_image(moving_img, ref_img, t0_to_t1, is_mask=False)
+            dens1 = _maybe_smooth_density(
+                image_to_array(dens1_img).astype(np.float32, copy=False),
+                params,
+            )
 
-        if rec0.seg_path is not None and rec0.seg_path.exists() and rec1.seg_path is not None and rec1.seg_path.exists():
-            seg0_img = _resample_image(
-                sitk.Cast(load_image(rec0.seg_path) > 0, sitk.sitkUInt8),
+        with benchmark.section(
+            "analysis.prepare_pair_masks",
+            subject_id=subject_id,
+            site=site,
+            t0=t0,
+            t1=t1,
+            stack_index=stack_index,
+        ) if benchmark is not None else nullcontext():
+            if rec0.seg_path is not None and rec0.seg_path.exists() and rec1.seg_path is not None and rec1.seg_path.exists():
+                seg0_img = _resample_image(
+                    sitk.Cast(load_image(rec0.seg_path) > 0, sitk.sitkUInt8),
+                    ref_img,
+                    source0_to_t0,
+                    is_mask=True,
+                )
+                seg0 = (image_to_array(seg0_img) > 0).astype(bool, copy=False)
+                seg1_img = _resample_image(
+                    sitk.Cast(load_image(rec1.seg_path) > 0, sitk.sitkUInt8),
+                    ref_img,
+                    t0_to_t1,
+                    is_mask=True,
+                )
+                seg1 = (image_to_array(seg1_img) > 0).astype(bool, copy=False)
+            else:
+                seg0 = np.zeros_like(dens0, dtype=bool)
+                seg1 = np.zeros_like(dens1, dtype=bool)
+
+            full0_arr = _load_support_mask_array(
+                mask_paths=rec0.mask_paths,
+                reference_image_path=rec0.image_path,
+            )
+            if params.full_mask_dilation_voxels > 0:
+                full0_arr = dilate_mask_xy(full0_arr, params.full_mask_dilation_voxels)
+            full0_img = _resample_image(
+                array_to_image(
+                    full0_arr.astype(np.uint8),
+                    reference=load_image(rec0.image_path),
+                    pixel_id=sitk.sitkUInt8,
+                ),
                 ref_img,
                 source0_to_t0,
                 is_mask=True,
             )
-            seg0 = (image_to_array(seg0_img) > 0).astype(bool, copy=False)
-            seg1_img = _resample_image(
-                sitk.Cast(load_image(rec1.seg_path) > 0, sitk.sitkUInt8),
+            full0 = (image_to_array(full0_img) > 0).astype(bool, copy=False)
+            full1_img = _resample_image(
+                array_to_image(
+                    dilate_mask_xy(
+                        _load_support_mask_array(
+                            mask_paths=rec1.mask_paths,
+                            reference_image_path=rec1.image_path,
+                        ),
+                        params.full_mask_dilation_voxels,
+                    ).astype(np.uint8),
+                    reference=load_image(rec1.image_path),
+                    pixel_id=sitk.sitkUInt8,
+                ),
                 ref_img,
                 t0_to_t1,
                 is_mask=True,
             )
-            seg1 = (image_to_array(seg1_img) > 0).astype(bool, copy=False)
-        else:
-            seg0 = np.zeros_like(dens0, dtype=bool)
-            seg1 = np.zeros_like(dens1, dtype=bool)
+            full1 = (image_to_array(full1_img) > 0).astype(bool, copy=False)
 
-        full0_arr = _load_support_mask_array(
-            mask_paths=rec0.mask_paths,
-            reference_image_path=rec0.image_path,
-        )
-        if params.full_mask_dilation_voxels > 0:
-            full0_arr = dilate_mask_xy(full0_arr, params.full_mask_dilation_voxels)
-        full0_img = _resample_image(
-            array_to_image(
-                full0_arr.astype(np.uint8),
-                reference=load_image(rec0.image_path),
-                pixel_id=sitk.sitkUInt8,
-            ),
-            ref_img,
-            source0_to_t0,
-            is_mask=True,
-        )
-        full0 = (image_to_array(full0_img) > 0).astype(bool, copy=False)
-        full1_img = _resample_image(
-            array_to_image(
-                dilate_mask_xy(
-                    _load_support_mask_array(
-                        mask_paths=rec1.mask_paths,
-                        reference_image_path=rec1.image_path,
-                    ),
-                    params.full_mask_dilation_voxels,
-                ).astype(np.uint8),
-                reference=load_image(rec1.image_path),
-                pixel_id=sitk.sitkUInt8,
-            ),
-            ref_img,
-            t0_to_t1,
-            is_mask=True,
-        )
-        full1 = (image_to_array(full1_img) > 0).astype(bool, copy=False)
+            non_full_roles = [role for role in effective_compartments if role != "full"]
+            comp_masks_t0: dict[str, np.ndarray] = {}
+            comp_masks_t1: dict[str, np.ndarray] = {}
+            for role in non_full_roles:
+                comp0_img = _resample_image(
+                    sitk.Cast(load_image(rec0.mask_paths[role]) > 0, sitk.sitkUInt8),
+                    ref_img,
+                    source0_to_t0,
+                    is_mask=True,
+                )
+                comp_masks_t0[role] = (image_to_array(comp0_img) > 0).astype(bool, copy=False)
+                comp1_img = _resample_image(
+                    sitk.Cast(load_image(rec1.mask_paths[role]) > 0, sitk.sitkUInt8),
+                    ref_img,
+                    t0_to_t1,
+                    is_mask=True,
+                )
+                comp_masks_t1[role] = (image_to_array(comp1_img) > 0).astype(bool, copy=False)
 
-        non_full_roles = [role for role in effective_compartments if role != "full"]
-        comp_masks_t0: dict[str, np.ndarray] = {}
-        comp_masks_t1: dict[str, np.ndarray] = {}
-        for role in non_full_roles:
-            comp0_img = _resample_image(
-                sitk.Cast(load_image(rec0.mask_paths[role]) > 0, sitk.sitkUInt8),
+            if params.full_mask_dilation_voxels > 0 and non_full_roles:
+                comp_masks_t0 = _repartition_compartment_masks_to_support(
+                    {"full": full0, **comp_masks_t0},
+                    full0,
+                )
+                comp_masks_t1 = _repartition_compartment_masks_to_support(
+                    {"full": full1, **comp_masks_t1},
+                    full1,
+                )
+                comp_masks_t0 = {role: comp_masks_t0[role] for role in non_full_roles}
+                comp_masks_t1 = {role: comp_masks_t1[role] for role in non_full_roles}
+
+            support_t0_img = _resample_image(
+                array_to_image(
+                    support_union_baseline.astype(np.uint8),
+                    baseline_ref,
+                    pixel_id=sitk.sitkUInt8,
+                ),
                 ref_img,
-                source0_to_t0,
+                target_from_baseline[t0].GetInverse(),
                 is_mask=True,
             )
-            comp_masks_t0[role] = (image_to_array(comp0_img) > 0).astype(bool, copy=False)
-            comp1_img = _resample_image(
-                sitk.Cast(load_image(rec1.mask_paths[role]) > 0, sitk.sitkUInt8),
-                ref_img,
-                t0_to_t1,
-                is_mask=True,
-            )
-            comp_masks_t1[role] = (image_to_array(comp1_img) > 0).astype(bool, copy=False)
-
-        if params.full_mask_dilation_voxels > 0 and non_full_roles:
-            comp_masks_t0 = _repartition_compartment_masks_to_support(
-                {"full": full0, **comp_masks_t0},
-                full0,
-            )
-            comp_masks_t1 = _repartition_compartment_masks_to_support(
-                {"full": full1, **comp_masks_t1},
-                full1,
-            )
-            comp_masks_t0 = {role: comp_masks_t0[role] for role in non_full_roles}
-            comp_masks_t1 = {role: comp_masks_t1[role] for role in non_full_roles}
-
-        support_t0_img = _resample_image(
-            array_to_image(
-                support_union_baseline.astype(np.uint8),
-                baseline_ref,
-                pixel_id=sitk.sitkUInt8,
-            ),
-            ref_img,
-            target_from_baseline[t0].GetInverse(),
-            is_mask=True,
-        )
-        support_t0 = (image_to_array(support_t0_img) > 0).astype(bool, copy=False)
+            support_t0 = (image_to_array(support_t0_img) > 0).astype(bool, copy=False)
 
         pair_base_cache.append(
             {
@@ -1323,6 +1341,7 @@ def run_analysis(
     visualize: tuple[float, int] | None = None,
     subject_id_filter: str | None = None,
     site_filter: str | None = None,
+    benchmark=None,
 ) -> None:
     """Execute remodelling analysis and persist CSV/metadata outputs."""
     dataset_root = Path(dataset_root)
@@ -1354,19 +1373,34 @@ def run_analysis(
         effective_space = params.space
         try:
             if params.space == "pairwise_fixed_t0":
-                outputs, ref_img = _pairwise_fixed_t0_outputs(
-                    dataset_root=dataset_root,
+                with benchmark.section(
+                    "analysis.compute",
                     subject_id=subject_id,
                     site=site,
-                    params=params,
-                )
+                    space="pairwise_fixed_t0",
+                    method=params.method,
+                ) if benchmark is not None else nullcontext():
+                    outputs, ref_img = _pairwise_fixed_t0_outputs(
+                        dataset_root=dataset_root,
+                        subject_id=subject_id,
+                        site=site,
+                        params=params,
+                        benchmark=benchmark,
+                    )
             elif params.space == "baseline_common":
-                outputs, ref_img = _baseline_common_outputs(
-                    dataset_root=dataset_root,
+                with benchmark.section(
+                    "analysis.compute",
                     subject_id=subject_id,
                     site=site,
-                    params=params,
-                )
+                    space="baseline_common",
+                    method=params.method,
+                ) if benchmark is not None else nullcontext():
+                    outputs, ref_img = _baseline_common_outputs(
+                        dataset_root=dataset_root,
+                        subject_id=subject_id,
+                        site=site,
+                        params=params,
+                    )
             else:
                 raise ValueError(f"Unsupported analysis space: {params.space}")
         except ValueError as exc:
@@ -1378,12 +1412,19 @@ def run_analysis(
                     f"[analysis] sub-{subject_id} site-{site}: pairwise_fixed_t0 unavailable "
                     f"({exc}); falling back to baseline_common"
                 )
-                outputs, ref_img = _baseline_common_outputs(
-                    dataset_root=dataset_root,
+                with benchmark.section(
+                    "analysis.compute",
                     subject_id=subject_id,
                     site=site,
-                    params=params,
-                )
+                    space="baseline_common",
+                    method=params.method,
+                ) if benchmark is not None else nullcontext():
+                    outputs, ref_img = _baseline_common_outputs(
+                        dataset_root=dataset_root,
+                        subject_id=subject_id,
+                        site=site,
+                        params=params,
+                    )
             elif "need at least 2 sessions" in str(exc):
                 print(
                     f"[analysis] Skipping sub-{subject_id} site-{site}: "
@@ -1393,31 +1434,36 @@ def run_analysis(
             else:
                 raise
 
-        for compartment, mask_arr in outputs.common_masks.items():
-            common_img = array_to_image(
-                mask_arr.astype(np.uint8),
-                reference=ref_img,
-                pixel_id=sitk.sitkUInt8,
-            )
-            write_image(
-                common_img,
-                common_region_path(
-                    dataset_root=dataset_root,
-                    subject_id=subject_id,
-                    site=site,
-                    compartment=compartment,
-                ),
-            )
-            if site == "radius":
+        with benchmark.section(
+            "analysis.write_common_regions",
+            subject_id=subject_id,
+            site=site,
+        ) if benchmark is not None else nullcontext():
+            for compartment, mask_arr in outputs.common_masks.items():
+                common_img = array_to_image(
+                    mask_arr.astype(np.uint8),
+                    reference=ref_img,
+                    pixel_id=sitk.sitkUInt8,
+                )
                 write_image(
                     common_img,
                     common_region_path(
                         dataset_root=dataset_root,
                         subject_id=subject_id,
+                        site=site,
                         compartment=compartment,
                     ),
                 )
-            del common_img
+                if site == "radius":
+                    write_image(
+                        common_img,
+                        common_region_path(
+                            dataset_root=dataset_root,
+                            subject_id=subject_id,
+                            compartment=compartment,
+                        ),
+                    )
+                del common_img
 
         label_reference_cache: dict[str, sitk.Image] = {}
         pairwise_reference_stack_index: int | None = None

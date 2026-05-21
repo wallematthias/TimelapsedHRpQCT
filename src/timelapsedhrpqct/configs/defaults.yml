@@ -335,6 +335,10 @@ masks:
     laplace_hamming_threshold: 15564
     # Remove LH components smaller than this voxel count; reasonable range: 0-10000.
     laplace_hamming_min_size_voxels: 70
+    # Compute backend for LH FFT filtering.
+    # Options: cpu | auto | torch_mps.
+    # cpu is reproducible and dependency-free. auto tries Apple Metal/PyTorch MPS when available and falls back to CPU.
+    laplace_hamming_backend: cpu
 
 # -----------------------------------------------------------------------------
 # Within-Stack Longitudinal Registration

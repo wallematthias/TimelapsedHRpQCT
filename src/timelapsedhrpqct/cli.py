@@ -46,6 +46,7 @@ from timelapsedhrpqct.dataset.layout import (
     get_sourcedata_session_dir,
 )
 from timelapsedhrpqct.processing.stacks import compute_stack_ranges
+from timelapsedhrpqct.utils.benchmark import benchmark_from_args
 
 def _resolve_default_config_path() -> Path:
     """Resolve default config path."""
@@ -92,6 +93,18 @@ def _add_profile_argument(parser: argparse.ArgumentParser) -> None:
         help=(
             "Optional built-in config profile. Values from --config override "
             "the selected profile."
+        ),
+    )
+
+
+def _add_benchmark_argument(parser: argparse.ArgumentParser) -> None:
+    """Add a lightweight timing output switch."""
+    parser.add_argument(
+        "--benchmark",
+        action="store_true",
+        help=(
+            "Record wall-clock timing sections and write JSON/CSV summaries "
+            "under derivatives/TimelapsedHRpQCT/_artifacts."
         ),
     )
 
@@ -250,6 +263,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     _add_config_argument(gm_parser)
     _add_profile_argument(gm_parser)
+    _add_benchmark_argument(gm_parser)
 
     # ------------------------------------------------------------------
     # register
@@ -268,6 +282,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     _add_config_argument(tl_parser)
     _add_profile_argument(tl_parser)
+    _add_benchmark_argument(tl_parser)
 
     # ------------------------------------------------------------------
     # stackcorrect
@@ -286,6 +301,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     _add_config_argument(sc_parser)
     _add_profile_argument(sc_parser)
+    _add_benchmark_argument(sc_parser)
 
     # ------------------------------------------------------------------
     # transform
@@ -304,6 +320,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     _add_config_argument(at_parser)
     _add_profile_argument(at_parser)
+    _add_benchmark_argument(at_parser)
 
     # ------------------------------------------------------------------
     # fill
@@ -319,6 +336,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     _add_config_argument(fill_parser)
     _add_profile_argument(fill_parser)
+    _add_benchmark_argument(fill_parser)
 
     # ------------------------------------------------------------------
     # analyse
@@ -334,6 +352,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     _add_config_argument(analyse_parser)
     _add_profile_argument(analyse_parser)
+    _add_benchmark_argument(analyse_parser)
     analyse_parser.add_argument(
         "--subject",
         type=str,
@@ -401,6 +420,7 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     _add_config_argument(run_parser)
     _add_profile_argument(run_parser)
+    _add_benchmark_argument(run_parser)
     run_parser.add_argument(
         "--mode",
         choices=("regular", "multistack"),
@@ -1248,14 +1268,20 @@ def _cmd_generate_masks(args: argparse.Namespace) -> int:
 
     config = _load_config_for_args(args)
     dataset_root: Path = args.dataset_root
+    benchmark = benchmark_from_args(args, command="generate-masks", dataset_root=dataset_root)
 
     if not dataset_root.exists():
         raise FileNotFoundError(f"Dataset root does not exist: {dataset_root}")
 
-    run_mask_generation(
-        dataset_root=dataset_root,
-        config=config,
-    )
+    try:
+        with benchmark.section("command", dataset_root=str(dataset_root)):
+            run_mask_generation(
+                dataset_root=dataset_root,
+                config=config,
+                benchmark=benchmark,
+            )
+    finally:
+        benchmark.write()
     return 0
 
 
@@ -1267,14 +1293,19 @@ def _cmd_timelapse_register(args: argparse.Namespace) -> int:
 
     config = _load_config_for_args(args)
     dataset_root: Path = args.dataset_root
+    benchmark = benchmark_from_args(args, command="register", dataset_root=dataset_root)
 
     if not dataset_root.exists():
         raise FileNotFoundError(f"Dataset root does not exist: {dataset_root}")
 
-    run_timelapse_registration(
-        dataset_root=dataset_root,
-        config=config,
-    )
+    try:
+        with benchmark.section("command", dataset_root=str(dataset_root)):
+            run_timelapse_registration(
+                dataset_root=dataset_root,
+                config=config,
+            )
+    finally:
+        benchmark.write()
     return 0
 
 
@@ -1286,14 +1317,19 @@ def _cmd_stack_correct(args: argparse.Namespace) -> int:
 
     config = _load_config_for_args(args)
     dataset_root: Path = args.dataset_root
+    benchmark = benchmark_from_args(args, command="stackcorrect", dataset_root=dataset_root)
 
     if not dataset_root.exists():
         raise FileNotFoundError(f"Dataset root does not exist: {dataset_root}")
 
-    run_stack_correction(
-        dataset_root=dataset_root,
-        config=config,
-    )
+    try:
+        with benchmark.section("command", dataset_root=str(dataset_root)):
+            run_stack_correction(
+                dataset_root=dataset_root,
+                config=config,
+            )
+    finally:
+        benchmark.write()
     return 0
 
 
@@ -1303,14 +1339,19 @@ def _cmd_apply_transforms(args: argparse.Namespace) -> int:
 
     config = _load_config_for_args(args)
     dataset_root: Path = args.dataset_root
+    benchmark = benchmark_from_args(args, command="transform", dataset_root=dataset_root)
 
     if not dataset_root.exists():
         raise FileNotFoundError(f"Dataset root does not exist: {dataset_root}")
 
-    run_apply_transforms(
-        dataset_root=dataset_root,
-        config=config,
-    )
+    try:
+        with benchmark.section("command", dataset_root=str(dataset_root)):
+            run_apply_transforms(
+                dataset_root=dataset_root,
+                config=config,
+            )
+    finally:
+        benchmark.write()
     return 0
 
 
@@ -1320,14 +1361,19 @@ def _cmd_fill(args: argparse.Namespace) -> int:
 
     config = _load_config_for_args(args)
     dataset_root: Path = args.dataset_root
+    benchmark = benchmark_from_args(args, command="fill", dataset_root=dataset_root)
 
     if not dataset_root.exists():
         raise FileNotFoundError(f"Dataset root does not exist: {dataset_root}")
 
-    run_filling(
-        dataset_root=dataset_root,
-        config=config,
-    )
+    try:
+        with benchmark.section("command", dataset_root=str(dataset_root)):
+            run_filling(
+                dataset_root=dataset_root,
+                config=config,
+            )
+    finally:
+        benchmark.write()
     return 0
 
 
@@ -1337,6 +1383,7 @@ def _cmd_analyse(args: argparse.Namespace) -> int:
 
     config = _load_config_for_args(args)
     dataset_root: Path = args.dataset_root
+    benchmark = benchmark_from_args(args, command="analyse", dataset_root=dataset_root)
 
     if not dataset_root.exists():
         raise FileNotFoundError(f"Dataset root does not exist: {dataset_root}")
@@ -1345,15 +1392,20 @@ def _cmd_analyse(args: argparse.Namespace) -> int:
     if args.visualize is not None:
         visualize_pair = (float(args.visualize[0]), int(args.visualize[1]))
 
-    run_analysis(
-        dataset_root=dataset_root,
-        config=config,
-        thresholds=args.thr,
-        clusters=args.clusters,
-        visualize=visualize_pair,
-        subject_id_filter=args.subject,
-        site_filter=args.site,
-    )
+    try:
+        with benchmark.section("command", dataset_root=str(dataset_root)):
+            run_analysis(
+                dataset_root=dataset_root,
+                config=config,
+                thresholds=args.thr,
+                clusters=args.clusters,
+                visualize=visualize_pair,
+                subject_id_filter=args.subject,
+                site_filter=args.site,
+                benchmark=benchmark,
+            )
+    finally:
+        benchmark.write()
     return 0
 
 
@@ -1598,6 +1650,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
     output_root: Path = (args.output_root or _default_output_root(input_root)).resolve()
     config = _load_config_for_args(args)
     profile = _config_profile(args)
+    benchmark = benchmark_from_args(args, command="run", dataset_root=output_root)
 
     _print_citation_notice()
 
@@ -1622,8 +1675,10 @@ def _cmd_run(args: argparse.Namespace) -> int:
         restructure_raw=bool(getattr(args, "restructure_raw", False)),
         force_header_discovery=bool(getattr(args, "force_header_discovery", False)),
     )
-    rc = _cmd_import(import_args)
+    with benchmark.section("stage.import", dataset_root=str(output_root)):
+        rc = _cmd_import(import_args)
     if rc != 0 or args.dry_run:
+        benchmark.write()
         return rc
 
     dataset_root = output_root
@@ -1636,9 +1691,12 @@ def _cmd_run(args: argparse.Namespace) -> int:
             dataset_root=dataset_root,
             config=args.config,
             profile=profile,
+            benchmark=bool(getattr(args, "benchmark", False)),
         )
-        rc = _cmd_generate_masks(gm_args)
+        with benchmark.section("stage.generate_masks", dataset_root=str(dataset_root)):
+            rc = _cmd_generate_masks(gm_args)
         if rc != 0:
+            benchmark.write()
             return rc
     else:
         print("[timelapse] generate-masks: all imported stacks already complete -> skip")
@@ -1649,9 +1707,12 @@ def _cmd_run(args: argparse.Namespace) -> int:
             dataset_root=dataset_root,
             config=args.config,
             profile=profile,
+            benchmark=bool(getattr(args, "benchmark", False)),
         )
-        rc = _cmd_timelapse_register(tl_args)
+        with benchmark.section("stage.register", dataset_root=str(dataset_root)):
+            rc = _cmd_timelapse_register(tl_args)
         if rc != 0:
+            benchmark.write()
             return rc
     else:
         print("[timelapse] register: baseline transforms already exist -> skip")
@@ -1663,9 +1724,12 @@ def _cmd_run(args: argparse.Namespace) -> int:
                 dataset_root=dataset_root,
                 config=args.config,
                 profile=profile,
+                benchmark=bool(getattr(args, "benchmark", False)),
             )
-            rc = _cmd_stack_correct(sc_args)
+            with benchmark.section("stage.stackcorrect", dataset_root=str(dataset_root)):
+                rc = _cmd_stack_correct(sc_args)
             if rc != 0:
+                benchmark.write()
                 return rc
         else:
             print("[timelapse] stackcorrect: final transforms already exist -> skip")
@@ -1678,9 +1742,12 @@ def _cmd_run(args: argparse.Namespace) -> int:
             dataset_root=dataset_root,
             config=args.config,
             profile=profile,
+            benchmark=bool(getattr(args, "benchmark", False)),
         )
-        rc = _cmd_apply_transforms(at_args)
+        with benchmark.section("stage.transform", dataset_root=str(dataset_root)):
+            rc = _cmd_apply_transforms(at_args)
         if rc != 0:
+            benchmark.write()
             return rc
     else:
         print("[timelapse] transform: fused transformed sessions already exist -> skip")
@@ -1693,9 +1760,12 @@ def _cmd_run(args: argparse.Namespace) -> int:
                     dataset_root=dataset_root,
                     config=args.config,
                     profile=profile,
+                    benchmark=bool(getattr(args, "benchmark", False)),
                 )
-                rc = _cmd_fill(fill_args)
+                with benchmark.section("stage.fill", dataset_root=str(dataset_root)):
+                    rc = _cmd_fill(fill_args)
                 if rc != 0:
+                    benchmark.write()
                     return rc
             else:
                 print("[timelapse] fill: filled sessions already exist -> skip")
@@ -1719,13 +1789,17 @@ def _cmd_run(args: argparse.Namespace) -> int:
             visualize=args.visualize,
             subject=getattr(args, "subject", None),
             site=getattr(args, "site", None),
+            benchmark=bool(getattr(args, "benchmark", False)),
         )
-        rc = _cmd_analyse(analyse_args)
+        with benchmark.section("stage.analyse", dataset_root=str(dataset_root)):
+            rc = _cmd_analyse(analyse_args)
         if rc != 0:
+            benchmark.write()
             return rc
     else:
         print("[timelapse] analyse: analysis outputs already exist -> skip")
 
+    benchmark.write()
     return 0
 
 

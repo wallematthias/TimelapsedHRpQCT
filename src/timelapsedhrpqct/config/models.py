@@ -113,6 +113,7 @@ class MaskSegmentationConfig:
     laplace_hamming_ipl_float_max: float = 200000.0
     laplace_hamming_int16_max: float = 32768.0
     laplace_hamming_min_size_voxels: int = 70
+    laplace_hamming_backend: str = "cpu"  # "cpu" | "auto" | "torch_mps"
 
 
 @dataclass(slots=True)

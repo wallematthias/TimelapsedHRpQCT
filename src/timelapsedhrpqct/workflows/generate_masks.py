@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+from contextlib import nullcontext
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -409,7 +410,7 @@ def _upsert_generated_outputs(
     )
 
 
-def run_mask_generation(dataset_root: str | Path, config: AppConfig) -> None:
+def run_mask_generation(dataset_root: str | Path, config: AppConfig, benchmark=None) -> None:
     """
     Generate missing stack-level masks and/or seg after import, before
     registration/transforms.
@@ -526,16 +527,24 @@ def run_mask_generation(dataset_root: str | Path, config: AppConfig) -> None:
             if need_generate_seg:
                 if seg_method == "laplace_hamming":
                     print("[timelapse]   regenerating segmentation from native Scanco AIM values")
-                    seg, segmentation_source_meta = _generate_segmentation_image(
-                        item=item,
-                        metadata=meta,
-                        reference_image=image,
-                        full_mask=result.full,
-                        trab_mask=result.trab,
-                        cort_mask=result.cort,
-                        params=params,
-                        verbose=verbose_masks,
-                    )
+                    with benchmark.section(
+                        "generate_masks.segmentation",
+                        subject_id=item.subject_id,
+                        site=item.site,
+                        session_id=item.session_id,
+                        stack_index=item.stack_index,
+                        method=seg_method,
+                    ) if benchmark is not None else nullcontext():
+                        seg, segmentation_source_meta = _generate_segmentation_image(
+                            item=item,
+                            metadata=meta,
+                            reference_image=image,
+                            full_mask=result.full,
+                            trab_mask=result.trab,
+                            cort_mask=result.cort,
+                            params=params,
+                            verbose=verbose_masks,
+                        )
                     result.seg = seg
                     result.metadata.setdefault("voxel_counts", {})["seg"] = int(
                         sitk.GetArrayViewFromImage(result.seg).sum()
@@ -577,16 +586,24 @@ def run_mask_generation(dataset_root: str | Path, config: AppConfig) -> None:
             cort_mask = sitk.ReadImage(str(paths["cort"]))
 
             print("[timelapse]   generating segmentation from existing masks")
-            seg, segmentation_source_meta = _generate_segmentation_image(
-                item=item,
-                metadata=meta,
-                reference_image=image,
-                full_mask=full_mask,
-                trab_mask=trab_mask,
-                cort_mask=cort_mask,
-                params=params,
-                verbose=verbose_masks,
-            )
+            with benchmark.section(
+                "generate_masks.segmentation",
+                subject_id=item.subject_id,
+                site=item.site,
+                session_id=item.session_id,
+                stack_index=item.stack_index,
+                method=seg_method,
+            ) if benchmark is not None else nullcontext():
+                seg, segmentation_source_meta = _generate_segmentation_image(
+                    item=item,
+                    metadata=meta,
+                    reference_image=image,
+                    full_mask=full_mask,
+                    trab_mask=trab_mask,
+                    cort_mask=cort_mask,
+                    params=params,
+                    verbose=verbose_masks,
+                )
 
             print("[timelapse]   writing segmentation")
             sitk.WriteImage(seg, str(paths["seg"]))

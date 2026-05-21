@@ -152,6 +152,7 @@ def test_parser_accepts_professional_cli_commands() -> None:
     inspect_args = parser.parse_args(["inspect", "/tmp/dataset"])
     list_args = parser.parse_args(["config", "list"])
     show_args = parser.parse_args(["config", "show", "multistack"])
+    benchmark_args = parser.parse_args(["analyse", "/tmp/dataset", "--benchmark"])
     write_args = parser.parse_args(
         ["config", "write", "--profile", "standard", "--output", "/tmp/config.yml"]
     )
@@ -166,6 +167,7 @@ def test_parser_accepts_professional_cli_commands() -> None:
     assert list_args.command == "config"
     assert list_args.config_command == "list"
     assert show_args.profile == "multistack"
+    assert benchmark_args.benchmark is True
     assert write_args.output == Path("/tmp/config.yml")
     assert explain_args.config == Path("/tmp/user.yml")
 
