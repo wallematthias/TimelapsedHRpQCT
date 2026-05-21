@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "timelapsed-hrpqct"
-version = "2.0.18"
+version = "2.0.19"
 description = "Longitudinal HR-pQCT timelapse analysis workflow with multistack support"
 readme = "README.md"
 requires-python = ">=3.11,<3.14"
@@ -12,13 +12,14 @@ authors = [{name = "Matthias Walle"}]
 license = "MIT"
 dependencies = [
   "aimio-py; python_version < '3.14'",
-  "numpy",
+  "numpy>=1.26,<2.0",
   "pandas",
   "itk-elastix",
   "PyYAML",
-  "scikit-image",
+  "scikit-image>=0.24,<0.26",
   "scipy",
   "SimpleITK",
+  "tifffile<2026",
 ]
 
 [project.optional-dependencies]
