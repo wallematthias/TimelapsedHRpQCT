@@ -279,7 +279,7 @@ def test_laplace_hamming_segmentation_uses_scanco_hu_int16_values(
 
     assert captured["read_laplace_hamming_aim"] == source_aim
     assert captured["seg_input_value"] == 1234
-    assert source_meta["segmentation_input_unit"] == "scanco_hu_int16"
-    assert source_meta["segmentation_input_reader"] == "py_aimio_hu_truncated_to_int16"
+    assert source_meta["segmentation_input_unit"] == "scanco_native_int16"
+    assert source_meta["segmentation_input_reader"] == "py_aimio_native_int16"
     assert seg.GetSize() == reference.GetSize()
     assert seg.GetSpacing() == reference.GetSpacing()

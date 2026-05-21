@@ -171,17 +171,17 @@ def _metadata_raw_image_path(metadata: dict) -> Path:
 
 def _read_laplace_hamming_aim(path: Path) -> sitk.Image:
     """
-    Read AIM voxels using the same Scanco HU convention as the LH reference.
+    Read AIM voxels using the same Scanco native-count convention as the LH reference.
 
-    The reference ScancoImageIO path exposes signed-short HU values. py_aimio's
-    native counts are affine-related but are not on that scale; applying the AIM
-    HU calibration and truncating to int16 reproduces that array convention
-    without depending on itk-ioscanco at runtime.
+    The UCSF/Kazakia Laplace-Hamming reference operates on the signed-short
+    Scanco data values stored in the AIM, then applies its own IPL-style offset
+    and scaling before thresholding. Do not convert to HU/BMD here; doing so
+    changes the threshold convention.
     """
-    hu_image, _meta = read_aim(path, scaling="hu")
-    arr_zyx = sitk.GetArrayFromImage(hu_image).astype(np.int16, copy=False)
+    native_image, _meta = read_aim(path, scaling="native")
+    arr_zyx = sitk.GetArrayFromImage(native_image).astype(np.int16, copy=False)
     image = sitk.GetImageFromArray(arr_zyx)
-    image.CopyInformation(hu_image)
+    image.CopyInformation(native_image)
     return image
 
 
@@ -261,10 +261,10 @@ def _generate_segmentation_image(
             reference_image=reference_image,
         )
         source_meta = {
-            "segmentation_input_unit": "scanco_hu_int16",
-            "segmentation_input_reader": "py_aimio_hu_truncated_to_int16",
+            "segmentation_input_unit": "scanco_native_int16",
+            "segmentation_input_reader": "py_aimio_native_int16",
             "segmentation_input_path": str(_metadata_raw_image_path(metadata)),
-            "segmentation_input_reason": "Laplace-Hamming threshold is calibrated for Scanco signed-short HU AIM values.",
+            "segmentation_input_reason": "Laplace-Hamming threshold is calibrated for native Scanco signed-short AIM values.",
         }
 
     seg = generate_seg_from_existing_masks(
@@ -525,7 +525,7 @@ def run_mask_generation(dataset_root: str | Path, config: AppConfig) -> None:
 
             if need_generate_seg:
                 if seg_method == "laplace_hamming":
-                    print("[timelapse]   regenerating segmentation from Scanco HU AIM values")
+                    print("[timelapse]   regenerating segmentation from native Scanco AIM values")
                     seg, segmentation_source_meta = _generate_segmentation_image(
                         item=item,
                         metadata=meta,
