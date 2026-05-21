@@ -7,7 +7,6 @@ from itertools import combinations
 import numpy as np
 from scipy.ndimage import binary_dilation, binary_erosion, distance_transform_edt, label
 from skimage.filters import gaussian
-from skimage.morphology import remove_small_objects
 
 
 @dataclass(slots=True)
@@ -249,7 +248,13 @@ def remove_small(binary: np.ndarray, min_size: int) -> np.ndarray:
     min_size = int(min_size)
     if min_size <= 1 or not np.any(binary):
         return binary
-    return remove_small_objects(binary, max_size=min_size - 1)
+    lbl, n = label(binary)
+    if n == 0:
+        return np.asarray(binary, dtype=bool)
+    counts = np.bincount(lbl.ravel())
+    keep = counts >= min_size
+    keep[0] = False
+    return keep[lbl]
 
 
 def maybe_smooth_density(
