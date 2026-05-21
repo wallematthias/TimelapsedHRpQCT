@@ -16,10 +16,10 @@ import SimpleITK as sitk
 from timelapsedhrpqct.analysis.remodelling import (
     AnalysisParams,
     RemodellingOutputs,
+    _classify_pair_remodelling,
     build_label_image,
     build_pair_valid_mask,
     compute_pair_trajectory_summary,
-    compute_pair_remodelling_preview,
     component_stats,
     compute_remodelling_outputs,
     dilate_mask_xy,
@@ -1127,6 +1127,17 @@ def _pairwise_fixed_t0_outputs(
             seg1 = base["seg1"]
             support_t0 = base["support_t0"]
             delta = base["delta"]
+            seg0_for_analysis = seg0 if np.any(seg0) else None
+            seg1_for_analysis = seg1 if np.any(seg1) else None
+            valid = build_pair_valid_mask(
+                method=params.method,
+                valid_mask=common_t0,
+                seg_arr_t0=seg0_for_analysis,
+                seg_arr_t1=seg1_for_analysis,
+                support_mask_t0=full0,
+                support_mask_t1=full1,
+                marrow_mask_erosion_voxels=params.marrow_mask_erosion_voxels,
+            )
 
             for thr in params.remodeling_thresholds:
                 thr = float(thr)
@@ -1139,38 +1150,32 @@ def _pairwise_fixed_t0_outputs(
                         f"t0-{t0} -> t1-{t1} (space=pairwise_fixed_t0)"
                     )
 
-                    preview = compute_pair_remodelling_preview(
-                        image_arr_t0=dens0,
-                        image_arr_t1=dens1,
-                        seg_arr_t0=seg0 if np.any(seg0) else None,
-                        seg_arr_t1=seg1 if np.any(seg1) else None,
-                        valid_mask=common_t0,
+                    classified = _classify_pair_remodelling(
+                        delta=delta,
+                        valid=valid,
                         threshold=thr,
                         cluster_size=cluster_size,
                         method=params.method,
-                        gaussian_filter=False,
-                        gaussian_sigma=params.gaussian_sigma,
-                        label_map=params.visualize_label_map,
-                        support_mask_t0=full0,
-                        support_mask_t1=full1,
+                        seg_arr_t0=seg0_for_analysis,
+                        seg_arr_t1=seg1_for_analysis,
+                        marrow_mask=None,
                         marrow_mask_erosion_voxels=params.marrow_mask_erosion_voxels,
                     )
-                    valid = preview.valid_mask
-                    formation = preview.formation
-                    resorption = preview.resorption
-                    mineralisation = preview.mineralisation
-                    demineralisation = preview.demineralisation
-                    quiescent = preview.quiescent
-                    b0 = (seg0 & valid) if np.any(seg0) else valid
-                    b1 = (seg1 & valid) if np.any(seg1) else valid
-                    bv0 = preview.bv0_vox
-                    bv1 = preview.bv1_vox
+                    formation = classified["formation"]
+                    resorption = classified["resorption"]
+                    mineralisation = classified["mineralisation"]
+                    demineralisation = classified["demineralisation"]
+                    quiescent = classified["quiescent"]
+                    b0 = classified["b0"]
+                    b1 = classified["b1"]
+                    bv0 = int(classified["bv0_vox"])
+                    bv1 = int(classified["bv1_vox"])
                     tv_valid = int(np.count_nonzero(valid))
                     real_overlap = int(np.count_nonzero(full0 & full1 & comp0 & comp1 & valid))
                     union_real = int(np.count_nonzero(((full0 & comp0) | (full1 & comp1)) & valid))
 
-                    formation_vox = preview.formation_vox
-                    resorption_vox = preview.resorption_vox
+                    formation_vox = int(classified["formation_vox"])
+                    resorption_vox = int(classified["resorption_vox"])
                     mineralisation_vox = int(np.count_nonzero(mineralisation))
                     demineralisation_vox = int(np.count_nonzero(demineralisation))
                     quiescent_vox = int(np.count_nonzero(quiescent))
@@ -1266,8 +1271,24 @@ def _pairwise_fixed_t0_outputs(
                         and math.isclose(thr, params.visualize_threshold)
                         and cluster_size == params.visualize_cluster_size
                     ):
+                        label_map = params.visualize_label_map
+                        effective_label_map = label_map or {
+                            "resorption": 1,
+                            "demineralisation": 2,
+                            "quiescent": 3,
+                            "formation": 4,
+                            "mineralisation": 5,
+                        }
                         outputs.label_images[(compartment, t0, t1, thr, cluster_size)] = (
-                            preview.label_image.astype(np.uint8, copy=False)
+                            build_label_image(
+                                valid,
+                                quiescent,
+                                resorption,
+                                demineralisation,
+                                formation,
+                                mineralisation,
+                                effective_label_map,
+                            ).astype(np.uint8, copy=False)
                         )
 
             del comp0, comp1, common_t0
