@@ -315,7 +315,7 @@ masks:
     # Overall frequency-domain amplification; keep 1.0 unless validating against a scanner-specific reference.
     # Reasonable range: 0.1-5.0.
     laplace_hamming_amplification: 1.0
-    # Offset added before filtering to match the reference signed-short HU convention.
+    # Offset added before filtering to match the reference Scanco signed-short HU convention.
     # Reasonable range: 0-32768.
     laplace_hamming_input_offset: 32768.0
     # IPL linear scaling slope applied after filtering; scanner/reference-specific.

@@ -172,17 +172,18 @@ def _metadata_raw_image_path(metadata: dict) -> Path:
 
 def _read_laplace_hamming_aim(path: Path) -> sitk.Image:
     """
-    Read AIM voxels using the same Scanco native-count convention as the LH reference.
+    Read AIM voxels using the same Scanco HU signed-short convention as the LH reference.
 
-    The UCSF/Kazakia Laplace-Hamming reference operates on the signed-short
-    Scanco data values stored in the AIM, then applies its own IPL-style offset
-    and scaling before thresholding. Do not convert to HU/BMD here; doing so
-    changes the threshold convention.
+    For calibrated XtremeCT II AIM files this is HU-like signed-short data,
+    not the larger raw native attenuation counts returned by py_aimio. The
+    reference then adds 32768 and applies its own IPL-style scaling before
+    thresholding. Do not feed BMD or raw native counts here; both change the
+    threshold convention.
     """
-    native_image, _meta = read_aim(path, scaling="native")
-    arr_zyx = sitk.GetArrayFromImage(native_image).astype(np.int16, copy=False)
+    hu_image, _meta = read_aim(path, scaling="hu")
+    arr_zyx = np.rint(sitk.GetArrayFromImage(hu_image)).astype(np.int16, copy=False)
     image = sitk.GetImageFromArray(arr_zyx)
-    image.CopyInformation(native_image)
+    image.CopyInformation(hu_image)
     return image
 
 
@@ -204,11 +205,11 @@ def _laplace_hamming_stack_image(
     reference_image: sitk.Image,
 ) -> sitk.Image:
     """
-    Reconstruct the imported stack in Scanco-convention signed-short HU for LH.
+    Reconstruct the imported stack in Scanco signed-short HU for LH.
 
     Imported `_image` artifacts intentionally store calibrated BMD/density
-    values for registration and remodeling. The Sadoughi/Kazakia LH threshold
-    is calibrated for Scanco signed-short HU values plus the reference IPL
+    values for registration and remodeling. The Sadoughi/Kazakia LH reference
+    threshold is calibrated for signed-short HU values plus the reference IPL
     mapping, so the segmentation image must be re-read from the raw AIM on that
     scale and then cropped/sliced exactly like the imported stack.
     """
@@ -262,10 +263,10 @@ def _generate_segmentation_image(
             reference_image=reference_image,
         )
         source_meta = {
-            "segmentation_input_unit": "scanco_native_int16",
-            "segmentation_input_reader": "py_aimio_native_int16",
+            "segmentation_input_unit": "scanco_hu_int16",
+            "segmentation_input_reader": "py_aimio_hu_int16",
             "segmentation_input_path": str(_metadata_raw_image_path(metadata)),
-            "segmentation_input_reason": "Laplace-Hamming threshold is calibrated for native Scanco signed-short AIM values.",
+            "segmentation_input_reason": "Laplace-Hamming threshold is calibrated for Scanco signed-short HU AIM values.",
         }
 
     seg = generate_seg_from_existing_masks(
