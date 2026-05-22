@@ -17,6 +17,7 @@ from timelapsedhrpqct.analysis.remodelling import (
     compute_pair_trajectory_summary,
     dilate_mask_xy,
     maybe_smooth_density,
+    maybe_smooth_density_with_domain,
     pair_indices,
     remove_small,
     safe_corr,
@@ -348,6 +349,23 @@ def test_compute_pair_remodelling_preview_respects_cluster_filter_and_smoothing(
     assert np.count_nonzero(filtered.formation) == 0
     assert np.max(smoothed.delta) < np.max(raw.delta)
     assert np.allclose(raw.delta, maybe_smooth_density(followup_img, gaussian_filter=False, gaussian_sigma=1.2))
+
+def test_domain_normalized_smoothing_preserves_constant_source_values_and_marks_core():
+    image = np.full((21, 21, 21), 100.0, dtype=np.float32)
+    domain = np.zeros_like(image, dtype=bool)
+    domain[5:16, 5:16, 5:16] = True
+
+    smoothed, core = maybe_smooth_density_with_domain(
+        image,
+        domain,
+        gaussian_filter=True,
+        gaussian_sigma=1.2,
+    )
+
+    assert np.allclose(smoothed[domain], 100.0)
+    assert bool(core[10, 10, 10])
+    assert not bool(core[5, 5, 5])
+    assert not bool(core[0, 0, 0])
 
 
 def test_compute_pair_remodelling_preview_delta_only_uses_seg_overlap_for_quiescence():

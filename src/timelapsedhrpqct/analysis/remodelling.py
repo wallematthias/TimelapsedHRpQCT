@@ -5,7 +5,13 @@ from dataclasses import dataclass, field
 from itertools import combinations
 
 import numpy as np
-from scipy.ndimage import binary_dilation, binary_erosion, distance_transform_edt, label
+from scipy.ndimage import (
+    binary_dilation,
+    binary_erosion,
+    distance_transform_edt,
+    gaussian_filter as ndi_gaussian_filter,
+    label,
+)
 from skimage.filters import gaussian
 from skimage.morphology import remove_small_objects
 
@@ -268,6 +274,52 @@ def maybe_smooth_density(
         sigma=float(gaussian_sigma),
         preserve_range=True,
     ).astype(np.float32, copy=False)
+
+
+def maybe_smooth_density_with_domain(
+    image_arr: np.ndarray,
+    domain_mask: np.ndarray,
+    *,
+    gaussian_filter: bool,
+    gaussian_sigma: float,
+    core_threshold: float = 0.999,
+) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Optionally smooth density without leaking out-of-domain background values.
+
+    Resampled follow-up images can contain zero-valued background outside the
+    transformed source field. A plain Gaussian sees those zeros and can pull
+    adjacent edge voxels down, creating artificial negative deltas. Normalized
+    smoothing divides by the smoothed source domain so only real source voxels
+    contribute. The returned core mask marks voxels whose smoothing support is
+    effectively fully inside the source domain.
+    """
+    image = image_arr.astype(np.float32, copy=False)
+    domain = np.asarray(domain_mask, dtype=bool)
+    if not gaussian_filter:
+        return image, domain
+
+    sigma = float(gaussian_sigma)
+    if sigma <= 0:
+        return image, domain
+
+    weights = domain.astype(np.float32, copy=False)
+    numerator = ndi_gaussian_filter(
+        image * weights,
+        sigma=sigma,
+        mode="constant",
+        cval=0.0,
+    )
+    denominator = ndi_gaussian_filter(
+        weights,
+        sigma=sigma,
+        mode="constant",
+        cval=0.0,
+    )
+    out = np.zeros_like(numerator, dtype=np.float32)
+    np.divide(numerator, denominator, out=out, where=denominator > 1e-6)
+    core = denominator >= float(core_threshold)
+    return out, core
 
 
 def build_pair_valid_mask(
