@@ -5,9 +5,16 @@ import SimpleITK as sitk
 
 def _interpolator(name: str) -> int:
     """Helper for interpolator."""
-    if name == "nearest":
+    normalized = str(name).strip().lower()
+    if normalized == "nearest":
         return sitk.sitkNearestNeighbor
-    return sitk.sitkLinear
+    if normalized == "linear":
+        return sitk.sitkLinear
+    if normalized == "bspline":
+        return sitk.sitkBSpline
+    if normalized in {"hamming_windowed_sinc", "hamming-windowed-sinc"}:
+        return sitk.sitkHammingWindowedSinc
+    raise ValueError(f"Unsupported interpolator: {name}")
 
 
 def apply_transform(

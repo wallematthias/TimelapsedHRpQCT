@@ -40,6 +40,17 @@ def test_apply_transform_identity_and_interpolator_paths() -> None:
 
     out_linear = apply_transform(img, ref, t, interpolator="linear")
     out_nearest = apply_transform(img, ref, t, interpolator="nearest")
+    out_bspline = apply_transform(img, ref, t, interpolator="bspline")
 
     np.testing.assert_allclose(sitk.GetArrayFromImage(out_linear), 7.0)
     np.testing.assert_allclose(sitk.GetArrayFromImage(out_nearest), 7.0)
+    np.testing.assert_allclose(sitk.GetArrayFromImage(out_bspline), 7.0)
+
+
+def test_apply_transform_rejects_unknown_interpolator() -> None:
+    img = _img(7.0)
+    ref = _img(0.0)
+    t = sitk.Transform(3, sitk.sitkIdentity)
+
+    with pytest.raises(ValueError, match="Unsupported interpolator"):
+        apply_transform(img, ref, t, interpolator="mystery")

@@ -21,6 +21,8 @@ class AnalysisParams:
     use_filled_images: bool
     gaussian_filter: bool
     gaussian_sigma: float
+    image_interpolator: str
+    prefer_direct_pairwise_transforms: bool
     full_mask_dilation_voxels: int
     change_region_source: str
     binary_reclassification_enabled: bool

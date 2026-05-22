@@ -31,6 +31,7 @@ from timelapsedhrpqct.processing.fused_outputs import (
     build_fused_session_metadata,
     build_fused_session_record,
 )
+from timelapsedhrpqct.processing.transform_apply import _interpolator
 from timelapsedhrpqct.utils.sitk_helpers import load_image, write_image, write_json
 
 
@@ -215,12 +216,7 @@ def _resample_once(
 ) -> sitk.Image:
     """Helper for resample once."""
     interp_name = mask_interpolator if is_mask else image_interpolator
-    if interp_name == "nearest":
-        interpolator = sitk.sitkNearestNeighbor
-    elif interp_name == "linear":
-        interpolator = sitk.sitkLinear
-    else:
-        raise ValueError(f"Unsupported transform interpolator: {interp_name}")
+    interpolator = _interpolator(interp_name)
     output_pixel_type = sitk.sitkUInt8 if is_mask else sitk.sitkFloat32
 
     out = sitk.Resample(

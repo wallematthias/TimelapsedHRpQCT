@@ -51,6 +51,7 @@ from timelapsedhrpqct.dataset.derivative_paths import (
     timelapse_baseline_transform_path,
     trajectory_metrics_csv_path,
 )
+from timelapsedhrpqct.dataset.transform_registry import find_external_pairwise_transform
 from timelapsedhrpqct.processing.analysis_io import (
     build_analysis_summary_metadata,
     discover_analysis_sessions,
@@ -58,6 +59,7 @@ from timelapsedhrpqct.processing.analysis_io import (
 )
 from timelapsedhrpqct.io.metadata import parse_processing_log
 from timelapsedhrpqct.processing.transform_chain import compose_transforms
+from timelapsedhrpqct.processing.transform_apply import _interpolator
 from timelapsedhrpqct.utils.sitk_helpers import (
     array_to_image,
     load_image,
@@ -79,9 +81,10 @@ def _resample_image(
     transform: sitk.Transform,
     *,
     is_mask: bool,
+    image_interpolator: str = "linear",
 ) -> sitk.Image:
     """Resample an image into `reference` space with mask-aware interpolation."""
-    interpolator = sitk.sitkNearestNeighbor if is_mask else sitk.sitkLinear
+    interpolator = sitk.sitkNearestNeighbor if is_mask else _interpolator(image_interpolator)
     pixel_id = sitk.sitkUInt8 if is_mask else sitk.sitkFloat32
     out = sitk.Resample(
         image,
@@ -174,6 +177,39 @@ def _compose_resample_transform_between_sessions(
     composite.AddTransform(source_from_baseline)
     composite.AddTransform(target_from_baseline.GetInverse())
     return composite
+
+
+def _direct_pairwise_resample_transform(
+    *,
+    dataset_root: Path,
+    subject_id: str,
+    site: str,
+    stack_index: int,
+    moving_session: str,
+    fixed_session: str,
+    prefer_direct: bool,
+) -> sitk.Transform | None:
+    """
+    Return a unique external direct pairwise transform when configured.
+
+    Manufacturer DAT-derived pairwise transforms are already stored in the
+    SimpleITK resampling direction used by the pipeline, so they can be applied
+    directly when analysing a specific fixed t0/moving t1 pair. If no unique
+    external direct transform exists, callers fall back to baseline composition.
+    """
+    if not prefer_direct or moving_session == fixed_session:
+        return None
+    record = find_external_pairwise_transform(
+        dataset_root,
+        subject_id=subject_id,
+        site=site,
+        stack_index=stack_index,
+        moving_session=moving_session,
+        fixed_session=fixed_session,
+    )
+    if record is None:
+        return None
+    return sitk.ReadTransform(str(record.internal_path))
 
 
 def _maybe_smooth_density(image_arr: np.ndarray, params: AnalysisParams) -> np.ndarray:
@@ -479,6 +515,8 @@ def _get_analysis_params(config: AppConfig) -> AnalysisParams:
     use_filled_images = False
     gaussian_filter = True
     gaussian_sigma = 1.2
+    image_interpolator = "linear"
+    prefer_direct_pairwise_transforms = True
     full_mask_dilation_voxels = 2
     change_region_source = "common_mask"
     binary_reclassification_enabled = True
@@ -498,6 +536,14 @@ def _get_analysis_params(config: AppConfig) -> AnalysisParams:
         use_filled_images = bool(getattr(cfg, "use_filled_images", use_filled_images))
         gaussian_filter = bool(getattr(cfg, "gaussian_filter", gaussian_filter))
         gaussian_sigma = float(getattr(cfg, "gaussian_sigma", gaussian_sigma))
+        image_interpolator = str(getattr(cfg, "image_interpolator", image_interpolator))
+        prefer_direct_pairwise_transforms = bool(
+            getattr(
+                cfg,
+                "prefer_direct_pairwise_transforms",
+                prefer_direct_pairwise_transforms,
+            )
+        )
         full_mask_dilation_voxels = int(
             getattr(cfg, "full_mask_dilation_voxels", full_mask_dilation_voxels)
         )
@@ -568,6 +614,8 @@ def _get_analysis_params(config: AppConfig) -> AnalysisParams:
         use_filled_images=use_filled_images,
         gaussian_filter=gaussian_filter,
         gaussian_sigma=gaussian_sigma,
+        image_interpolator=image_interpolator,
+        prefer_direct_pairwise_transforms=prefer_direct_pairwise_transforms,
         full_mask_dilation_voxels=full_mask_dilation_voxels,
         change_region_source=change_region_source,
         binary_reclassification_enabled=binary_reclassification_enabled,
@@ -1110,6 +1158,17 @@ def _pairwise_fixed_t0_outputs(
                 source_from_baseline=source_from_baseline[t1],
                 target_from_baseline=target_from_baseline[t0],
             )
+            direct_t0_to_t1 = _direct_pairwise_resample_transform(
+                dataset_root=dataset_root,
+                subject_id=subject_id,
+                site=site,
+                stack_index=stack_index,
+                moving_session=t1,
+                fixed_session=t0,
+                prefer_direct=params.prefer_direct_pairwise_transforms,
+            )
+            if direct_t0_to_t1 is not None:
+                t0_to_t1 = direct_t0_to_t1
 
             source0_img = load_image(rec0.image_path)
             if _same_image_geometry(source0_img, ref_img) and _transform_preserves_image_corners(
@@ -1118,13 +1177,25 @@ def _pairwise_fixed_t0_outputs(
             ):
                 dens0_img = source0_img
             else:
-                dens0_img = _resample_image(source0_img, ref_img, source0_to_t0, is_mask=False)
+                dens0_img = _resample_image(
+                    source0_img,
+                    ref_img,
+                    source0_to_t0,
+                    is_mask=False,
+                    image_interpolator=params.image_interpolator,
+                )
             dens0 = _maybe_smooth_density(
                 image_to_array(dens0_img).astype(np.float32, copy=False),
                 params,
             )
             moving_img = load_image(rec1.image_path)
-            dens1_img = _resample_image(moving_img, ref_img, t0_to_t1, is_mask=False)
+            dens1_img = _resample_image(
+                moving_img,
+                ref_img,
+                t0_to_t1,
+                is_mask=False,
+                image_interpolator=params.image_interpolator,
+            )
             dens1 = _maybe_smooth_density(
                 image_to_array(dens1_img).astype(np.float32, copy=False),
                 params,
@@ -1710,6 +1781,8 @@ def run_analysis(
             erosion_voxels=params.erosion_voxels,
             gaussian_filter=params.gaussian_filter,
             gaussian_sigma=params.gaussian_sigma,
+            image_interpolator=params.image_interpolator,
+            prefer_direct_pairwise_transforms=params.prefer_direct_pairwise_transforms,
             full_mask_dilation_voxels=params.full_mask_dilation_voxels,
             change_region_source=params.change_region_source,
             binary_reclassification_enabled=params.binary_reclassification_enabled,
