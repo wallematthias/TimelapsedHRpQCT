@@ -91,19 +91,31 @@ The installable package name is `timelapsed-hrpqct`, and the import package is `
 
 The CLI uses the bundled package default config (`src/timelapsedhrpqct/configs/defaults.yml`) automatically if you do not pass `--config`.
 
-## Slicer GUI (Developer Mode)
+## Slicer GUI / HR-pQCT Toolbox
 
-Until the extension is available in the Slicer Extensions Manager, you can use it in developer mode:
+The Slicer extension is now organized as an HR-pQCT toolbox with modules for longitudinal timelapsed analysis, motion scoring, Scanco AIM I/O, and contouring/segmentation helpers.
 
 - Slicer extension repository: https://github.com/wallematthias/SlicerTimelapsedHRpQCT
 
-Quick steps:
+When available through the Slicer Extensions Manager, install `HR-pQCT Toolbox` and restart Slicer.
+For developer mode:
 
 1. Clone `TimelapsedHRpQCTSlicer`.
-2. In Slicer: `Edit -> Application Settings -> Modules`.
-3. Add module path: `<repo>/TimelapsedHRpQCTSlicer/TimelapsedHRpQCT`.
-4. Restart Slicer and open module `TimelapsedHRpQCT`.
-5. Click `Install / Update timelapsed-hrpqct` inside the module.
+2. In Slicer: `View -> Python Interactor`.
+3. Run:
+   ```python
+   script = "<repo>/TimelapsedHRpQCTSlicer/scripts/link_local_toolbox_modules.py"
+   exec(open(script).read(), {"__name__": "__main__", "SCRIPT_PATH": script})
+   ```
+4. Restart Slicer and open modules from the `HR-pQCT` category.
+5. In `Timelapsed HR-pQCT` or `Contours and Segmentation`, click `Install / Update timelapsed-hrpqct` if the pipeline package is not installed in Slicer Python.
+
+Manual developer-mode alternative: add all toolbox module paths in `Edit -> Application Settings -> Modules`:
+
+- `<repo>/TimelapsedHRpQCTSlicer/TimelapsedHRpQCT`
+- `<repo>/TimelapsedHRpQCTSlicer/MotionScoreHRpQCT`
+- `<repo>/TimelapsedHRpQCTSlicer/ScancoIO`
+- `<repo>/TimelapsedHRpQCTSlicer/HRpQCTSegmentation`
 
 ## Quick Start
 
