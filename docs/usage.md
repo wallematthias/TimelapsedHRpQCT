@@ -15,6 +15,7 @@ Available subcommands:
 - `analyse`
 - `run`
 - `undo-restructure`
+- `migrate-legacy`
 - `doctor`
 - `inspect`
 - `config`
@@ -45,6 +46,7 @@ Useful setup and inspection commands:
 ```bash
 timelapse doctor --profile low-memory
 timelapse inspect /path/to/raw_data/TimelapsedHRpQCT
+timelapse migrate-legacy /path/to/raw_data/TimelapsedHRpQCT --dry-run
 timelapse config show low-memory
 ```
 
@@ -279,9 +281,20 @@ Important output areas:
 - `TimelapsedHRpQCT/sub-*/transforms/final/`: canonical final transforms
 - `TimelapsedHRpQCT/sub-*/transformed_images/`: fused transformed sessions
 
-Older datasets that used `timelapse_registration/` and `transformed/` remain readable.
+Older path names such as `timelapse_registration/` and `transformed/` are supported when the current artifact registries exist.
 - `TimelapsedHRpQCT/sub-*/filled/`: filled fused sessions
 - `TimelapsedHRpQCT/sub-*/analysis/`: CSV outputs, common regions, visualizations, summary JSON
+
+### Migrating Legacy Derivatives
+
+If a legacy dataset has transformed session folders but `timelapse inspect` reports `Fused transformed sessions: 0`, rebuild the current artifact registry before running analysis:
+
+```bash
+timelapse migrate-legacy /path/to/raw_data/TimelapsedHRpQCT --dry-run
+timelapse migrate-legacy /path/to/raw_data/TimelapsedHRpQCT
+```
+
+The migration writes current `transformed_images/` NIfTI outputs, rebuilds `_artifacts/fused_sessions.json`, and removes converted `.mha` files plus non-full remodelling visualization images by default. Use `--keep-legacy-files` only when you explicitly want to retain the old `.mha` files.
 
 Analysis CSV notes:
 

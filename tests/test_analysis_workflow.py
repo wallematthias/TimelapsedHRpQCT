@@ -45,6 +45,7 @@ from timelapsedhrpqct.dataset.transform_registry import (
 from timelapsedhrpqct.dataset.artifacts import (
     FusedSessionRecord,
     ImportedStackRecord,
+    iter_fused_session_records,
     upsert_fused_session_record,
     upsert_imported_stack_records,
 )
@@ -137,6 +138,49 @@ def _write_analysis_session(
             metadata_path=meta_path,
         ),
     )
+
+
+def test_run_analysis_auto_migrates_legacy_fused_sidecars(
+    tmp_path: Path,
+    capsys,
+) -> None:
+    dataset_root = tmp_path / "TimelapsedHRpQCT"
+    legacy_dir = (
+        dataset_root
+        / "sub-SAMPLE001"
+        / "site-tibia"
+        / "transformed"
+        / "ses-T1"
+    )
+    stem = "sub-SAMPLE001_site-tibia_ses-T1"
+    image_path = legacy_dir / f"{stem}_image_fused.mha"
+    mask_path = legacy_dir / f"{stem}_mask-full_fused.mha"
+    meta_path = legacy_dir / f"{stem}_fused.json"
+    write_image(image_path, np.ones((2, 2, 2), dtype=np.float32))
+    write_image(mask_path, np.ones((2, 2, 2), dtype=np.uint8))
+    meta_path.write_text(
+        json.dumps(
+            {
+                "subject_id": "SAMPLE001",
+                "site": "tibia",
+                "session_id": "T1",
+                "image": str(image_path),
+                "masks": {"full": str(mask_path)},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    config = AppConfig()
+    config.analysis.space = "baseline_common"
+    run_analysis(dataset_root=dataset_root, config=config)
+
+    captured = capsys.readouterr()
+    assert "Detected 1 legacy fused metadata sidecar(s)" in captured.out
+    assert "Legacy migration complete" in captured.out
+    assert "Skipping sub-SAMPLE001 site-tibia: need at least 2 sessions." in captured.out
+    assert not image_path.exists()
+    assert iter_fused_session_records(dataset_root)[0].site == "tibia"
 
 
 def _write_analysis_session_with_custom_masks(

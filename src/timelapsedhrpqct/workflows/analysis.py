@@ -1751,6 +1751,27 @@ def run_analysis(
 
     subject_site_keys = discover_analysis_subject_ids(dataset_root)
     if not subject_site_keys:
+        from timelapsedhrpqct.tools.legacy_migration import (
+            discover_legacy_fused_metadata_paths,
+            migrate_legacy_dataset,
+        )
+
+        legacy_metadata = discover_legacy_fused_metadata_paths(dataset_root)
+        if legacy_metadata:
+            print(
+                f"[analysis] Detected {len(legacy_metadata)} legacy fused metadata "
+                "sidecar(s); migrating to the current disk-saving layout."
+            )
+            result = migrate_legacy_dataset(dataset_root)
+            print(
+                f"[analysis] Legacy migration complete: "
+                f"{result.fused_sessions} fused session(s), "
+                f"{result.converted_images} image(s) converted to NIfTI, "
+                f"{result.pruned_remodelling_images} non-full remodelling image(s) pruned."
+            )
+            subject_site_keys = discover_analysis_subject_ids(dataset_root)
+
+    if not subject_site_keys:
         print(f"[analysis] No subject/site groups found under: {dataset_root}")
         return
 

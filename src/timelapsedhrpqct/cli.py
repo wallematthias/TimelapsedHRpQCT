@@ -156,6 +156,35 @@ def _build_parser() -> argparse.ArgumentParser:
     )
 
     # ------------------------------------------------------------------
+    # migrate-legacy
+    # ------------------------------------------------------------------
+    migrate_parser = subparsers.add_parser(
+        "migrate-legacy",
+        help=(
+            "Convert a legacy derivative dataset to the current disk-saving "
+            "layout and rebuild artifact registries."
+        ),
+    )
+    migrate_parser.add_argument(
+        "dataset_root",
+        type=Path,
+        help="Legacy TimelapsedHRpQCT dataset root to migrate.",
+    )
+    migrate_parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Preview the migration without writing or deleting files.",
+    )
+    migrate_parser.add_argument(
+        "--keep-legacy-files",
+        action="store_true",
+        help=(
+            "Keep legacy .mha files after conversion. By default migration "
+            "removes converted .mha files and non-full remodelling images."
+        ),
+    )
+
+    # ------------------------------------------------------------------
     # config
     # ------------------------------------------------------------------
     config_parser = subparsers.add_parser(
@@ -693,6 +722,30 @@ def _cmd_inspect(args: argparse.Namespace) -> int:
     except Exception:
         pass
 
+    return 0
+
+
+def _cmd_migrate_legacy(args: argparse.Namespace) -> int:
+    """Convert legacy derivative artifacts to the current layout."""
+    from timelapsedhrpqct.tools.legacy_migration import migrate_legacy_dataset
+
+    dataset_root = args.dataset_root.resolve()
+    result = migrate_legacy_dataset(
+        dataset_root,
+        dry_run=bool(args.dry_run),
+        remove_legacy_files=not bool(args.keep_legacy_files),
+    )
+    prefix = "[timelapse] migrate-legacy"
+    if result.dry_run:
+        print(f"{prefix}: DRY RUN")
+    print(f"{prefix}: dataset {result.dataset_root}")
+    print(f"{prefix}: fused sessions discovered {result.fused_sessions}")
+    print(f"{prefix}: images converted to NIfTI {result.converted_images}")
+    print(f"{prefix}: non-full remodelling images pruned {result.pruned_remodelling_images}")
+    metadata_action = "planned" if result.dry_run else "written"
+    print(f"{prefix}: metadata/index records {metadata_action} {result.metadata_written}")
+    if result.skipped_missing_images:
+        print(f"{prefix}: missing image references skipped {result.skipped_missing_images}")
     return 0
 
 
@@ -1822,6 +1875,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _cmd_doctor(args)
     if args.command == "inspect":
         return _cmd_inspect(args)
+    if args.command == "migrate-legacy":
+        return _cmd_migrate_legacy(args)
     if args.command == "config":
         return _cmd_config(args)
     if args.command == "import":
