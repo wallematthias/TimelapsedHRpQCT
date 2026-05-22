@@ -22,6 +22,9 @@ class AnalysisParams:
     gaussian_filter: bool
     gaussian_sigma: float
     full_mask_dilation_voxels: int
+    change_region_source: str
+    binary_reclassification_enabled: bool
+    marrow_mask_dilation_voxels: int
     marrow_mask_erosion_voxels: int
     trajectory_selected_adjacent_pairs: list[str] | None
     visualize_enabled: bool
@@ -281,6 +284,7 @@ def build_pair_valid_mask(
     seg_arr_t1: np.ndarray | None,
     support_mask_t0: np.ndarray | None = None,
     support_mask_t1: np.ndarray | None = None,
+    marrow_mask_dilation_voxels: int = 0,
     marrow_mask_erosion_voxels: int = 0,
 ) -> np.ndarray:
     """Return the voxel mask eligible for pairwise remodelling analysis."""
@@ -293,6 +297,7 @@ def build_pair_valid_mask(
         seg_arr_t1=seg_arr_t1,
         support_mask_t0=support_mask_t0,
         support_mask_t1=support_mask_t1,
+        dilation_voxels=marrow_mask_dilation_voxels,
     )
     return erode_mask(marrow_overlap, marrow_mask_erosion_voxels)
 
@@ -304,8 +309,9 @@ def build_pair_marrow_overlap_mask(
     seg_arr_t1: np.ndarray | None,
     support_mask_t0: np.ndarray | None = None,
     support_mask_t1: np.ndarray | None = None,
+    dilation_voxels: int = 0,
 ) -> np.ndarray:
-    """Build bone-union eligibility mask for marrow-shell remodelling mode."""
+    """Build dilated bone-union eligibility mask for marrow-shell remodelling mode."""
     valid = np.asarray(valid_mask, dtype=bool)
     if seg_arr_t0 is None or seg_arr_t1 is None:
         raise ValueError("grayscale_marrow_mask requires both segmentation arrays.")
@@ -313,7 +319,10 @@ def build_pair_marrow_overlap_mask(
     seg1 = np.asarray(seg_arr_t1, dtype=bool)
     support0 = np.asarray(support_mask_t0, dtype=bool) if support_mask_t0 is not None else valid
     support1 = np.asarray(support_mask_t1, dtype=bool) if support_mask_t1 is not None else valid
-    return support0 & support1 & (seg0 | seg1) & valid
+    bone_union = seg0 | seg1
+    if int(dilation_voxels) > 0:
+        bone_union = dilate_mask_xy(bone_union, int(dilation_voxels))
+    return support0 & support1 & bone_union & valid
 
 
 def compute_pair_trajectory_summary(
@@ -401,12 +410,12 @@ def _classify_pair_remodelling(
         resorption_raw = b0 & (~b1) & (delta < -thr) & valid
         mineralisation_raw = b0 & b1 & (delta > thr) & valid
         demineralisation_raw = b0 & b1 & (delta < -thr) & valid
-        quiescent_support = b0 & b1
+        quiescent_support = b0
     elif method in {"grayscale_delta_only", "grayscale_marrow_mask"}:
         if has_seg:
             b0 = np.asarray(seg_arr_t0, dtype=bool) & valid
             b1 = np.asarray(seg_arr_t1, dtype=bool) & valid
-            quiescent_support = b0 & b1
+            quiescent_support = b0
         else:
             b0 = valid
             b1 = valid
@@ -422,7 +431,7 @@ def _classify_pair_remodelling(
     resorption = remove_small(resorption_raw, cluster_size)
     mineralisation = remove_small(mineralisation_raw, cluster_size)
     demineralisation = remove_small(demineralisation_raw, cluster_size)
-    quiescent = quiescent_support & ~(formation | resorption | mineralisation | demineralisation)
+    quiescent = quiescent_support & ~(formation | resorption)
 
     bv0 = int(np.count_nonzero(b0))
     bv1 = int(np.count_nonzero(b1))
@@ -456,6 +465,7 @@ def compute_pair_remodelling_preview(
     label_map: dict[str, int] | None = None,
     support_mask_t0: np.ndarray | None = None,
     support_mask_t1: np.ndarray | None = None,
+    marrow_mask_dilation_voxels: int = 0,
     marrow_mask_erosion_voxels: int = 0,
 ) -> PairRemodellingPreview:
     """Compute interactive remodelling preview arrays for a single pair."""
@@ -471,6 +481,7 @@ def compute_pair_remodelling_preview(
         seg_arr_t1=seg_arr_t1,
         support_mask_t0=support_mask_t0,
         support_mask_t1=support_mask_t1,
+        marrow_mask_dilation_voxels=marrow_mask_dilation_voxels,
         marrow_mask_erosion_voxels=marrow_mask_erosion_voxels,
     )
     dens0 = maybe_smooth_density(
@@ -597,6 +608,7 @@ def compute_remodelling_outputs(
                         seg_arr_t1=seg1,
                         support_mask_t0=mask_arrs_by_role["full"][i0],
                         support_mask_t1=mask_arrs_by_role["full"][i1],
+                        marrow_mask_dilation_voxels=params.marrow_mask_dilation_voxels,
                         marrow_mask_erosion_voxels=params.marrow_mask_erosion_voxels,
                     )
                     classified = _classify_pair_remodelling(
@@ -735,6 +747,7 @@ def compute_remodelling_outputs(
                         and params.visualize_cluster_size is not None
                         and math.isclose(thr, params.visualize_threshold)
                         and cluster_size == params.visualize_cluster_size
+                        and compartment == "full"
                     ):
                         outputs.label_images[(compartment, t0, t1, thr, cluster_size)] = (
                             build_label_image(

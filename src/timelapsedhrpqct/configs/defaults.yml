@@ -315,7 +315,7 @@ masks:
     # Overall frequency-domain amplification; keep 1.0 unless validating against a scanner-specific reference.
     # Reasonable range: 0.1-5.0.
     laplace_hamming_amplification: 1.0
-    # Offset added before filtering to match the reference signed-short HU convention.
+    # Offset added before filtering to match the reference Scanco signed-short HU convention.
     # Reasonable range: 0-32768.
     laplace_hamming_input_offset: 32768.0
     # IPL linear scaling slope applied after filtering; scanner/reference-specific.
@@ -492,9 +492,13 @@ analysis:
   # Coordinate space for pairwise remodelling analysis.
   # Options: pairwise_fixed_t0 | baseline_common.
   space: pairwise_fixed_t0
-  # Remodelling classification method.
-  # Options: grayscale_and_binary | grayscale_delta_only | grayscale_marrow_mask.
-  method: grayscale_and_binary
+  # Legacy remodelling method selector.
+  # Options: auto | grayscale_and_binary | grayscale_delta_only | grayscale_marrow_mask.
+  # Use auto for new configs so change_region and binary_reclassification define behavior.
+  method: auto
+  # Grayscale change detector used for formation/resorption.
+  # Options: grayscale_delta.
+  change_detection: grayscale_delta
   # Compartments evaluated when ROI/regmask masks are not available.
   # Options: any subset of [full, trab, cort, regmask] plus ROI roles discovered from files.
   compartments:
@@ -520,8 +524,19 @@ analysis:
   gaussian_sigma: 1.2
   # Dilation applied to full mask before common-region construction; range: 0-10 voxels.
   full_mask_dilation_voxels: 2
-  # Erosion applied to marrow mask for marrow-mask analysis; range: 0-10 voxels.
-  marrow_mask_erosion_voxels: 2
+  change_region:
+    # Region where grayscale formation/resorption can be detected.
+    # Options: common_mask | bone_union.
+    source: common_mask
+    # Dilation applied to the change region; range: 0-10 voxels.
+    dilation_voxels: 0
+    # Erosion applied to the change region after dilation; range: 0-10 voxels.
+    erosion_voxels: 0
+
+  binary_reclassification:
+    # Require binary segmentation state change in addition to grayscale threshold.
+    # Options: true | false.
+    enabled: true
 
   valid_region:
     # Erosion applied to valid common region before analysis; range: 0-10 voxels.

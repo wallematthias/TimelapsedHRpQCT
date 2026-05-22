@@ -1,16 +1,22 @@
 profile: standard
-description: "ETH/UofC standard analysis: seg_gauss segmentation with grayscale-and-binary remodelling."
+description: Standard analysis profile using Laplace-Hamming segmentation with ETH/UofC-style grayscale-and-binary remodelling.
 
 multistack_correction:
   enabled: true
 
 masks:
   segmentation:
-    method: seg_gauss
+    method: laplace_hamming
 
 analysis:
   space: pairwise_fixed_t0
-  method: grayscale_and_binary
+  change_detection: grayscale_delta
+  change_region:
+    source: common_mask
+    dilation_voxels: 0
+    erosion_voxels: 0
+  binary_reclassification:
+    enabled: true
   pair_mode: adjacent
   thresholds: [225]
   cluster_sizes: [12]

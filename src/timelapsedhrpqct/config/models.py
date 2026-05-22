@@ -301,9 +301,22 @@ class AnalysisValidRegionConfig:
 
 
 @dataclass(slots=True)
+class AnalysisChangeRegionConfig:
+    source: str = "common_mask"
+    dilation_voxels: int = 0
+    erosion_voxels: int = 0
+
+
+@dataclass(slots=True)
+class AnalysisBinaryReclassificationConfig:
+    enabled: bool = True
+
+
+@dataclass(slots=True)
 class AnalysisConfig:
     space: str = "pairwise_fixed_t0"
-    method: str = "grayscale_and_binary"
+    method: str = "auto"
+    change_detection: str = "grayscale_delta"
     compartments: list[str] = field(default_factory=lambda: ["full", "trab", "cort"])
     thresholds: list[float] = field(default_factory=lambda: [225.0])
     cluster_sizes: list[int] = field(default_factory=lambda: [12])
@@ -312,7 +325,12 @@ class AnalysisConfig:
     gaussian_filter: bool = True
     gaussian_sigma: float = 1.2
     full_mask_dilation_voxels: int = 2
-    marrow_mask_erosion_voxels: int = 2
+    marrow_mask_dilation_voxels: int = 2
+    marrow_mask_erosion_voxels: int = 0
+    change_region: AnalysisChangeRegionConfig = field(default_factory=AnalysisChangeRegionConfig)
+    binary_reclassification: AnalysisBinaryReclassificationConfig = field(
+        default_factory=AnalysisBinaryReclassificationConfig
+    )
     valid_region: AnalysisValidRegionConfig = field(default_factory=AnalysisValidRegionConfig)
 
 

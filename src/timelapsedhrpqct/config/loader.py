@@ -8,6 +8,8 @@ import warnings
 import yaml
 
 from timelapsedhrpqct.config.models import (
+    AnalysisBinaryReclassificationConfig,
+    AnalysisChangeRegionConfig,
     AnalysisConfig,
     AnalysisValidRegionConfig,
     AppConfig,
@@ -115,6 +117,8 @@ def load_config(path: str | Path | None = None, *, profile: str | None = None) -
     masks_outer_raw = masks_raw.get("outer", {})
     masks_inner_raw = masks_raw.get("inner", {})
     masks_seg_raw = _normalize_segmentation_aliases(masks_raw.get("segmentation", {}))
+    analysis_change_region_raw = analysis_raw.get("change_region", {})
+    analysis_binary_raw = analysis_raw.get("binary_reclassification", {})
     analysis_valid_region_raw = analysis_raw.get("valid_region", {})
     visualization_label_map_raw = visualization_raw.get("label_map", {})
 
@@ -134,7 +138,18 @@ def load_config(path: str | Path | None = None, *, profile: str | None = None) -
     _warn_unknown_keys("transform", TransformConfig, transform_raw)
     _warn_unknown_keys("fusion", FusionConfig, fusion_raw)
     _warn_unknown_keys("filling", FillingConfig, filling_raw)
-    _warn_unknown_keys("analysis", AnalysisConfig, analysis_raw, excluded={"valid_region"})
+    _warn_unknown_keys(
+        "analysis",
+        AnalysisConfig,
+        analysis_raw,
+        excluded={"change_region", "binary_reclassification", "valid_region"},
+    )
+    _warn_unknown_keys("analysis.change_region", AnalysisChangeRegionConfig, analysis_change_region_raw)
+    _warn_unknown_keys(
+        "analysis.binary_reclassification",
+        AnalysisBinaryReclassificationConfig,
+        analysis_binary_raw,
+    )
     _warn_unknown_keys("analysis.valid_region", AnalysisValidRegionConfig, analysis_valid_region_raw)
     _warn_unknown_keys("visualization", VisualizationConfig, visualization_raw, excluded={"label_map"})
     _warn_unknown_keys("visualization.label_map", VisualizationLabelMapConfig, visualization_label_map_raw)
@@ -179,7 +194,23 @@ def load_config(path: str | Path | None = None, *, profile: str | None = None) -
         analysis=AnalysisConfig(
             **_filter_dataclass_kwargs(
                 AnalysisConfig,
-                {k: v for k, v in analysis_raw.items() if k != "valid_region"},
+                {
+                    k: v
+                    for k, v in analysis_raw.items()
+                    if k not in {"change_region", "binary_reclassification", "valid_region"}
+                },
+            ),
+            change_region=AnalysisChangeRegionConfig(
+                **_filter_dataclass_kwargs(
+                    AnalysisChangeRegionConfig,
+                    analysis_change_region_raw,
+                )
+            ),
+            binary_reclassification=AnalysisBinaryReclassificationConfig(
+                **_filter_dataclass_kwargs(
+                    AnalysisBinaryReclassificationConfig,
+                    analysis_binary_raw,
+                )
             ),
             valid_region=AnalysisValidRegionConfig(
                 **_filter_dataclass_kwargs(

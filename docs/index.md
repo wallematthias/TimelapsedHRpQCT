@@ -11,6 +11,7 @@ This documentation is split into overview material and deeper operational detail
 - [Multistack Algorithm](./multistack_algorithm.md)
 - [Timelapsed Analysis](./analysis.md)
 - [Settings Reference](./settings.md)
+- [Slicer HR-pQCT Toolbox](./slicer_hrpqct_toolbox_roadmap.md)
 - [API Reference](./api_reference.md)
 
 ## Recommended Reading Order
@@ -22,6 +23,7 @@ If you are new to the project:
 3. Read [Usage](./usage.md) and run a dry import.
 4. Read [Multistack Algorithm](./multistack_algorithm.md) if you want to understand the transform logic.
 5. Read [Timelapsed Analysis](./analysis.md) and [Settings Reference](./settings.md) when tuning the pipeline.
+6. Read [Slicer HR-pQCT Toolbox](./slicer_hrpqct_toolbox_roadmap.md) if you want to run or review the pipeline in 3D Slicer.
 
 ## Core Concepts
 

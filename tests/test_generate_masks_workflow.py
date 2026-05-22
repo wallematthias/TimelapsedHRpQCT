@@ -19,6 +19,7 @@ from timelapsedhrpqct.workflows.generate_masks import (
     _derive_params,
     _generate_segmentation_image,
     _infer_scan_site,
+    _read_laplace_hamming_aim,
     run_mask_generation,
 )
 
@@ -279,7 +280,36 @@ def test_laplace_hamming_segmentation_uses_scanco_hu_int16_values(
 
     assert captured["read_laplace_hamming_aim"] == source_aim
     assert captured["seg_input_value"] == 1234
-    assert source_meta["segmentation_input_unit"] == "scanco_native_int16"
-    assert source_meta["segmentation_input_reader"] == "py_aimio_native_int16"
+    assert source_meta["segmentation_input_unit"] == "scanco_hu_int16"
+    assert source_meta["segmentation_input_reader"] == "py_aimio_hu_int16"
     assert seg.GetSize() == reference.GetSize()
     assert seg.GetSpacing() == reference.GetSpacing()
+
+
+def test_laplace_hamming_aim_reader_uses_hu_signed_short_values(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured = {}
+    source_aim = tmp_path / "scan.AIM"
+    hu_image = sitk.GetImageFromArray(
+        np.array([[[1.2, 2.6], [-3.4, 4.0]]], dtype=np.float32)
+    )
+    hu_image.SetSpacing((0.061, 0.061, 0.061))
+
+    def fake_read_aim(path: Path, scaling: str = "bmd"):
+        captured["path"] = Path(path)
+        captured["scaling"] = scaling
+        return hu_image, {"unit": "hu"}
+
+    monkeypatch.setattr(
+        "timelapsedhrpqct.workflows.generate_masks.read_aim",
+        fake_read_aim,
+    )
+    out = _read_laplace_hamming_aim(source_aim)
+    arr = sitk.GetArrayFromImage(out)
+
+    assert captured == {"path": source_aim, "scaling": "hu"}
+    assert arr.dtype == np.int16
+    np.testing.assert_array_equal(arr, np.array([[[1, 3], [-3, 4]]], dtype=np.int16))
+    assert out.GetSpacing() == hu_image.GetSpacing()
