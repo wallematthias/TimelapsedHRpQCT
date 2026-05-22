@@ -453,10 +453,15 @@ multistack_correction:
 # -----------------------------------------------------------------------------
 transform:
   # Interpolator for grayscale image resampling.
-  # Options: linear | nearest.
+  # Options: linear | bspline | hamming_windowed_sinc | nearest.
+  # Use bspline when matching manufacturer/legacy registered grayscale outputs
+  # is more important than exact linear-resample reproducibility. Keep nearest
+  # for debugging only; it creates blocky grayscale images.
   image_interpolator: linear
   # Interpolator for masks and segmentations.
   # Options: nearest | linear.
+  # Keep nearest for binary masks/segmentations unless you explicitly want
+  # partial-volume mask values before later thresholding.
   mask_interpolator: nearest
 
 # -----------------------------------------------------------------------------
@@ -518,6 +523,18 @@ analysis:
   gaussian_filter: true
   # Gaussian smoothing sigma in voxels; range: 0-5.
   gaussian_sigma: 1.2
+  # Interpolator for grayscale image resampling during pairwise_fixed_t0 analysis.
+  # Options: linear | bspline | hamming_windowed_sinc | nearest.
+  # This is separate from transform.image_interpolator because analysis can
+  # resample directly into each t0 pair space without rerunning transform outputs.
+  # bspline is useful when comparing against manufacturer/legacy registered images.
+  image_interpolator: linear
+  # Prefer a unique external direct pairwise transform for each t0/t1 analysis pair.
+  # Options: true | false.
+  # true uses DAT-derived T3->T1 directly when available instead of chaining
+  # T3->T2->T1 through the baseline-composition graph. If no direct external
+  # transform exists, the pipeline falls back to the existing composition logic.
+  prefer_direct_pairwise_transforms: true
   # Dilation applied to full mask before common-region construction; range: 0-10 voxels.
   full_mask_dilation_voxels: 2
   # Erosion applied to marrow mask for marrow-mask analysis; range: 0-10 voxels.

@@ -22,6 +22,8 @@ class AnalysisParams:
     use_filled_images: bool
     gaussian_filter: bool
     gaussian_sigma: float
+    image_interpolator: str
+    prefer_direct_pairwise_transforms: bool
     full_mask_dilation_voxels: int
     marrow_mask_erosion_voxels: int
     trajectory_selected_adjacent_pairs: list[str] | None

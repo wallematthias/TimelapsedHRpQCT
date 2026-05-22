@@ -33,7 +33,12 @@ from timelapsedhrpqct.dataset.derivative_paths import (
     final_transform_path,
     pairwise_remodelling_csv_path,
     timelapse_baseline_transform_path,
+    timelapse_pairwise_transform_path,
     trajectory_metrics_csv_path,
+)
+from timelapsedhrpqct.dataset.transform_registry import (
+    TransformRegistryRecord,
+    upsert_transform_registry_record,
 )
 from timelapsedhrpqct.dataset.artifacts import (
     FusedSessionRecord,
@@ -49,6 +54,7 @@ from timelapsedhrpqct.processing.analysis_io import (
 )
 from timelapsedhrpqct.processing.segmentation import generate_bone_segmentation
 from timelapsedhrpqct.workflows.analysis import run_analysis
+from timelapsedhrpqct.workflows.analysis import _direct_pairwise_resample_transform
 
 from tests._pipeline_helpers import write_image
 
@@ -1111,6 +1117,97 @@ def test_run_analysis_pairwise_fixed_t0_uses_baseline_resample_direction(
 
     assert int(row["formation_vox"]) == 0
     assert int(row["resorption_vox"]) == 0
+
+
+def test_direct_pairwise_resample_transform_prefers_registry_match(tmp_path: Path) -> None:
+    dataset_root = tmp_path / "dataset"
+    direct_path = timelapse_pairwise_transform_path(
+        dataset_root,
+        "001",
+        "radius",
+        1,
+        "C3",
+        "C1",
+    )
+    direct_path.parent.mkdir(parents=True, exist_ok=True)
+    sitk.WriteTransform(sitk.TranslationTransform(3, (7.0, 0.0, 0.0)), str(direct_path))
+    upsert_transform_registry_record(
+        dataset_root,
+        TransformRegistryRecord(
+            subject_id="001",
+            site="radius",
+            stack_index=1,
+            moving_session="C3",
+            fixed_session="C1",
+            transform_kind="pairwise",
+            internal_path=direct_path,
+            source_format="dat",
+            source_path=Path("raw/C3-to-C1.DAT"),
+            source_direction="fixed_to_moving",
+            internal_direction="moving_to_fixed",
+            coordinate_convention="SimpleITK_LPS_physical",
+            provenance="unit-test",
+            import_timestamp="2026-05-22T12:00:00+00:00",
+        ),
+    )
+
+    tx = _direct_pairwise_resample_transform(
+        dataset_root=dataset_root,
+        subject_id="001",
+        site="radius",
+        stack_index=1,
+        moving_session="C3",
+        fixed_session="C1",
+        prefer_direct=True,
+    )
+
+    assert tx is not None
+    assert tx.TransformPoint((0.0, 0.0, 0.0)) == (7.0, 0.0, 0.0)
+
+
+def test_direct_pairwise_resample_transform_can_be_disabled(tmp_path: Path) -> None:
+    dataset_root = tmp_path / "dataset"
+    direct_path = timelapse_pairwise_transform_path(
+        dataset_root,
+        "001",
+        "radius",
+        1,
+        "C3",
+        "C1",
+    )
+    direct_path.parent.mkdir(parents=True, exist_ok=True)
+    sitk.WriteTransform(sitk.TranslationTransform(3, (7.0, 0.0, 0.0)), str(direct_path))
+    upsert_transform_registry_record(
+        dataset_root,
+        TransformRegistryRecord(
+            subject_id="001",
+            site="radius",
+            stack_index=1,
+            moving_session="C3",
+            fixed_session="C1",
+            transform_kind="pairwise",
+            internal_path=direct_path,
+            source_format="dat",
+            source_path=Path("raw/C3-to-C1.DAT"),
+            source_direction="fixed_to_moving",
+            internal_direction="moving_to_fixed",
+            coordinate_convention="SimpleITK_LPS_physical",
+            provenance="unit-test",
+            import_timestamp="2026-05-22T12:00:00+00:00",
+        ),
+    )
+
+    tx = _direct_pairwise_resample_transform(
+        dataset_root=dataset_root,
+        subject_id="001",
+        site="radius",
+        stack_index=1,
+        moving_session="C3",
+        fixed_session="C1",
+        prefer_direct=False,
+    )
+
+    assert tx is None
 
 
 def test_run_analysis_pairwise_fixed_t0_visualization_exports_in_t0_space(
