@@ -26,6 +26,7 @@ from timelapsedhrpqct.analysis.remodelling import (
     dilate_mask_xy,
     erode_mask,
     maybe_smooth_density,
+    maybe_smooth_density_with_domain,
     pair_indices,
     propagate_seed_masks_to_support,
     remove_small,
@@ -152,6 +153,24 @@ def _resample_mask_array_if_needed(
     return (image_to_array(mask_tx) > 0).astype(bool, copy=False)
 
 
+def _resample_source_domain(
+    source_reference: sitk.Image,
+    target_reference: sitk.Image,
+    transform: sitk.Transform,
+) -> np.ndarray:
+    """Return target-space voxels covered by the source image domain."""
+    if _same_image_geometry(source_reference, target_reference) and _transform_preserves_image_corners(
+        transform,
+        target_reference,
+    ):
+        return np.ones(tuple(reversed(target_reference.GetSize())), dtype=bool)
+    domain_img = sitk.Image(source_reference.GetSize(), sitk.sitkUInt8)
+    domain_img.CopyInformation(source_reference)
+    domain_img += 1
+    domain_tx = _resample_image(domain_img, target_reference, transform, is_mask=True)
+    return (image_to_array(domain_tx) > 0).astype(bool, copy=False)
+
+
 def _compose_resample_transform_between_sessions(
     source_from_baseline: sitk.Transform,
     target_from_baseline: sitk.Transform,
@@ -216,6 +235,20 @@ def _maybe_smooth_density(image_arr: np.ndarray, params: AnalysisParams) -> np.n
     """Apply analysis-configured density smoothing to an image array."""
     return maybe_smooth_density(
         image_arr,
+        gaussian_filter=params.gaussian_filter,
+        gaussian_sigma=params.gaussian_sigma,
+    )
+
+
+def _maybe_smooth_density_with_domain(
+    image_arr: np.ndarray,
+    domain_mask: np.ndarray,
+    params: AnalysisParams,
+) -> tuple[np.ndarray, np.ndarray]:
+    """Apply domain-normalized density smoothing and return its valid core."""
+    return maybe_smooth_density_with_domain(
+        image_arr,
+        domain_mask,
         gaussian_filter=params.gaussian_filter,
         gaussian_sigma=params.gaussian_sigma,
     )
@@ -1184,8 +1217,14 @@ def _pairwise_fixed_t0_outputs(
                     is_mask=False,
                     image_interpolator=params.image_interpolator,
                 )
-            dens0 = _maybe_smooth_density(
+            dens0_domain = _resample_source_domain(
+                source_reference=source0_img,
+                target_reference=ref_img,
+                transform=source0_to_t0,
+            )
+            dens0, dens0_smoothing_core = _maybe_smooth_density_with_domain(
                 image_to_array(dens0_img).astype(np.float32, copy=False),
+                dens0_domain,
                 params,
             )
             moving_img = load_image(rec1.image_path)
@@ -1196,10 +1235,17 @@ def _pairwise_fixed_t0_outputs(
                 is_mask=False,
                 image_interpolator=params.image_interpolator,
             )
-            dens1 = _maybe_smooth_density(
+            dens1_domain = _resample_source_domain(
+                source_reference=moving_img,
+                target_reference=ref_img,
+                transform=t0_to_t1,
+            )
+            dens1, dens1_smoothing_core = _maybe_smooth_density_with_domain(
                 image_to_array(dens1_img).astype(np.float32, copy=False),
+                dens1_domain,
                 params,
             )
+            smoothing_core = dens0_smoothing_core & dens1_smoothing_core
 
         with benchmark.section(
             "analysis.prepare_pair_masks",
@@ -1328,7 +1374,7 @@ def _pairwise_fixed_t0_outputs(
             common_t0 = (image_to_array(common_t0_img) > 0).astype(bool, copy=False)
             valid_by_compartment[compartment] = build_pair_valid_mask(
                 method=valid_method,
-                valid_mask=common_t0,
+                valid_mask=common_t0 & smoothing_core,
                 seg_arr_t0=seg0_for_analysis,
                 seg_arr_t1=seg1_for_analysis,
                 support_mask_t0=full0,
