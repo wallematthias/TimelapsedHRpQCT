@@ -30,6 +30,7 @@ from timelapsedhrpqct.analysis.remodelling import (
     pair_indices,
     propagate_seed_masks_to_support,
     remove_small,
+    remodelling_fraction_denominator,
     safe_corr,
     safe_frac,
     safe_mean,
@@ -277,7 +278,7 @@ def _resolve_analysis_method(cfg) -> str:
     if enforce_binary:
         return "grayscale_and_binary"
     if source in {"bone_union", "segmentation_union"}:
-        return "grayscale_marrow_mask"
+        return "grayscale_delta_only"
     if source == "common_mask":
         return "grayscale_delta_only"
     raise ValueError(f"Unsupported analysis.change_region.source: {source}")
@@ -534,6 +535,81 @@ class _PairwiseSessionInputs:
     source_from_baseline: sitk.Transform
 
 
+def _series_source_core_in_t0_space(
+    *,
+    dataset_root: Path,
+    subject_id: str,
+    site: str,
+    stack_index: int,
+    sessions: list[_PairwiseSessionInputs],
+    fixed_session: str,
+    target_reference: sitk.Image,
+    params: AnalysisParams,
+) -> np.ndarray:
+    """Return voxels supported by every analysis session in a fixed t0 space."""
+    target_from_baseline = {
+        session.session_id: session.target_from_baseline for session in sessions
+    }
+    series_core = np.ones(tuple(reversed(target_reference.GetSize())), dtype=bool)
+    zero_image = np.zeros_like(series_core, dtype=np.float32)
+    for session in sessions:
+        source_reference = load_image(session.image_path)
+        transform = _compose_resample_transform_between_sessions(
+            source_from_baseline=session.source_from_baseline,
+            target_from_baseline=target_from_baseline[fixed_session],
+        )
+        direct_transform = _direct_pairwise_resample_transform(
+            dataset_root=dataset_root,
+            subject_id=subject_id,
+            site=site,
+            stack_index=stack_index,
+            moving_session=session.session_id,
+            fixed_session=fixed_session,
+            prefer_direct=params.prefer_direct_pairwise_transforms,
+        )
+        if direct_transform is not None:
+            transform = direct_transform
+        domain = _resample_source_domain(
+            source_reference=source_reference,
+            target_reference=target_reference,
+            transform=transform,
+        )
+        _smoothed, core = _maybe_smooth_density_with_domain(zero_image, domain, params)
+        series_core &= core
+        del source_reference, domain, core
+    return series_core
+
+
+def _series_segmentation_union_in_baseline_space(
+    *,
+    sessions: list[_PairwiseSessionInputs],
+    baseline_ref: sitk.Image,
+    source_from_baseline: dict[str, sitk.Transform],
+    dilation_voxels: int = 0,
+    erosion_voxels: int = 0,
+) -> np.ndarray:
+    """Return all-session segmentation union in baseline/common space."""
+    union = np.zeros(tuple(reversed(baseline_ref.GetSize())), dtype=bool)
+    for session in sessions:
+        if session.seg_path is None or not session.seg_path.exists():
+            raise ValueError(
+                "analysis.change_region.source=bone_union requires segmentation "
+                f"for session {session.session_id}."
+            )
+        seg_img = load_image(session.seg_path)
+        seg_tx = _resample_image(
+            sitk.Cast(seg_img > 0, sitk.sitkUInt8),
+            baseline_ref,
+            source_from_baseline[session.session_id],
+            is_mask=True,
+        )
+        union |= image_to_array(seg_tx) > 0
+        del seg_img, seg_tx
+    if int(dilation_voxels) > 0:
+        union = dilate_mask_xy(union, int(dilation_voxels))
+    return erode_mask(union, int(erosion_voxels))
+
+
 def _get_analysis_params(config: AppConfig) -> AnalysisParams:
     """Build analysis parameters from config with defaults and visualization settings."""
     cfg = getattr(config, "analysis", None)
@@ -548,6 +624,7 @@ def _get_analysis_params(config: AppConfig) -> AnalysisParams:
     use_filled_images = False
     gaussian_filter = True
     gaussian_sigma = 1.2
+    fraction_denominator = "baseline_bone"
     image_interpolator = "linear"
     prefer_direct_pairwise_transforms = True
     full_mask_dilation_voxels = 2
@@ -569,6 +646,10 @@ def _get_analysis_params(config: AppConfig) -> AnalysisParams:
         use_filled_images = bool(getattr(cfg, "use_filled_images", use_filled_images))
         gaussian_filter = bool(getattr(cfg, "gaussian_filter", gaussian_filter))
         gaussian_sigma = float(getattr(cfg, "gaussian_sigma", gaussian_sigma))
+        fraction_denominator = str(
+            getattr(cfg, "fraction_denominator", fraction_denominator)
+            or fraction_denominator
+        ).strip().lower()
         image_interpolator = str(getattr(cfg, "image_interpolator", image_interpolator))
         prefer_direct_pairwise_transforms = bool(
             getattr(
@@ -647,6 +728,7 @@ def _get_analysis_params(config: AppConfig) -> AnalysisParams:
         use_filled_images=use_filled_images,
         gaussian_filter=gaussian_filter,
         gaussian_sigma=gaussian_sigma,
+        fraction_denominator=fraction_denominator,
         image_interpolator=image_interpolator,
         prefer_direct_pairwise_transforms=prefer_direct_pairwise_transforms,
         full_mask_dilation_voxels=full_mask_dilation_voxels,
@@ -1104,6 +1186,25 @@ def _pairwise_fixed_t0_outputs(
             )
     target_from_baseline = {record.session_id: record.target_from_baseline for record in analysis_sessions}
     source_from_baseline = {record.session_id: record.source_from_baseline for record in analysis_sessions}
+    series_source_core_baseline = _series_source_core_in_t0_space(
+        dataset_root=dataset_root,
+        subject_id=subject_id,
+        site=site,
+        stack_index=stack_index,
+        sessions=analysis_sessions,
+        fixed_session=baseline_session,
+        target_reference=baseline_ref,
+        params=params,
+    )
+    series_bone_support_baseline: np.ndarray | None = None
+    if params.change_region_source in {"bone_union", "segmentation_union"}:
+        series_bone_support_baseline = _series_segmentation_union_in_baseline_space(
+            sessions=analysis_sessions,
+            baseline_ref=baseline_ref,
+            source_from_baseline=source_from_baseline,
+            dilation_voxels=params.marrow_mask_dilation_voxels,
+            erosion_voxels=params.marrow_mask_erosion_voxels,
+        )
 
     support_union_baseline = np.zeros(
         tuple(reversed(baseline_ref.GetSize())),
@@ -1148,6 +1249,9 @@ def _pairwise_fixed_t0_outputs(
             tuple(reversed(baseline_ref.GetSize())),
             dtype=bool,
         )
+        common_arr &= series_source_core_baseline
+        if series_bone_support_baseline is not None:
+            common_arr &= series_bone_support_baseline
         common_masks_baseline[role] = erode_mask(common_arr, params.erosion_voxels)
         del common_mask_img
         _free_memory()
@@ -1255,7 +1359,7 @@ def _pairwise_fixed_t0_outputs(
                 dens1_domain,
                 params,
             )
-            smoothing_core = dens0_smoothing_core & dens1_smoothing_core
+            del dens0_smoothing_core, dens1_smoothing_core
 
         with benchmark.section(
             "analysis.prepare_pair_masks",
@@ -1356,11 +1460,6 @@ def _pairwise_fixed_t0_outputs(
         seg0_for_analysis = seg0 if np.any(seg0) else None
         seg1_for_analysis = seg1 if np.any(seg1) else None
 
-        valid_method = (
-            "grayscale_marrow_mask"
-            if params.change_region_source in {"bone_union", "segmentation_union"}
-            else params.method
-        )
         valid_by_compartment: dict[str, np.ndarray] = {}
         comp_masks_by_compartment: dict[str, tuple[np.ndarray, np.ndarray]] = {}
         for compartment in effective_compartments:
@@ -1383,8 +1482,8 @@ def _pairwise_fixed_t0_outputs(
             )
             common_t0 = (image_to_array(common_t0_img) > 0).astype(bool, copy=False)
             valid_by_compartment[compartment] = build_pair_valid_mask(
-                method=valid_method,
-                valid_mask=common_t0 & smoothing_core,
+                method=params.method,
+                valid_mask=common_t0,
                 seg_arr_t0=seg0_for_analysis,
                 seg_arr_t1=seg1_for_analysis,
                 support_mask_t0=full0,
@@ -1446,6 +1545,12 @@ def _pairwise_fixed_t0_outputs(
                     quiescent = b0 & ~(formation | resorption)
                     bv0 = int(np.count_nonzero(b0))
                     bv1 = int(np.count_nonzero(b1))
+                    fraction_denominator_vox = remodelling_fraction_denominator(
+                        mode=params.fraction_denominator,
+                        b0=b0_full,
+                        b1=b1_full,
+                        valid=metric_mask,
+                    )
                     tv_valid = int(np.count_nonzero(valid))
                     real_overlap = int(np.count_nonzero(full0 & full1 & comp0 & comp1 & valid))
                     union_real = int(np.count_nonzero(((full0 & comp0) | (full1 & comp1)) & valid))
@@ -1481,6 +1586,8 @@ def _pairwise_fixed_t0_outputs(
                             "binary_source_t1": str(rec1.seg_path) if rec1.seg_path is not None and rec1.seg_path.exists() else None,
                             "BV0_vox": bv0,
                             "BV1_vox": bv1,
+                            "fraction_denominator": params.fraction_denominator,
+                            "fraction_denominator_vox": fraction_denominator_vox,
                             "TV_valid_vox": tv_valid,
                             "BVTV_t0": safe_frac(bv0, tv_valid),
                             "BVTV_t1": safe_frac(bv1, tv_valid),
@@ -1490,10 +1597,18 @@ def _pairwise_fixed_t0_outputs(
                             "resorption_vox": resorption_vox,
                             "mineralisation_vox": mineralisation_vox,
                             "demineralisation_vox": demineralisation_vox,
-                            "formation_frac_bv0": safe_frac(formation_vox, bv0),
-                            "resorption_frac_bv0": safe_frac(resorption_vox, bv0),
-                            "mineralisation_frac_bv0": safe_frac(mineralisation_vox, bv0),
-                            "demineralisation_frac_bv0": safe_frac(demineralisation_vox, bv0),
+                            "formation_frac_bv0": safe_frac(
+                                formation_vox, fraction_denominator_vox
+                            ),
+                            "resorption_frac_bv0": safe_frac(
+                                resorption_vox, fraction_denominator_vox
+                            ),
+                            "mineralisation_frac_bv0": safe_frac(
+                                mineralisation_vox, fraction_denominator_vox
+                            ),
+                            "demineralisation_frac_bv0": safe_frac(
+                                demineralisation_vox, fraction_denominator_vox
+                            ),
                             "formation_n_clusters": formation_n,
                             "resorption_n_clusters": resorption_n,
                             "mineralisation_n_clusters": mineralisation_n,

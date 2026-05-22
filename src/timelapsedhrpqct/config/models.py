@@ -324,6 +324,7 @@ class AnalysisConfig:
     use_filled_images: bool = False
     gaussian_filter: bool = True
     gaussian_sigma: float = 1.2
+    fraction_denominator: str = "baseline_bone"
     image_interpolator: str = "linear"
     prefer_direct_pairwise_transforms: bool = True
     full_mask_dilation_voxels: int = 2

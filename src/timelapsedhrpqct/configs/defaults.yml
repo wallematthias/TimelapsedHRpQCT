@@ -527,6 +527,11 @@ analysis:
   gaussian_filter: true
   # Gaussian smoothing sigma in voxels; range: 0-5.
   gaussian_sigma: 1.2
+  # Denominator used for formation/resorption fraction columns.
+  # Options: baseline_bone | bone_union | mean_bone | valid_region.
+  # baseline_bone preserves historical fraction-of-BV0 behavior; bone_union
+  # matches UCSF-style reporting when events are detected in the full common mask.
+  fraction_denominator: baseline_bone
   # Interpolator for grayscale image resampling during pairwise_fixed_t0 analysis.
   # Options: linear | bspline | hamming_windowed_sinc | nearest.
   # This is separate from transform.image_interpolator because analysis can

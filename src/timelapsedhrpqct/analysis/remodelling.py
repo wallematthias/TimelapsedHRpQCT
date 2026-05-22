@@ -27,6 +27,7 @@ class AnalysisParams:
     use_filled_images: bool
     gaussian_filter: bool
     gaussian_sigma: float
+    fraction_denominator: str
     image_interpolator: str
     prefer_direct_pairwise_transforms: bool
     full_mask_dilation_voxels: int
@@ -266,6 +267,40 @@ def remove_small(binary: np.ndarray, min_size: int) -> np.ndarray:
     keep = counts >= min_size
     keep[0] = False
     return keep[lbl]
+
+
+def remodelling_fraction_denominator(
+    *,
+    mode: str,
+    b0: np.ndarray,
+    b1: np.ndarray,
+    valid: np.ndarray,
+) -> int:
+    """Return the denominator used for formation/resorption fractions."""
+    normalized = str(mode or "baseline_bone").strip().lower()
+    b0_mask = np.asarray(b0, dtype=bool)
+    b1_mask = np.asarray(b1, dtype=bool)
+    valid_mask = np.asarray(valid, dtype=bool)
+    if normalized in {"baseline_bone", "bv0", "bv0_valid"}:
+        return int(np.count_nonzero(b0_mask & valid_mask))
+    if normalized in {"bone_union", "segmentation_union", "bv_union"}:
+        return int(np.count_nonzero((b0_mask | b1_mask) & valid_mask))
+    if normalized in {"mean_bone", "mean_bv"}:
+        return int(
+            round(
+                0.5
+                * (
+                    np.count_nonzero(b0_mask & valid_mask)
+                    + np.count_nonzero(b1_mask & valid_mask)
+                )
+            )
+        )
+    if normalized in {"valid_region", "tv_valid"}:
+        return int(np.count_nonzero(valid_mask))
+    raise ValueError(
+        f"Unsupported analysis.fraction_denominator: {mode}. "
+        "Use one of: baseline_bone, bone_union, mean_bone, valid_region."
+    )
 
 
 def maybe_smooth_density(
@@ -686,6 +721,12 @@ def compute_remodelling_outputs(
 
                     bv0 = int(np.count_nonzero(b0))
                     bv1 = int(np.count_nonzero(b1))
+                    fraction_denominator_vox = remodelling_fraction_denominator(
+                        mode=params.fraction_denominator,
+                        b0=b0,
+                        b1=b1,
+                        valid=valid,
+                    )
                     tv_valid = int(np.count_nonzero(valid))
                     real_overlap = int(
                         np.count_nonzero(
@@ -751,6 +792,8 @@ def compute_remodelling_outputs(
                             ),
                             "BV0_vox": bv0,
                             "BV1_vox": bv1,
+                            "fraction_denominator": params.fraction_denominator,
+                            "fraction_denominator_vox": fraction_denominator_vox,
                             "TV_valid_vox": tv_valid,
                             "BVTV_t0": safe_frac(bv0, tv_valid),
                             "BVTV_t1": safe_frac(bv1, tv_valid),
@@ -760,11 +803,17 @@ def compute_remodelling_outputs(
                             "resorption_vox": resorption_vox,
                             "mineralisation_vox": mineralisation_vox,
                             "demineralisation_vox": demineralisation_vox,
-                            "formation_frac_bv0": safe_frac(formation_vox, bv0),
-                            "resorption_frac_bv0": safe_frac(resorption_vox, bv0),
-                            "mineralisation_frac_bv0": safe_frac(mineralisation_vox, bv0),
+                            "formation_frac_bv0": safe_frac(
+                                formation_vox, fraction_denominator_vox
+                            ),
+                            "resorption_frac_bv0": safe_frac(
+                                resorption_vox, fraction_denominator_vox
+                            ),
+                            "mineralisation_frac_bv0": safe_frac(
+                                mineralisation_vox, fraction_denominator_vox
+                            ),
                             "demineralisation_frac_bv0": safe_frac(
-                                demineralisation_vox, bv0
+                                demineralisation_vox, fraction_denominator_vox
                             ),
                             "formation_n_clusters": formation_n,
                             "resorption_n_clusters": resorption_n,

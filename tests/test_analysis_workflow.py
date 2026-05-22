@@ -20,6 +20,7 @@ from timelapsedhrpqct.analysis.remodelling import (
     maybe_smooth_density_with_domain,
     pair_indices,
     remove_small,
+    remodelling_fraction_denominator,
     safe_corr,
     safe_frac,
     safe_mean,
@@ -59,6 +60,29 @@ from timelapsedhrpqct.workflows.analysis import run_analysis
 from timelapsedhrpqct.workflows.analysis import _direct_pairwise_resample_transform
 
 from tests._pipeline_helpers import write_image
+
+
+def test_remodelling_fraction_denominator_supports_ucsf_bone_union_mode():
+    valid = np.ones((2, 2, 2), dtype=bool)
+    b0 = np.zeros_like(valid)
+    b1 = np.zeros_like(valid)
+    b0[0, 0, 0] = True
+    b0[0, 0, 1] = True
+    b1[0, 0, 1] = True
+    b1[0, 1, 0] = True
+
+    assert remodelling_fraction_denominator(
+        mode="baseline_bone",
+        b0=b0,
+        b1=b1,
+        valid=valid,
+    ) == 2
+    assert remodelling_fraction_denominator(
+        mode="bone_union",
+        b0=b0,
+        b1=b1,
+        valid=valid,
+    ) == 3
 
 
 def _analysis_session_dir(dataset_root: Path, subject_id: str, session_id: str) -> Path:

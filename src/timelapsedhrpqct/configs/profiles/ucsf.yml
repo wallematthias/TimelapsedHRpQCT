@@ -12,11 +12,12 @@ analysis:
   space: pairwise_fixed_t0
   change_detection: grayscale_delta
   change_region:
-    source: bone_union
+    source: common_mask
     dilation_voxels: 0
     erosion_voxels: 0
   binary_reclassification:
     enabled: false
+  fraction_denominator: bone_union
   pair_mode: adjacent
   thresholds: [475]
   cluster_sizes: [5]

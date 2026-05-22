@@ -126,11 +126,13 @@ def test_study_profiles_define_expected_analysis_methods() -> None:
 
     assert ucsf.masks.segmentation.method == "laplace_hamming"
     assert ucsf.analysis.method == "auto"
-    assert ucsf.analysis.change_region.source == "bone_union"
+    assert ucsf.analysis.change_region.source == "common_mask"
     assert ucsf.analysis.change_region.dilation_voxels == 0
     assert ucsf.analysis.change_region.erosion_voxels == 0
     assert ucsf.analysis.binary_reclassification.enabled is False
-    assert _get_analysis_params(ucsf).method == "grayscale_marrow_mask"
+    assert ucsf.analysis.fraction_denominator == "bone_union"
+    assert _get_analysis_params(ucsf).method == "grayscale_delta_only"
+    assert _get_analysis_params(ucsf).fraction_denominator == "bone_union"
     assert ucsf.analysis.thresholds == [475]
     assert ucsf.analysis.cluster_sizes == [5]
     assert ucsf.analysis.gaussian_filter is False
