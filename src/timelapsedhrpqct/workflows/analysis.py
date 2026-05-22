@@ -1738,6 +1738,7 @@ def run_analysis(
     visualize: tuple[float, int] | None = None,
     subject_id_filter: str | None = None,
     site_filter: str | None = None,
+    profile: str | None = None,
     benchmark=None,
 ) -> None:
     """Execute remodelling analysis and persist CSV/metadata outputs."""
@@ -1945,6 +1946,11 @@ def run_analysis(
             site=site,
             outputs=outputs,
         )
+        if profile:
+            for row in outputs.pairwise_rows:
+                row["profile"] = str(profile)
+            for row in outputs.trajectory_rows:
+                row["profile"] = str(profile)
 
         pairwise_df = pd.DataFrame(outputs.pairwise_rows)
         trajectory_df = pd.DataFrame(outputs.trajectory_rows)
@@ -1964,6 +1970,7 @@ def run_analysis(
             dataset_root=dataset_root,
             subject_id=subject_id,
             site=site,
+            profile=profile,
             use_filled_images=params.use_filled_images,
             compartments=list(outputs.common_masks.keys()),
             method=params.method,

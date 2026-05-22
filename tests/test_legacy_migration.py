@@ -5,9 +5,15 @@ from pathlib import Path
 
 import SimpleITK as sitk
 
-from timelapsedhrpqct.dataset.artifacts import iter_fused_session_records
+from timelapsedhrpqct.dataset.artifacts import (
+    ImportedStackRecord,
+    iter_fused_session_records,
+    iter_imported_stack_records,
+    upsert_imported_stack_records,
+)
 from timelapsedhrpqct.dataset.derivative_paths import (
     analysis_visualize_dir,
+    common_region_path,
     fused_image_path,
     fused_mask_path,
     fused_metadata_path,
@@ -137,3 +143,96 @@ def test_migrate_legacy_dataset_dry_run_does_not_write_or_delete(
     assert all(path.exists() for path in legacy_paths.values())
     assert not fused_image_path(dataset_root, "SAMPLE001", "tibia", "T1").exists()
     assert iter_fused_session_records(dataset_root) == []
+
+
+def test_migrate_legacy_dataset_converts_imported_stack_records(
+    tmp_path: Path,
+) -> None:
+    dataset_root = tmp_path / "TimelapsedHRpQCT"
+    stack_dir = dataset_root / "sub-SAMPLE001" / "site-tibia" / "ses-T1" / "stacks"
+    image = stack_dir / "sub-SAMPLE001_site-tibia_ses-T1_stack-01_image.mha"
+    full = stack_dir / "sub-SAMPLE001_site-tibia_ses-T1_stack-01_mask-full.mha"
+    seg = stack_dir / "sub-SAMPLE001_site-tibia_ses-T1_stack-01_seg.mha"
+    metadata = stack_dir / "sub-SAMPLE001_site-tibia_ses-T1_stack-01.json"
+    for path in (image, full, seg):
+        _write_tiny_image(path)
+    metadata.parent.mkdir(parents=True, exist_ok=True)
+    metadata.write_text("{}", encoding="utf-8")
+    upsert_imported_stack_records(
+        dataset_root,
+        [
+            ImportedStackRecord(
+                subject_id="SAMPLE001",
+                site="tibia",
+                session_id="T1",
+                stack_index=1,
+                image_path=image,
+                mask_paths={"full": full},
+                seg_path=seg,
+                metadata_path=metadata,
+            )
+        ],
+    )
+
+    result = migrate_legacy_dataset(dataset_root)
+
+    assert result.converted_images == 3
+    records = iter_imported_stack_records(dataset_root)
+    assert records[0].image_path.name.endswith(".nii.gz")
+    assert records[0].mask_paths["full"].name.endswith(".nii.gz")
+    assert records[0].seg_path is not None
+    assert records[0].seg_path.name.endswith(".nii.gz")
+    assert records[0].image_path.exists()
+    assert not image.exists()
+    assert not full.exists()
+    assert not seg.exists()
+
+
+def test_migrate_legacy_dataset_removes_imported_mha_when_index_already_points_to_nifti(
+    tmp_path: Path,
+) -> None:
+    dataset_root = tmp_path / "TimelapsedHRpQCT"
+    stack_dir = dataset_root / "sub-SAMPLE001" / "site-tibia" / "ses-T1" / "stacks"
+    image = stack_dir / "sub-SAMPLE001_site-tibia_ses-T1_stack-01_image.nii.gz"
+    legacy_image = stack_dir / "sub-SAMPLE001_site-tibia_ses-T1_stack-01_image.mha"
+    metadata = stack_dir / "sub-SAMPLE001_site-tibia_ses-T1_stack-01.json"
+    _write_tiny_image(image)
+    _write_tiny_image(legacy_image)
+    metadata.write_text("{}", encoding="utf-8")
+    upsert_imported_stack_records(
+        dataset_root,
+        [
+            ImportedStackRecord(
+                subject_id="SAMPLE001",
+                site="tibia",
+                session_id="T1",
+                stack_index=1,
+                image_path=image,
+                mask_paths={},
+                seg_path=None,
+                metadata_path=metadata,
+            )
+        ],
+    )
+
+    result = migrate_legacy_dataset(dataset_root)
+
+    assert result.converted_images == 0
+    assert result.removed_legacy_images == 1
+    assert image.exists()
+    assert not legacy_image.exists()
+
+
+def test_migrate_legacy_dataset_converts_common_region_masks(
+    tmp_path: Path,
+) -> None:
+    dataset_root = tmp_path / "TimelapsedHRpQCT"
+    full = common_region_path(dataset_root, "SAMPLE001", "tibia", "full")
+    legacy_full = full.with_name(full.name[: -len(".nii.gz")] + ".mha")
+    _write_tiny_image(legacy_full)
+
+    result = migrate_legacy_dataset(dataset_root)
+
+    assert result.converted_images == 1
+    assert full.exists()
+    assert not legacy_full.exists()

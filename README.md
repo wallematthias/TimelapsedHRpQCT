@@ -125,11 +125,31 @@ Preview discovery:
 timelapse import /path/to/raw_data --dry-run
 ```
 
+Import raw AIM files into a TimelapsedHRpQCT dataset without running the downstream stages:
+
+```bash
+timelapse import /path/to/raw_data --output-root /path/to/TimelapsedHRpQCT
+```
+
 By default raw files are kept in place (no `sourcedata/hrpqct` copy):
 
 ```bash
 timelapse run /path/to/raw_data
 ```
+
+Use a bundled profile for a study/workflow preset:
+
+```bash
+timelapse run /path/to/raw_data --profile eth-uofc
+```
+
+Combine a profile with a custom config when you want profile defaults plus local overrides:
+
+```bash
+timelapse run /path/to/raw_data --profile eth-uofc --config /path/to/study.yml
+```
+
+The configuration precedence is: bundled defaults, then `--profile`, then `--config`.
 
 Enable copying raw files into `sourcedata/hrpqct` only when desired:
 

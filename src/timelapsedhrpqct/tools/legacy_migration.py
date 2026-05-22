@@ -8,13 +8,17 @@ import SimpleITK as sitk
 
 from timelapsedhrpqct.dataset.artifacts import (
     FusedSessionRecord,
+    ImportedStackRecord,
+    iter_imported_stack_records,
     upsert_fused_session_record,
+    upsert_imported_stack_records,
 )
 from timelapsedhrpqct.dataset.derivative_paths import (
     fused_image_path,
     fused_mask_path,
     fused_metadata_path,
     fused_seg_path,
+    legacy_image_path,
 )
 from timelapsedhrpqct.io.image import write_json
 
@@ -25,6 +29,7 @@ class LegacyMigrationResult:
     dry_run: bool
     fused_sessions: int = 0
     converted_images: int = 0
+    removed_legacy_images: int = 0
     pruned_remodelling_images: int = 0
     skipped_missing_images: int = 0
     metadata_written: int = 0
@@ -127,6 +132,8 @@ def _convert_image(
     if source == target:
         return target, False, not target.exists()
     if not source.exists():
+        if target.exists():
+            return target, False, False
         return target, False, True
 
     converted = not target.exists()
@@ -138,6 +145,38 @@ def _convert_image(
         if remove_source and source.exists():
             source.unlink()
     return target, converted, False
+
+
+def _remove_existing_legacy_sibling(
+    current_path: Path | None,
+    *,
+    dry_run: bool,
+    remove_legacy_files: bool,
+) -> int:
+    if current_path is None or not current_path.name.endswith(".nii.gz"):
+        return 0
+    legacy = legacy_image_path(current_path)
+    if not legacy.exists():
+        return 0
+    if not dry_run and remove_legacy_files:
+        legacy.unlink()
+    return 1
+
+
+def _prune_empty_parents(path: Path, stop_root: Path) -> None:
+    current = path
+    stop_root = stop_root.resolve()
+    while True:
+        try:
+            if current.resolve() == stop_root:
+                return
+        except Exception:
+            return
+        try:
+            current.rmdir()
+        except OSError:
+            return
+        current = current.parent
 
 
 def _updated_fused_payload(
@@ -245,7 +284,113 @@ def _migrate_fused_metadata(
             current_metadata_path,
         )
         upsert_fused_session_record(dataset_root, record)
+        if remove_legacy_files and metadata_path != current_metadata_path and metadata_path.exists():
+            metadata_path.unlink()
+            _prune_empty_parents(metadata_path.parent, dataset_root)
     return record, converted, missing, 1
+
+
+def _migrate_imported_stack_records(
+    dataset_root: Path,
+    *,
+    dry_run: bool,
+    remove_legacy_files: bool,
+) -> tuple[int, int, int]:
+    converted = 0
+    removed = 0
+    missing = 0
+    migrated: list[ImportedStackRecord] = []
+
+    for record in iter_imported_stack_records(dataset_root):
+        image_target, did_convert, did_miss = _convert_image(
+            record.image_path,
+            _replace_image_suffix(record.image_path),
+            dry_run=dry_run,
+            remove_source=remove_legacy_files,
+        )
+        converted += int(did_convert)
+        missing += int(did_miss)
+        removed += _remove_existing_legacy_sibling(
+            image_target,
+            dry_run=dry_run,
+            remove_legacy_files=remove_legacy_files,
+        )
+
+        mask_targets: dict[str, Path] = {}
+        for role, path in sorted(record.mask_paths.items()):
+            target, did_convert, did_miss = _convert_image(
+                path,
+                _replace_image_suffix(path),
+                dry_run=dry_run,
+                remove_source=remove_legacy_files,
+            )
+            converted += int(did_convert)
+            missing += int(did_miss)
+            if target is not None:
+                mask_targets[role] = target
+            removed += _remove_existing_legacy_sibling(
+                target,
+                dry_run=dry_run,
+                remove_legacy_files=remove_legacy_files,
+            )
+
+        seg_target = None
+        if record.seg_path is not None:
+            seg_target, did_convert, did_miss = _convert_image(
+                record.seg_path,
+                _replace_image_suffix(record.seg_path),
+                dry_run=dry_run,
+                remove_source=remove_legacy_files,
+            )
+            converted += int(did_convert)
+            missing += int(did_miss)
+            removed += _remove_existing_legacy_sibling(
+                seg_target,
+                dry_run=dry_run,
+                remove_legacy_files=remove_legacy_files,
+            )
+
+        if image_target is not None:
+            migrated.append(
+                ImportedStackRecord(
+                    subject_id=record.subject_id,
+                    site=record.site,
+                    session_id=record.session_id,
+                    stack_index=record.stack_index,
+                    image_path=image_target,
+                    mask_paths=mask_targets,
+                    seg_path=seg_target,
+                    metadata_path=record.metadata_path,
+                    slice_range=record.slice_range,
+                )
+            )
+
+    if migrated and not dry_run:
+        upsert_imported_stack_records(dataset_root, migrated)
+    return converted, removed, missing
+
+
+def _migrate_common_region_images(
+    dataset_root: Path,
+    *,
+    dry_run: bool,
+    remove_legacy_files: bool,
+) -> tuple[int, int, int]:
+    converted = 0
+    removed = 0
+    missing = 0
+    for path in sorted(dataset_root.rglob("*_common-alltimepoints.mha")):
+        target, did_convert, did_miss = _convert_image(
+            path,
+            _replace_image_suffix(path),
+            dry_run=dry_run,
+            remove_source=remove_legacy_files,
+        )
+        converted += int(did_convert)
+        missing += int(did_miss)
+        if target is not None and target.exists() and not did_convert and remove_legacy_files:
+            removed += int(not did_convert)
+    return converted, removed, missing
 
 
 def _migrate_remodelling_images(
@@ -294,6 +439,15 @@ def migrate_legacy_dataset(
         raise FileNotFoundError(f"Dataset root does not exist: {dataset_root}")
 
     result = LegacyMigrationResult(dataset_root=dataset_root, dry_run=dry_run)
+    converted, removed, missing = _migrate_imported_stack_records(
+        dataset_root,
+        dry_run=dry_run,
+        remove_legacy_files=remove_legacy_files,
+    )
+    result.converted_images += converted
+    result.removed_legacy_images += removed
+    result.skipped_missing_images += missing
+
     for metadata_path in discover_legacy_fused_metadata_paths(dataset_root):
         _record, converted, missing, metadata_written = _migrate_fused_metadata(
             dataset_root,
@@ -313,5 +467,14 @@ def migrate_legacy_dataset(
     )
     result.converted_images += converted
     result.pruned_remodelling_images += pruned
+    result.skipped_missing_images += missing
+
+    converted, removed, missing = _migrate_common_region_images(
+        dataset_root,
+        dry_run=dry_run,
+        remove_legacy_files=remove_legacy_files,
+    )
+    result.converted_images += converted
+    result.removed_legacy_images += removed
     result.skipped_missing_images += missing
     return result

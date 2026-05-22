@@ -741,6 +741,7 @@ def _cmd_migrate_legacy(args: argparse.Namespace) -> int:
     print(f"{prefix}: dataset {result.dataset_root}")
     print(f"{prefix}: fused sessions discovered {result.fused_sessions}")
     print(f"{prefix}: images converted to NIfTI {result.converted_images}")
+    print(f"{prefix}: stale legacy .mha images removed {result.removed_legacy_images}")
     print(f"{prefix}: non-full remodelling images pruned {result.pruned_remodelling_images}")
     metadata_action = "planned" if result.dry_run else "written"
     print(f"{prefix}: metadata/index records {metadata_action} {result.metadata_written}")
@@ -1456,6 +1457,7 @@ def _cmd_analyse(args: argparse.Namespace) -> int:
                 visualize=visualize_pair,
                 subject_id_filter=args.subject,
                 site_filter=args.site,
+                profile=_config_profile(args),
                 benchmark=benchmark,
             )
     finally:

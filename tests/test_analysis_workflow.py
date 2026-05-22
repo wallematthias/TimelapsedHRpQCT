@@ -1101,6 +1101,7 @@ def test_discover_analysis_sessions_and_summary_metadata(tmp_path: Path) -> None
     meta = build_analysis_summary_metadata(
         dataset_root=dataset_root,
         subject_id="001",
+        profile="eth-uofc",
         use_filled_images=True,
         compartments=["trab", "full"],
         method="grayscale_and_binary",
@@ -1116,6 +1117,7 @@ def test_discover_analysis_sessions_and_summary_metadata(tmp_path: Path) -> None
     )
 
     assert meta["binary_state_source"] == "seg_fusedfilled"
+    assert meta["profile"] == "eth-uofc"
     assert meta["common_regions"]["trab"] == str(common_region_path(dataset_root, "001", "trab"))
     assert meta["analysis_metadata"] == str(analysis_metadata_path(dataset_root, "001"))
 
@@ -1134,6 +1136,7 @@ def test_run_analysis_detects_known_events_at_explicit_threshold(tmp_path: Path)
         config=config,
         thresholds=[225.0],
         clusters=[1],
+        profile="eth-uofc",
     )
 
     analysis_dir = (
@@ -1152,6 +1155,8 @@ def test_run_analysis_detects_known_events_at_explicit_threshold(tmp_path: Path)
     ].iloc[0]
 
     assert int(trab_row["formation_vox"]) == 1
+    assert trab_row["profile"] == "eth-uofc"
+    assert analysis_meta["profile"] == "eth-uofc"
     assert int(trab_row["resorption_vox"]) == 1
     assert int(trab_row["mineralisation_vox"]) == 1
     assert int(trab_row["demineralisation_vox"]) == 1
