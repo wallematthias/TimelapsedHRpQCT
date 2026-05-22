@@ -1254,6 +1254,47 @@ def test_run_analysis_pairwise_fixed_t0_records_space_in_metadata(tmp_path: Path
     assert int(pairwise_df.iloc[0]["formation_vox"]) == 1
 
 
+def test_run_analysis_pairwise_fixed_t0_skips_unregistered_imported_sessions(tmp_path: Path, capsys) -> None:
+    dataset_root = _build_pairwise_t0_single_stack_dataset(tmp_path / "dataset")
+    subject_id = "001"
+    shape = (5, 5, 5)
+    mask_full = np.zeros(shape, dtype=bool)
+    mask_full[1:4, 1:4, 1:4] = True
+    stack_dir = get_derivatives_root(dataset_root) / f"sub-{subject_id}" / "ses-C3" / "stacks"
+    stack_dir.mkdir(parents=True, exist_ok=True)
+    image_path = stack_dir / f"sub-{subject_id}_ses-C3_stack-01_image.mha"
+    full_path = stack_dir / f"sub-{subject_id}_ses-C3_stack-01_mask-full.mha"
+    meta_path = stack_dir / f"sub-{subject_id}_ses-C3_stack-01.json"
+    write_image(image_path, np.zeros(shape, dtype=np.float32))
+    write_image(full_path, mask_full.astype(np.uint8))
+    meta_path.write_text("{}", encoding="utf-8")
+    upsert_imported_stack_records(
+        dataset_root,
+        [ImportedStackRecord(subject_id, "C3", 1, image_path, {"full": full_path}, None, meta_path)],
+    )
+    config = AppConfig()
+    config.analysis = SimpleNamespace(
+        space="pairwise_fixed_t0",
+        method="grayscale_delta_only",
+        compartments=["full"],
+        thresholds=[225.0],
+        cluster_sizes=[1],
+        pair_mode="all_pairs",
+        use_filled_images=False,
+        gaussian_filter=False,
+        valid_region=SimpleNamespace(erosion_voxels=0),
+    )
+    config.visualization = SimpleNamespace(enabled=False, threshold=None, cluster_size=None)
+
+    run_analysis(dataset_root=dataset_root, config=config, thresholds=[225.0], clusters=[1])
+
+    pairwise_df = pd.read_csv(pairwise_remodelling_csv_path(dataset_root, subject_id))
+    captured = capsys.readouterr()
+    assert "skipping session(s) without analysis transforms: C3" in captured.out
+    assert set(pairwise_df["t0"]) == {"C1"}
+    assert set(pairwise_df["t1"]) == {"C2"}
+
+
 def test_run_analysis_pairwise_fixed_t0_reuses_resampled_density_across_parameter_grid(
     tmp_path: Path,
     monkeypatch,

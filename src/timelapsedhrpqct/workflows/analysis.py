@@ -994,32 +994,42 @@ def _pairwise_fixed_t0_outputs(
                 f"Skipping sub-{subject_id} site-{site}: need at least 2 sessions."
             )
         baseline_session = stack_records[0].session_id
-        analysis_sessions: list[_PairwiseSessionInputs] = [
-            _PairwiseSessionInputs(
-                session_id=record.session_id,
-                image_path=record.image_path,
-                seg_path=record.seg_path,
-                mask_paths=record.mask_paths,
-                target_from_baseline=_load_session_to_baseline_transform(
+        analysis_sessions: list[_PairwiseSessionInputs] = []
+        skipped_sessions: list[str] = []
+        for record in stack_records:
+            try:
+                transform_to_baseline = _load_session_to_baseline_transform(
                     dataset_root=dataset_root,
                     subject_id=subject_id,
                     site=site,
                     stack_index=stack_index,
                     session_id=record.session_id,
                     baseline_session=baseline_session,
-                ),
-                source_from_baseline=_load_session_to_baseline_transform(
-                    dataset_root=dataset_root,
-                    subject_id=subject_id,
-                    site=site,
-                    stack_index=stack_index,
+                )
+            except FileNotFoundError:
+                skipped_sessions.append(record.session_id)
+                continue
+            analysis_sessions.append(
+                _PairwiseSessionInputs(
                     session_id=record.session_id,
-                    baseline_session=baseline_session,
-                ),
+                    image_path=record.image_path,
+                    seg_path=record.seg_path,
+                    mask_paths=record.mask_paths,
+                    target_from_baseline=transform_to_baseline,
+                    source_from_baseline=sitk.Transform(transform_to_baseline),
+                )
             )
-            for record in stack_records
-        ]
-        baseline_ref = load_image(stack_records[0].image_path)
+        if skipped_sessions:
+            skipped_text = ", ".join(skipped_sessions)
+            print(
+                f"[analysis] sub-{subject_id} site-{site} stack-{stack_index:02d}: "
+                f"skipping session(s) without analysis transforms: {skipped_text}"
+            )
+        if len(analysis_sessions) < 2:
+            raise ValueError(
+                f"Skipping sub-{subject_id} site-{site}: need at least 2 sessions with analysis transforms."
+            )
+        baseline_ref = load_image(analysis_sessions[0].image_path)
         mode_desc = f"stack-{stack_index:02d} single-stack"
     else:
         require_seg = _analysis_requires_seg(params.method)
