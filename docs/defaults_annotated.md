@@ -29,15 +29,16 @@ This page summarizes the active settings in `src/timelapsedhrpqct/configs/defaul
 
 ### `masks.inner`
 
-Controls inner contour extraction (`endosteal_threshold`, `peel`, `trabecular_close_radius`, adaptive controls, morphology controls).
+Controls inner contour morphology (`peel`, `trabecular_close_radius`, morphology controls). Binarization follows `masks.segmentation`.
 
 ### `masks.outer`
 
-Controls outer contour extraction (`periosteal_threshold`, `periosteal_kernelsize`, adaptive controls, morphology controls).
+Controls outer contour morphology (`periosteal_kernelsize`, opening/fill controls, morphology controls). Binarization follows `masks.segmentation`.
 
 ### `masks.segmentation`
 
 - `method: adaptive`
+- Single source of truth for generated contour-support and segmentation binarization.
 - Adaptive/seg_gauss/Laplace-Hamming thresholds and filtering controls (`adaptive_*`, `trab_threshold`, `cort_threshold`, `laplace_hamming_*`, `min_size_voxels`).
 
 ## `timelapsed_registration`

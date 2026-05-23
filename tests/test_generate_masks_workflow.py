@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import numpy as np
@@ -194,7 +195,9 @@ def test_adaptive_mode_regenerates_segmentation_when_masks_change(
 
     monkeypatch.setattr(
         "timelapsedhrpqct.workflows.generate_masks.generate_masks_from_image",
-        lambda image, params, verbose=False: _Result(sitk.Cast(image > -1, sitk.sitkUInt8)),
+        lambda image, params, segmentation_image=None, verbose=False: _Result(
+            sitk.Cast(image > -1, sitk.sitkUInt8)
+        ),
     )
 
     config = AppConfig()
@@ -208,6 +211,103 @@ def test_adaptive_mode_regenerates_segmentation_when_masks_change(
     seg_out = stack_dir / f"{stem}_seg.nii.gz"
     assert cort_out.exists()
     assert seg_out.exists()
+
+
+def test_laplace_hamming_mask_generation_passes_scanco_hu_to_contour_support(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    dataset_root = tmp_path / "dataset"
+    stack_dir = get_derivatives_root(dataset_root) / "sub-001" / "site-tibia" / "ses-T1" / "stacks"
+    stack_dir.mkdir(parents=True, exist_ok=True)
+
+    stem = "sub-001_site-tibia_ses-T1_stack-01"
+    image_path = stack_dir / f"{stem}_image.mha"
+    metadata_path = stack_dir / f"{stem}.json"
+    source_aim = tmp_path / "scan.AIM"
+    source_aim.write_bytes(b"placeholder")
+
+    reference = sitk.GetImageFromArray(np.zeros((3, 4, 5), dtype=np.float32))
+    reference.SetSpacing((0.061, 0.061, 0.061))
+    scanco_image = sitk.GetImageFromArray(np.full((3, 4, 5), 1234, dtype=np.int16))
+    scanco_image.CopyInformation(reference)
+    sitk.WriteImage(reference, str(image_path))
+    metadata_path.write_text(
+        json.dumps(
+            {
+                "source_image": str(source_aim),
+                "slice_range": {"stack_index": 1, "z_start": 0, "z_stop": 3, "depth": 3},
+                "crop": {"applied": False},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    upsert_imported_stack_records(
+        dataset_root,
+        [
+            ImportedStackRecord(
+                subject_id="001",
+                site="tibia",
+                session_id="T1",
+                stack_index=1,
+                image_path=image_path,
+                mask_paths={},
+                seg_path=None,
+                metadata_path=metadata_path,
+            )
+        ],
+    )
+
+    class _Result:
+        def __init__(self, img):
+            self.full = img
+            self.trab = img
+            self.cort = img
+            self.seg = img
+            self.mask_provenance = {"full": "generated", "trab": "generated", "cort": "generated"}
+            self.metadata = {"source": "test"}
+
+    captured = {}
+
+    def fake_read_laplace_hamming_aim(path: Path):
+        captured["read_laplace_hamming_aim"] = Path(path)
+        return scanco_image
+
+    def fake_generate_masks_from_image(image, params, segmentation_image=None, verbose=False):
+        captured["segmentation_input_value"] = int(
+            sitk.GetArrayFromImage(segmentation_image)[0, 0, 0]
+        )
+        return _Result(sitk.Cast(image == 0, sitk.sitkUInt8))
+
+    def fail_generate_segmentation_image(**kwargs):
+        raise AssertionError("LH segmentation should be reused from contour generation")
+
+    monkeypatch.setattr(
+        "timelapsedhrpqct.workflows.generate_masks._read_laplace_hamming_aim",
+        fake_read_laplace_hamming_aim,
+    )
+    monkeypatch.setattr(
+        "timelapsedhrpqct.workflows.generate_masks.generate_masks_from_image",
+        fake_generate_masks_from_image,
+    )
+    monkeypatch.setattr(
+        "timelapsedhrpqct.workflows.generate_masks._generate_segmentation_image",
+        fail_generate_segmentation_image,
+    )
+
+    config = AppConfig()
+    config.masks.generate = True
+    config.masks.generate_segmentation = True
+    config.masks.segmentation.method = "laplace_hamming"
+
+    run_mask_generation(dataset_root, config)
+
+    assert captured["read_laplace_hamming_aim"] == source_aim
+    assert captured["segmentation_input_value"] == 1234
+    meta = metadata_path.read_text(encoding="utf-8")
+    assert '"segmentation_input_unit": "scanco_hu_int16"' in meta
+    assert (stack_dir / f"{stem}_seg.nii.gz").exists()
 
 
 def test_laplace_hamming_segmentation_uses_scanco_hu_int16_values(

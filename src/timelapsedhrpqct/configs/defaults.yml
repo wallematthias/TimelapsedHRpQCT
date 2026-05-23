@@ -115,28 +115,20 @@ masks:
   # Options: true | false.
   generate_segmentation: true
 
-  # Site-specific contour defaults. Thresholds are in BMD units. Kernel/radius,
-  # padding, peel, and margin values are voxel counts.
+  # Site-specific contour defaults. Binarization follows masks.segmentation.method;
+  # these site presets only control contour morphology, padding, peel, and margins.
+  # Kernel/radius, padding, peel, and margin values are voxel counts.
   site_defaults:
     radius:
       inner:
-        # Endosteal threshold; reasonable range: 250-800.
-        endosteal_threshold: 500
         # Endosteal morphology kernel size; reasonable odd range: 1-15.
         endosteal_kernelsize: 3
-        # Gaussian smoothing sigma in voxels before contouring; range: 0-3.
-        gaussian_sigma: 1.5
-        # Gaussian truncation radius in sigma units; range: 0.5-4.
-        gaussian_truncate: 1.0
         # Voxels peeled from cortex/marrow boundary; range: 0-8.
         peel: 3
         # Closing radius for trabecular/marrow cavity support; range: 5-50.
         trabecular_close_radius: 15
         # Initial padding around contour operations; range: 0-80 voxels.
         init_pad: 30
-        # Use adaptive rather than fixed thresholding for this contour.
-        # Options: true | false.
-        use_adaptive_threshold: false
         # Downsample factor for morphology; range: 1-4.
         morphology_downsample_factor: 1
         # Refine contour edges after coarse morphology.
@@ -145,16 +137,10 @@ masks:
         # Width of edge refinement band in voxels; range: 1-10.
         morphology_refine_band_voxels: 3
       outer:
-        # Periosteal threshold; reasonable range: 100-600.
-        periosteal_threshold: 300
         # Periosteal morphology kernel size; reasonable odd range: 1-25.
         periosteal_kernelsize: 5
         # Opening radius for small exterior connections; range: 0-15.
         periosteal_open_radius: 2
-        # Gaussian smoothing sigma in voxels before contouring; range: 0-3.
-        gaussian_sigma: 1.5
-        # Gaussian truncation radius in sigma units; range: 0.5-4.
-        gaussian_truncate: 1.0
         # Depth interval used for expansion/refinement; two voxel counts, range: 0-20.
         expansion_depth: [0, 5]
         # Initial padding around contour operations; range: 0-80 voxels.
@@ -162,9 +148,6 @@ masks:
         # Fill holes in the periosteal mask.
         # Options: true | false.
         fill_holes: true
-        # Use adaptive rather than fixed thresholding for this contour.
-        # Options: true | false.
-        use_adaptive_threshold: true
         # Downsample factor for morphology; range: 1-4.
         morphology_downsample_factor: 1
         # Refine contour edges after coarse morphology.
@@ -175,23 +158,14 @@ masks:
 
     tibia:
       inner:
-        # Endosteal threshold; reasonable range: 250-800.
-        endosteal_threshold: 500
         # Endosteal morphology kernel size; reasonable odd range: 1-15.
         endosteal_kernelsize: 3
-        # Gaussian smoothing sigma in voxels before contouring; range: 0-3.
-        gaussian_sigma: 1.5
-        # Gaussian truncation radius in sigma units; range: 0.5-4.
-        gaussian_truncate: 1.0
         # Voxels peeled from cortex/marrow boundary; range: 0-8.
         peel: 3
         # Closing radius for trabecular/marrow cavity support; range: 5-60.
         trabecular_close_radius: 25
         # Initial padding around contour operations; range: 0-80 voxels.
         init_pad: 30
-        # Use adaptive rather than fixed thresholding for this contour.
-        # Options: true | false.
-        use_adaptive_threshold: false
         # Downsample factor for morphology; range: 1-4.
         morphology_downsample_factor: 1
         # Refine contour edges after coarse morphology.
@@ -200,16 +174,10 @@ masks:
         # Width of edge refinement band in voxels; range: 1-10.
         morphology_refine_band_voxels: 3
       outer:
-        # Periosteal threshold; reasonable range: 100-600.
-        periosteal_threshold: 300
         # Periosteal morphology kernel size; reasonable odd range: 1-25.
         periosteal_kernelsize: 5
         # Opening radius for small exterior connections; range: 0-15.
         periosteal_open_radius: 2
-        # Gaussian smoothing sigma in voxels before contouring; range: 0-3.
-        gaussian_sigma: 1.5
-        # Gaussian truncation radius in sigma units; range: 0.5-4.
-        gaussian_truncate: 1.0
         # Depth interval used for expansion/refinement; two voxel counts, range: 0-20.
         expansion_depth: [0, 5]
         # Initial padding around contour operations; range: 0-80 voxels.
@@ -217,9 +185,6 @@ masks:
         # Fill holes in the periosteal mask.
         # Options: true | false.
         fill_holes: true
-        # Use adaptive rather than fixed thresholding for this contour.
-        # Options: true | false.
-        use_adaptive_threshold: false
         # Downsample factor for morphology; range: 1-4.
         morphology_downsample_factor: 1
         # Refine contour edges after coarse morphology.
@@ -230,23 +195,14 @@ masks:
 
     knee:
       inner:
-        # Knee endosteal threshold; reasonable range: 100-600.
-        endosteal_threshold: 250
         # Knee endosteal morphology kernel size; reasonable odd range: 1-25.
         endosteal_kernelsize: 3
-        # Gaussian smoothing sigma in voxels before contouring; range: 0-4.
-        gaussian_sigma: 2.0
-        # Gaussian truncation radius in sigma units; range: 0.5-4.
-        gaussian_truncate: 1.0
         # Voxels peeled from cortex/marrow boundary; range: 0-10.
         peel: 4
         # Closing radius for knee trabecular/marrow cavity support; range: 10-80.
         trabecular_close_radius: 36
         # Initial padding around contour operations; range: 0-120 voxels.
         init_pad: 30
-        # Use adaptive rather than fixed thresholding for this contour.
-        # Options: true | false.
-        use_adaptive_threshold: false
         # Downsample factor for morphology; range: 1-5.
         morphology_downsample_factor: 3
         # Refine contour edges after coarse morphology.
@@ -255,16 +211,10 @@ masks:
         # Width of edge refinement band in voxels; range: 1-15.
         morphology_refine_band_voxels: 3
       outer:
-        # Knee periosteal threshold; reasonable range: 50-400.
-        periosteal_threshold: 150
         # Knee periosteal morphology kernel size; reasonable odd range: 3-35.
         periosteal_kernelsize: 16
         # Opening radius for small exterior connections; range: 0-20.
         periosteal_open_radius: 8
-        # Gaussian smoothing sigma in voxels before contouring; range: 0-4.
-        gaussian_sigma: 1.5
-        # Gaussian truncation radius in sigma units; range: 0.5-4.
-        gaussian_truncate: 1.0
         # Depth interval used for expansion/refinement; two voxel counts, range: 0-20.
         expansion_depth: [0, 5]
         # Initial padding around contour operations; range: 0-120 voxels.
@@ -272,9 +222,6 @@ masks:
         # Fill holes in the periosteal mask.
         # Options: true | false.
         fill_holes: true
-        # Use adaptive rather than fixed thresholding for this contour.
-        # Options: true | false.
-        use_adaptive_threshold: false
         # Downsample factor for morphology; range: 1-5.
         morphology_downsample_factor: 3
         # Refine contour edges after coarse morphology.

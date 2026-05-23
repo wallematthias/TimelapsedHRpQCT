@@ -5,7 +5,9 @@ import SimpleITK as sitk
 
 from timelapsedhrpqct.processing.contour_generation import (
     ContourGenerationParams,
+    _contour_support_binarization_xyz,
     generate_masks_from_image,
+    segmentation_aligned_contour_params,
     sitk_to_numpy_xyz,
 )
 from timelapsedhrpqct.processing.laplace_hamming import (
@@ -133,6 +135,85 @@ def test_generate_masks_preserves_boundary_trabecular_compartment() -> None:
     # Boundary slices should not collapse to all-cortical from z-direction peeling.
     assert trab_mask[:, :, -1].any()
     assert not np.array_equal(cort_mask[:, :, -2], full[:, :, -2])
+
+
+def test_seg_gauss_contour_support_uses_segmentation_thresholds_and_sigma() -> None:
+    params = ContourGenerationParams()
+    params.outer.periosteal_threshold = 300.0
+    params.outer.gaussian_sigma = 1.5
+    params.outer.use_adaptive_threshold = True
+    params.inner.endosteal_threshold = 500.0
+    params.inner.gaussian_sigma = 1.5
+    params.inner.use_adaptive_threshold = True
+    params.segmentation.method = "seg_gauss"
+    params.segmentation.gaussian_sigma = 0.8
+    params.segmentation.trab_threshold = 320.0
+    params.segmentation.cort_threshold = 450.0
+
+    aligned = segmentation_aligned_contour_params(params)
+
+    assert aligned.outer.periosteal_threshold == 320.0
+    assert aligned.outer.gaussian_sigma == 0.8
+    assert aligned.outer.use_adaptive_threshold is False
+    assert aligned.inner.endosteal_threshold == 450.0
+    assert aligned.inner.gaussian_sigma == 0.8
+    assert aligned.inner.use_adaptive_threshold is False
+    assert params.outer.periosteal_threshold == 300.0
+    assert params.inner.endosteal_threshold == 500.0
+
+
+def test_generate_masks_from_image_uses_seg_gauss_thresholds_for_contour_support() -> None:
+    image_xyz = np.zeros((32, 32, 8), dtype=np.float32)
+    image_xyz[8:24, 8:24, 2:6] = 340.0
+    image = sitk.GetImageFromArray(np.transpose(image_xyz, (2, 1, 0)))
+
+    params = ContourGenerationParams()
+    params.outer.use_adaptive_threshold = False
+    params.outer.periosteal_threshold = 500.0
+    params.outer.periosteal_kernelsize = 1
+    params.outer.periosteal_open_radius = 0
+    params.inner.use_adaptive_threshold = False
+    params.inner.endosteal_threshold = 500.0
+    params.inner.trabecular_close_radius = 0
+    params.inner.endosteal_kernelsize = 0
+    params.inner.peel = 0
+    params.segmentation.method = "seg_gauss"
+    params.segmentation.gaussian_sigma = 0.0
+    params.segmentation.trab_threshold = 320.0
+    params.segmentation.cort_threshold = 450.0
+    params.segmentation.min_size_voxels = 0
+
+    result = generate_masks_from_image(image, params)
+
+    assert (sitk_to_numpy_xyz(result.full) > 0).any()
+    assert result.metadata["contour_support"]["method"] == "seg_gauss"
+    assert result.metadata["contour_support"]["outer_threshold"] == 320.0
+    assert result.metadata["contour_support"]["inner_threshold"] == 450.0
+
+
+def test_contour_support_without_full_mask_does_not_drop_nonpositive_hu_values() -> None:
+    image_xyz = np.full((4, 4, 4), -50.0, dtype=np.float32)
+    params = ContourGenerationParams().segmentation
+    params.method = "laplace_hamming"
+    params.laplace_hamming_low_pass_cutoff = 1.0
+    params.laplace_hamming_epsilon = 0.0
+    params.laplace_hamming_amplitude = 0.0
+    params.laplace_hamming_input_offset = 100.0
+    params.laplace_hamming_ipl_scale_a = 1.0
+    params.laplace_hamming_ipl_scale_b = 0.0
+    params.laplace_hamming_ipl_float_max = 10000.0
+    params.laplace_hamming_int16_max = 10000.0
+    params.laplace_hamming_threshold = 10.0
+    params.laplace_hamming_min_size_voxels = 0
+
+    support = _contour_support_binarization_xyz(
+        image_xyz,
+        params=params,
+        spacing_xyz=(1.0, 1.0, 1.0),
+    )
+
+    assert support is not None
+    assert support.all()
 
 
 def test_laplace_hamming_binarize_restricts_to_full_mask_and_removes_small_components() -> None:

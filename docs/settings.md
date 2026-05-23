@@ -50,36 +50,35 @@ If you only want to work with a total mask, set `roles: ["full"]`. In that case 
 
 ### `masks.outer`
 
-Parameters for outer contour estimation.
+Parameters for outer contour morphology. The temporary bone binarization used
+to seed the contour follows `masks.segmentation.method`; set thresholds and
+filtering there, not here.
 
 Key options:
 
-- `periosteal_threshold`
 - `periosteal_kernelsize`
 - `periosteal_open_radius`
-- `gaussian_sigma`
-- `gaussian_truncate`
 - `expansion_depth`
 - `fill_holes`
-- `use_adaptive_threshold`
 
 ### `masks.inner`
 
-Parameters for inner contour estimation.
+Parameters for inner contour morphology. The temporary cortical/bone support
+used by the inner contour also follows `masks.segmentation.method`.
 
 Key options:
 
 - `site`: fallback site when no filename pattern matches
-- `endosteal_threshold`
 - `endosteal_kernelsize`
 - `peel`
 - `expansion_depth`
 - `trabecular_close_radius`
-- `use_adaptive_threshold`
 
 ### `masks.segmentation`
 
-Controls segmentation from stack images and masks.
+Controls segmentation from stack images and masks. This is also the single
+place that controls the temporary binarization used to seed generated full,
+trabecular, and cortical contours.
 
 - `method`: `adaptive`, `seg_gauss`, or `laplace_hamming`
 - `gaussian_sigma`: Gaussian smoothing sigma before `seg_gauss` thresholding; converted internally to physical units using image spacing
@@ -105,7 +104,7 @@ Controls segmentation from stack images and masks.
 
 `seg_gauss` is the former `global` method: Gaussian smoothing followed by trabecular/cortical thresholds. Old configs that say `global` are still accepted as a compatibility alias.
 
-For `laplace_hamming`, generated masks still come from the imported BMD image, but the segmentation itself re-reads the original AIM as Scanco-style signed-short HU values because the reference threshold is calibrated on that scale.
+For `laplace_hamming`, the contour support and segmentation both use the original AIM re-read as Scanco-style signed-short HU values because the reference threshold is calibrated on that scale. The grayscale imported BMD image is still used as the geometric/intensity image for the contour morphology.
 
 ## `timelapsed_registration`
 

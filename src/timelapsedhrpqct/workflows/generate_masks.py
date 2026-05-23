@@ -280,6 +280,44 @@ def _generate_segmentation_image(
     return _copy_information_from_reference(seg, reference_image), source_meta
 
 
+def _segmentation_input_for_mask_generation(
+    *,
+    item: StackImageInput,
+    metadata: dict,
+    reference_image: sitk.Image,
+    params: ContourGenerationParams,
+) -> tuple[sitk.Image | None, dict[str, object]]:
+    """
+    Return the image scale used by segmentation-aligned contour support.
+
+    The normal imported stack is calibrated BMD/density and is also the
+    contour image, so callers can pass None and let the processing layer use
+    the main image. Laplace-Hamming is the one exception: its threshold is
+    calibrated to Scanco signed-short HU AIM values, so the support image must
+    be reconstructed from the raw AIM once and reused for support plus SEG.
+    """
+    if params.segmentation.method != "laplace_hamming":
+        return None, {
+            "segmentation_input_unit": "bmd",
+            "segmentation_input_path": str(item.image_path),
+        }
+
+    raw_image_path = _metadata_raw_image_path(metadata)
+    return (
+        _laplace_hamming_stack_image(
+            item=item,
+            metadata=metadata,
+            reference_image=reference_image,
+        ),
+        {
+            "segmentation_input_unit": "scanco_hu_int16",
+            "segmentation_input_reader": "py_aimio_hu_int16",
+            "segmentation_input_path": str(raw_image_path),
+            "segmentation_input_reason": "Laplace-Hamming threshold is calibrated for Scanco signed-short HU AIM values.",
+        },
+    )
+
+
 def _derive_params(config: AppConfig) -> ContourGenerationParams:
     """Helper for derive params."""
     params = ContourGenerationParams()
@@ -502,10 +540,17 @@ def run_mask_generation(dataset_root: str | Path, config: AppConfig, benchmark=N
 
         # Case 1: one or more masks missing -> generate masks + seg
         if need_generate_masks:
+            segmentation_image, segmentation_source_meta = _segmentation_input_for_mask_generation(
+                item=item,
+                metadata=meta,
+                reference_image=image,
+                params=params,
+            )
             print("[timelapse]   running contour generation")
             result = generate_masks_from_image(
                 image=image,
                 params=params,
+                segmentation_image=segmentation_image,
                 verbose=verbose_masks,
             )
             print("[timelapse]   contour generation complete")
@@ -526,30 +571,6 @@ def run_mask_generation(dataset_root: str | Path, config: AppConfig, benchmark=N
                 wrote.append("cort")
 
             if need_generate_seg:
-                if seg_method == "laplace_hamming":
-                    print("[timelapse]   regenerating segmentation from native Scanco AIM values")
-                    with benchmark.section(
-                        "generate_masks.segmentation",
-                        subject_id=item.subject_id,
-                        site=item.site,
-                        session_id=item.session_id,
-                        stack_index=item.stack_index,
-                        method=seg_method,
-                    ) if benchmark is not None else nullcontext():
-                        seg, segmentation_source_meta = _generate_segmentation_image(
-                            item=item,
-                            metadata=meta,
-                            reference_image=image,
-                            full_mask=result.full,
-                            trab_mask=result.trab,
-                            cort_mask=result.cort,
-                            params=params,
-                            verbose=verbose_masks,
-                        )
-                    result.seg = seg
-                    result.metadata.setdefault("voxel_counts", {})["seg"] = int(
-                        sitk.GetArrayViewFromImage(result.seg).sum()
-                    )
                 print("[timelapse]   writing segmentation")
                 sitk.WriteImage(result.seg, str(paths["seg"]))
                 wrote.append("seg")

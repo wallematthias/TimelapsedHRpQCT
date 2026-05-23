@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+import yaml
 
 from timelapsedhrpqct.config.loader import load_config
 
@@ -18,6 +19,28 @@ def test_example_configs_exist_and_load() -> None:
     assert cfg.multistack_correction.enabled is True
     assert cfg.fusion.enable_filling is False
     assert cfg.analysis.use_filled_images is False
+
+
+def test_default_site_presets_keep_binarization_in_segmentation_section() -> None:
+    repo_root = Path(__file__).resolve().parents[1]
+    defaults_path = repo_root / "src" / "timelapsedhrpqct" / "configs" / "defaults.yml"
+    data = yaml.safe_load(defaults_path.read_text(encoding="utf-8"))
+
+    forbidden = {
+        "endosteal_threshold",
+        "periosteal_threshold",
+        "gaussian_sigma",
+        "gaussian_truncate",
+        "use_adaptive_threshold",
+    }
+    for preset in data["masks"]["site_defaults"].values():
+        assert forbidden.isdisjoint((preset.get("inner") or {}).keys())
+        assert forbidden.isdisjoint((preset.get("outer") or {}).keys())
+
+    segmentation = data["masks"]["segmentation"]
+    assert {"method", "trab_threshold", "cort_threshold", "adaptive_low_threshold"}.issubset(
+        segmentation
+    )
 
 
 def test_unknown_config_keys_warn(tmp_path: Path) -> None:

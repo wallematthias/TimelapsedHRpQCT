@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import copy
 import time
 from dataclasses import asdict, dataclass, field
 from typing import Any
@@ -98,6 +99,102 @@ class GeneratedContours:
     cort: sitk.Image
     mask_provenance: dict[str, str]
     metadata: dict[str, Any]
+
+
+def segmentation_aligned_contour_params(params: ContourGenerationParams) -> ContourGenerationParams:
+    """Return contour params whose support thresholds follow the segmentation method."""
+    aligned = copy.deepcopy(params)
+    method = "seg_gauss" if aligned.segmentation.method == "global" else aligned.segmentation.method
+
+    if method == "seg_gauss":
+        aligned.outer.use_adaptive_threshold = False
+        aligned.outer.periosteal_threshold = float(aligned.segmentation.trab_threshold)
+        aligned.outer.gaussian_sigma = float(aligned.segmentation.gaussian_sigma)
+        aligned.inner.use_adaptive_threshold = False
+        aligned.inner.endosteal_threshold = float(aligned.segmentation.cort_threshold)
+        aligned.inner.gaussian_sigma = float(aligned.segmentation.gaussian_sigma)
+    elif method == "adaptive":
+        aligned.outer.use_adaptive_threshold = True
+        aligned.inner.use_adaptive_threshold = True
+        aligned.outer.gaussian_sigma = float(aligned.segmentation.gaussian_sigma)
+        aligned.inner.gaussian_sigma = float(aligned.segmentation.gaussian_sigma)
+
+    return aligned
+
+
+def _contour_support_metadata(params: ContourGenerationParams) -> dict[str, Any]:
+    method = "seg_gauss" if params.segmentation.method == "global" else params.segmentation.method
+    return {
+        "method": method,
+        "outer_threshold": float(params.outer.periosteal_threshold),
+        "inner_threshold": float(params.inner.endosteal_threshold),
+        "gaussian_sigma": float(params.outer.gaussian_sigma),
+        "outer_use_adaptive_threshold": bool(params.outer.use_adaptive_threshold),
+        "inner_use_adaptive_threshold": bool(params.inner.use_adaptive_threshold),
+    }
+
+
+def _contour_support_binarization_xyz(
+    image_xyz: np.ndarray,
+    *,
+    params: SegmentationParams,
+    spacing_xyz: tuple[float, float, float] | None = None,
+    full_mask_xyz: np.ndarray | None = None,
+    role: str = "outer",
+) -> np.ndarray | None:
+    """Create the temporary contour-support binarization with the selected segmentation method."""
+    if not params.enabled:
+        return None
+
+    method = "seg_gauss" if params.method == "global" else params.method
+    if full_mask_xyz is None:
+        full_mask = np.ones(np.asarray(image_xyz).shape, dtype=bool)
+    else:
+        full_mask = _ensure_bool(full_mask_xyz)
+
+    if method == "seg_gauss":
+        filtered = _smooth_density_xyz(
+            np.asarray(image_xyz, dtype=np.float32),
+            sigma=float(params.gaussian_sigma),
+            truncate=4.0,
+            spacing_xyz=spacing_xyz,
+        )
+        threshold = params.trab_threshold if role == "outer" else params.cort_threshold
+        support = filtered >= float(threshold)
+    elif method == "adaptive":
+        support = combined_threshold(
+            np.asarray(image_xyz, dtype=np.float32),
+            spacing_xyz=spacing_xyz,
+            low_threshold=float(params.adaptive_low_threshold),
+            high_threshold=float(params.adaptive_high_threshold),
+            block_size=int(params.adaptive_block_size),
+            min_size=int(params.min_size_voxels),
+        )
+    elif method == "laplace_hamming":
+        support = laplace_hamming_binarize_xyz(
+            np.asarray(image_xyz, dtype=np.float32),
+            full_mask_xyz=full_mask,
+            spacing_xyz=spacing_xyz,
+            params=LaplaceHammingParams(
+                low_pass_cutoff=float(params.laplace_hamming_low_pass_cutoff),
+                high_pass_cutoff=float(params.laplace_hamming_high_pass_cutoff),
+                laplace_epsilon=float(params.laplace_hamming_epsilon),
+                hamming_amplitude=float(params.laplace_hamming_amplitude),
+                amplification=float(params.laplace_hamming_amplification),
+                input_offset=float(params.laplace_hamming_input_offset),
+                ipl_scale_a=float(params.laplace_hamming_ipl_scale_a),
+                ipl_scale_b=float(params.laplace_hamming_ipl_scale_b),
+                ipl_float_max=float(params.laplace_hamming_ipl_float_max),
+                int16_max=float(params.laplace_hamming_int16_max),
+                threshold=float(params.laplace_hamming_threshold),
+                min_size_voxels=int(params.laplace_hamming_min_size_voxels),
+                backend=str(params.laplace_hamming_backend),
+            ),
+        )
+    else:
+        return None
+
+    return _ensure_bool(support) & full_mask
 
 
 def _log_step(verbose: bool, label: str, start_time: float) -> float:
@@ -932,6 +1029,7 @@ def outer_contour(
     density_xyz: np.ndarray,
     spacing_xyz: tuple[float, float, float] | None = None,
     options: dict[str, Any] | None = None,
+    support_mask_xyz: np.ndarray | None = None,
     verbose: bool = False,
 ) -> tuple[np.ndarray, dict[str, Any]]:
     """
@@ -972,20 +1070,26 @@ def outer_contour(
     morphology_refine_edges = bool(opt.get("morphology_refine_edges", False))
     morphology_refine_band_voxels = int(opt.get("morphology_refine_band_voxels", 3))
     morphology_refine_stats: dict[str, dict[str, int]] = {}
-    filtered = _sitk_gaussian(
-        image_sitk,
-        sigma=float(opt["gaussian_sigma"]),
-        truncate=float(opt["gaussian_truncate"]),
-    )
-    started = _log_step(verbose, "outer gaussian", started)
-
-    if bool(opt.get("use_adaptive_threshold", True)):
-        thresholded_xyz = combined_threshold(sitk_to_numpy_xyz(filtered), spacing_xyz=spacing_xyz)
-        thresholded = numpy_xyz_to_sitk_scalar(thresholded_xyz.astype(np.float32), spacing_xyz=spacing_xyz) > 0
+    if support_mask_xyz is not None:
+        support_cropped = _ensure_bool(support_mask_xyz)[bb]
+        thresholded = numpy_xyz_to_sitk_scalar(support_cropped.astype(np.float32), spacing_xyz=spacing_xyz) > 0
         thresholded = sitk.Cast(thresholded, sitk.sitkUInt8)
+        started = _log_step(verbose, "outer support binarization", started)
     else:
-        thresholded = _sitk_binary_threshold(filtered, lower=float(opt["periosteal_threshold"]))
-    started = _log_step(verbose, "outer threshold", started)
+        filtered = _sitk_gaussian(
+            image_sitk,
+            sigma=float(opt["gaussian_sigma"]),
+            truncate=float(opt["gaussian_truncate"]),
+        )
+        started = _log_step(verbose, "outer gaussian", started)
+
+        if bool(opt.get("use_adaptive_threshold", True)):
+            thresholded_xyz = combined_threshold(sitk_to_numpy_xyz(filtered), spacing_xyz=spacing_xyz)
+            thresholded = numpy_xyz_to_sitk_scalar(thresholded_xyz.astype(np.float32), spacing_xyz=spacing_xyz) > 0
+            thresholded = sitk.Cast(thresholded, sitk.sitkUInt8)
+        else:
+            thresholded = _sitk_binary_threshold(filtered, lower=float(opt["periosteal_threshold"]))
+        started = _log_step(verbose, "outer threshold", started)
 
     thresholded = sitk.Mask(thresholded, _sitk_binary_threshold(image_sitk, lower=1.0))
     thresholded_seed = sitk.Cast(thresholded > 0, sitk.sitkUInt8)
@@ -1048,6 +1152,7 @@ def inner_contour(
     site: str = "radius",
     spacing_xyz: tuple[float, float, float] | None = None,
     options: dict[str, Any] | None = None,
+    support_mask_xyz: np.ndarray | None = None,
     verbose: bool = False,
 ) -> tuple[np.ndarray, np.ndarray]:
     """
@@ -1094,22 +1199,30 @@ def inner_contour(
     )
     masked_image = sitk.Mask(image_sitk, peri_mask)
 
-    filtered = _sitk_gaussian(
-        masked_image,
-        sigma=float(opt["gaussian_sigma"]),
-        truncate=float(opt["gaussian_truncate"]),
-    )
-    started = _log_step(verbose, "inner gaussian", started)
-
-    if bool(opt.get("use_adaptive_threshold", False)):
-        cortical_xyz = combined_threshold(sitk_to_numpy_xyz(filtered), spacing_xyz=spacing_xyz)
+    if support_mask_xyz is not None:
+        support_cropped = _ensure_bool(support_mask_xyz)[bb]
         cortical_mask = sitk.Cast(
-            numpy_xyz_to_sitk_scalar(cortical_xyz.astype(np.float32), spacing_xyz=spacing_xyz) > 0,
+            numpy_xyz_to_sitk_scalar(support_cropped.astype(np.float32), spacing_xyz=spacing_xyz) > 0,
             sitk.sitkUInt8,
         )
+        started = _log_step(verbose, "inner support binarization", started)
     else:
-        cortical_mask = _sitk_binary_threshold(filtered, lower=float(opt["endosteal_threshold"]))
-    started = _log_step(verbose, "inner cortical threshold", started)
+        filtered = _sitk_gaussian(
+            masked_image,
+            sigma=float(opt["gaussian_sigma"]),
+            truncate=float(opt["gaussian_truncate"]),
+        )
+        started = _log_step(verbose, "inner gaussian", started)
+
+        if bool(opt.get("use_adaptive_threshold", False)):
+            cortical_xyz = combined_threshold(sitk_to_numpy_xyz(filtered), spacing_xyz=spacing_xyz)
+            cortical_mask = sitk.Cast(
+                numpy_xyz_to_sitk_scalar(cortical_xyz.astype(np.float32), spacing_xyz=spacing_xyz) > 0,
+                sitk.sitkUInt8,
+            )
+        else:
+            cortical_mask = _sitk_binary_threshold(filtered, lower=float(opt["endosteal_threshold"]))
+        started = _log_step(verbose, "inner cortical threshold", started)
 
     cortical_mask = sitk.Mask(cortical_mask, peri_mask)
 
@@ -1169,6 +1282,7 @@ def inner_contour(
 def generate_masks_from_image(
     image: sitk.Image,
     params: ContourGenerationParams,
+    segmentation_image: sitk.Image | None = None,
     verbose: bool = False,
 ) -> GeneratedContours:
     """
@@ -1177,23 +1291,46 @@ def generate_masks_from_image(
     Returns SimpleITK uint8 binary masks with identical geometry to the input image.
     """
     started = time.perf_counter()
+    contour_params = segmentation_aligned_contour_params(params)
     image_xyz = sitk_to_numpy_xyz(image)
+    segmentation_source = segmentation_image if segmentation_image is not None else image
+    segmentation_image_xyz = sitk_to_numpy_xyz(segmentation_source)
     spacing_xyz = tuple(float(v) for v in image.GetSpacing())
+    if segmentation_image_xyz.shape != image_xyz.shape:
+        raise ValueError(
+            "Segmentation support image shape does not match contour image: "
+            f"{segmentation_image_xyz.shape} != {image_xyz.shape}"
+        )
     started = _log_step(verbose, "image to numpy", started)
+    outer_support_xyz = _contour_support_binarization_xyz(
+        segmentation_image_xyz,
+        params=params.segmentation,
+        spacing_xyz=spacing_xyz,
+        role="outer",
+    )
 
     full_xyz, outer_refine_meta = outer_contour(
         image_xyz,
         spacing_xyz=spacing_xyz,
-        options=asdict(params.outer),
+        options=asdict(contour_params.outer),
+        support_mask_xyz=outer_support_xyz,
         verbose=verbose,
     )
     started = _log_step(verbose, "outer contour complete", started)
+    inner_support_xyz = _contour_support_binarization_xyz(
+        segmentation_image_xyz,
+        params=params.segmentation,
+        spacing_xyz=spacing_xyz,
+        full_mask_xyz=full_xyz,
+        role="inner",
+    )
     trab_xyz, cort_xyz = inner_contour(
         image_xyz,
         full_xyz,
-        site=params.inner.site,
+        site=contour_params.inner.site,
         spacing_xyz=spacing_xyz,
-        options=asdict(params.inner),
+        options=asdict(contour_params.inner),
+        support_mask_xyz=inner_support_xyz,
         verbose=verbose,
     )
     started = _log_step(verbose, "inner contour complete", started)
@@ -1202,14 +1339,17 @@ def generate_masks_from_image(
     trab_xyz = _ensure_bool(trab_xyz) & full_xyz
     cort_xyz = full_xyz & ~trab_xyz
 
-    seg_xyz = _segment_bone_xyz(
-        image_xyz=image_xyz,
-        full_mask_xyz=full_xyz,
-        trab_mask_xyz=trab_xyz,
-        cort_mask_xyz=cort_xyz,
-        params=params.segmentation,
-        spacing_xyz=spacing_xyz,
-    )
+    if params.segmentation.method in {"adaptive", "laplace_hamming"} and inner_support_xyz is not None:
+        seg_xyz = _ensure_bool(inner_support_xyz)
+    else:
+        seg_xyz = _segment_bone_xyz(
+            image_xyz=segmentation_image_xyz,
+            full_mask_xyz=full_xyz,
+            trab_mask_xyz=trab_xyz,
+            cort_mask_xyz=cort_xyz,
+            params=params.segmentation,
+            spacing_xyz=spacing_xyz,
+        )
     seg_xyz = seg_xyz & full_xyz
     started = _log_step(verbose, "segmentation complete", started)
 
@@ -1241,9 +1381,10 @@ def generate_masks_from_image(
             "trab": _sitk_binary_sum(trab_sitk),
             "cort": _sitk_binary_sum(cort_sitk),
         },
-        "outer_params": asdict(params.outer),
+        "outer_params": asdict(contour_params.outer),
         "outer_edge_refinement": outer_refine_meta,
-        "inner_params": asdict(params.inner),
+        "inner_params": asdict(contour_params.inner),
+        "contour_support": _contour_support_metadata(contour_params),
         "segmentation_params": asdict(params.segmentation),
     }
 
