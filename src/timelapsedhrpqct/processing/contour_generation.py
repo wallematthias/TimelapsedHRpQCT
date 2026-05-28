@@ -7,6 +7,7 @@ from typing import Any
 
 import numpy as np
 import SimpleITK as sitk
+from scipy import ndimage as ndi
 
 from timelapsedhrpqct.processing.laplace_hamming import (
     LaplaceHammingParams,
@@ -26,6 +27,7 @@ from timelapsedhrpqct.processing.masks import resolve_masks
 
 @dataclass(slots=True)
 class OuterContourParams:
+    contour_method: str = "standard"  # "standard" | "geodesic_fracture"
     periosteal_threshold: float = 300.0
     periosteal_kernelsize: int = 5
     periosteal_open_radius: int = 2
@@ -38,10 +40,13 @@ class OuterContourParams:
     init_pad: int = 15
     fill_holes: bool = True
     use_adaptive_threshold: bool = True
+    geodesic_bone_threshold: float = 250.0
+    geodesic_fill_holes: bool = True
 
 
 @dataclass(slots=True)
 class InnerContourParams:
+    contour_method: str = "standard"  # "standard" | "none"
     site: str = "misc"
     endosteal_threshold: float = 500.0
     endosteal_kernelsize: int = 3
@@ -735,6 +740,15 @@ def _restore_terminal_slices(mask: sitk.Image, seed: sitk.Image) -> sitk.Image:
     return numpy_xyz_bool_to_sitk(mask_xyz, spacing_xyz=mask.GetSpacing())
 
 
+def _fill_holes_xy(mask: sitk.Image) -> sitk.Image:
+    """Fill holes independently in each axial slice."""
+    mask_xyz = sitk_binary_to_numpy_xyz(mask)
+    filled_xyz = np.zeros_like(mask_xyz, dtype=bool)
+    for z_index in range(mask_xyz.shape[2]):
+        filled_xyz[:, :, z_index] = ndi.binary_fill_holes(mask_xyz[:, :, z_index])
+    return numpy_xyz_bool_to_sitk(filled_xyz, spacing_xyz=mask.GetSpacing())
+
+
 def _sitk_binary_closing_native(mask: sitk.Image, radius: int) -> sitk.Image:
     """Helper for sitk binary closing native."""
     padded, pad = _morphology_safe_pad(mask, radius)
@@ -1114,9 +1128,9 @@ def outer_contour(
     )
     started = _log_step(verbose, "outer morphology", started)
 
-    if bool(opt.get("fill_holes", True)):
-        thresholded = sitk.BinaryFillhole(thresholded, fullyConnected=True, foregroundValue=1)
     thresholded = _restore_terminal_slices(thresholded, thresholded_seed)
+    if bool(opt.get("fill_holes", True)):
+        thresholded = _fill_holes_xy(thresholded)
     started = _log_step(verbose, "outer fill holes", started)
 
     mask_xyz = sitk_binary_to_numpy_xyz(thresholded)
@@ -1144,6 +1158,47 @@ def outer_contour(
 
     _log_step(verbose, "outer total", started)
     return _ensure_bool(shapeholder), refine_metadata
+
+
+def geodesic_outer_contour(
+    density_xyz: np.ndarray,
+    spacing_xyz: tuple[float, float, float] | None = None,
+    options: dict[str, Any] | None = None,
+) -> tuple[np.ndarray, dict[str, Any]]:
+    """Generate the periosteal / full mask with the standalone geodesic contour package."""
+    if options is None:
+        opt = asdict(OuterContourParams())
+    else:
+        opt = dict(options)
+
+    try:
+        from hrpqct_geodesic_contour import contour
+    except Exception as exc:  # pragma: no cover - exercised only when dependency is absent
+        raise RuntimeError(
+            "Geodesic periosteal contouring requires the hrpqct-geodesic-contour package. "
+            "Install timelapsed-hrpqct with current dependencies or run "
+            "`pip install hrpqct-geodesic-contour`."
+        ) from exc
+
+    full_xyz, support_masks = contour(
+        np.asarray(density_xyz, dtype=np.float32),
+        voxel_size_mm=spacing_xyz,
+        bone_threshold=float(opt.get("geodesic_bone_threshold", 250.0)),
+        fill_holes=bool(opt.get("geodesic_fill_holes", opt.get("fill_holes", True))),
+    )
+    metadata = {
+        "enabled": False,
+        "method": "geodesic_fracture",
+        "bone_threshold": float(opt.get("geodesic_bone_threshold", 250.0)),
+        "fill_holes": bool(opt.get("geodesic_fill_holes", opt.get("fill_holes", True))),
+        "support_mask_count": len(support_masks),
+        "downsample_factor": 1,
+        "band_voxels": 0,
+        "changed_voxels": 0,
+        "refined_positive_voxels": 0,
+        "operations": {},
+    }
+    return _ensure_bool(full_xyz), metadata
 
 
 def inner_contour(
@@ -1302,42 +1357,61 @@ def generate_masks_from_image(
             f"{segmentation_image_xyz.shape} != {image_xyz.shape}"
         )
     started = _log_step(verbose, "image to numpy", started)
-    outer_support_xyz = _contour_support_binarization_xyz(
-        segmentation_image_xyz,
-        params=params.segmentation,
-        spacing_xyz=spacing_xyz,
-        role="outer",
-    )
+    outer_method = str(getattr(contour_params.outer, "contour_method", "standard") or "standard").lower()
+    if outer_method in {"geodesic", "geodesic_fracture"}:
+        outer_support_xyz = None
+        full_xyz, outer_refine_meta = geodesic_outer_contour(
+            image_xyz,
+            spacing_xyz=spacing_xyz,
+            options=asdict(contour_params.outer),
+        )
+    elif outer_method == "standard":
+        outer_support_xyz = _contour_support_binarization_xyz(
+            segmentation_image_xyz,
+            params=params.segmentation,
+            spacing_xyz=spacing_xyz,
+            role="outer",
+        )
 
-    full_xyz, outer_refine_meta = outer_contour(
-        image_xyz,
-        spacing_xyz=spacing_xyz,
-        options=asdict(contour_params.outer),
-        support_mask_xyz=outer_support_xyz,
-        verbose=verbose,
-    )
+        full_xyz, outer_refine_meta = outer_contour(
+            image_xyz,
+            spacing_xyz=spacing_xyz,
+            options=asdict(contour_params.outer),
+            support_mask_xyz=outer_support_xyz,
+            verbose=verbose,
+        )
+    else:
+        raise ValueError(f"Unsupported periosteal contour method: {contour_params.outer.contour_method}")
     started = _log_step(verbose, "outer contour complete", started)
-    inner_support_xyz = _contour_support_binarization_xyz(
-        segmentation_image_xyz,
-        params=params.segmentation,
-        spacing_xyz=spacing_xyz,
-        full_mask_xyz=full_xyz,
-        role="inner",
-    )
-    trab_xyz, cort_xyz = inner_contour(
-        image_xyz,
-        full_xyz,
-        site=contour_params.inner.site,
-        spacing_xyz=spacing_xyz,
-        options=asdict(contour_params.inner),
-        support_mask_xyz=inner_support_xyz,
-        verbose=verbose,
-    )
+    inner_method = str(getattr(contour_params.inner, "contour_method", "standard") or "standard").lower()
+    if inner_method == "none":
+        inner_support_xyz = None
+        trab_xyz = _ensure_bool(full_xyz)
+        cort_xyz = np.zeros_like(full_xyz, dtype=bool)
+    elif inner_method == "standard":
+        inner_support_xyz = _contour_support_binarization_xyz(
+            segmentation_image_xyz,
+            params=params.segmentation,
+            spacing_xyz=spacing_xyz,
+            full_mask_xyz=full_xyz,
+            role="inner",
+        )
+        trab_xyz, cort_xyz = inner_contour(
+            image_xyz,
+            full_xyz,
+            site=contour_params.inner.site,
+            spacing_xyz=spacing_xyz,
+            options=asdict(contour_params.inner),
+            support_mask_xyz=inner_support_xyz,
+            verbose=verbose,
+        )
+    else:
+        raise ValueError(f"Unsupported endosteal contour method: {contour_params.inner.contour_method}")
     started = _log_step(verbose, "inner contour complete", started)
 
     full_xyz = _ensure_bool(full_xyz)
     trab_xyz = _ensure_bool(trab_xyz) & full_xyz
-    cort_xyz = full_xyz & ~trab_xyz
+    cort_xyz = full_xyz & ~trab_xyz if inner_method == "standard" else _ensure_bool(cort_xyz)
 
     if params.segmentation.method in {"adaptive", "laplace_hamming"} and inner_support_xyz is not None:
         seg_xyz = _ensure_bool(inner_support_xyz)
@@ -1373,7 +1447,13 @@ def generate_masks_from_image(
     _log_step(verbose, "mask resolution complete", started)
 
     metadata: dict[str, Any] = {
-        "contour_method": "sitk_morphology_contour_generation",
+        "contour_method": "geodesic_fracture_outer_contour"
+        if outer_method in {"geodesic", "geodesic_fracture"}
+        else "sitk_morphology_contour_generation",
+        "periosteal_contour_method": "geodesic_fracture"
+        if outer_method in {"geodesic", "geodesic_fracture"}
+        else "standard",
+        "endosteal_contour_method": inner_method,
         "segmentation_method": params.segmentation.method,
         "voxel_counts": {
             "seg": int(seg_xyz.sum()),

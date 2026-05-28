@@ -44,10 +44,10 @@ This means users usually edit only `study.yml`. Use `timelapse config explain --
 Useful setup and inspection commands:
 
 ```bash
-timelapse doctor --profile low-memory
+timelapse doctor --profile standard
 timelapse inspect /path/to/raw_data/TimelapsedHRpQCT
 timelapse migrate-legacy /path/to/raw_data/TimelapsedHRpQCT --dry-run
-timelapse config show low-memory
+timelapse config show standard
 ```
 
 Bundled study profiles include:
@@ -55,10 +55,9 @@ Bundled study profiles include:
 - `standard`: `laplace_hamming`, `grayscale_and_binary`, threshold `225`, cluster `12`, Gaussian filtering of remodelling sites.
 - `xct1-standard`: `laplace_hamming`, `grayscale_delta_only`, threshold `225`, cluster `5`, Gaussian filtering of remodelling sites with sigma `0.8`.
 - `eth-uofc`: legacy ETH/UofC `seg_gauss`, `grayscale_and_binary`, threshold `225`, cluster `12`, Gaussian filtering of remodelling sites.
-- `ucsf`: `laplace_hamming`, bone-support-limited grayscale remodelling, threshold `475`, cluster `5`, no Gaussian filtering of remodelling sites, bone support dilation `0`.
-- `shriners`: `seg_gauss`, `grayscale_delta_only`, threshold `220`, cluster `0`, Gaussian filtering of remodelling sites.
-
-Workflow profiles such as `multistack`, `single-stack`, and `low-memory` adjust processing shape and resource use. They are intentionally separate from study-analysis protocol profiles.
+- `eth-uofc-compatibility`: same ETH/UofC protocol with IPL-compatible grayscale resampling for legacy comparisons.
+- `multistack`: standard study analysis with explicit multistack correction enabled.
+- `ped-fx`: pediatric fracture workflow with multistack correction, geodesic periosteal contouring, Gaussian segmentation, and full-mask-only analysis.
 
 Processed images and masks can be exported back to AIM. The exporter uses pipeline JSON
 sidecars to recover the original AIM calibration and processing log when available:

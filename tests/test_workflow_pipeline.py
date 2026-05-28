@@ -9,6 +9,7 @@ from timelapsedhrpqct.dataset.artifacts import (
     group_imported_stacks_by_subject_site_and_stack,
     iter_imported_stack_records,
 )
+from timelapsedhrpqct.dataset.derivative_paths import stack_correction_metadata_path
 from timelapsedhrpqct.dataset.layout import get_derivatives_root
 from timelapsedhrpqct.dataset.transform_registry import (
     TransformRegistryRecord,
@@ -335,3 +336,54 @@ def test_stack_correction_supports_boundary_2d_method(
     assert transform_offset(final_tfm) == (6.0, 5.0, 0.0)
     assert [call["fixed_dim"] for call in boundary_calls] == [2, 2]
     assert all(bool(call["used_masks"]) for call in boundary_calls)
+
+
+def test_superstack_stack_correction_can_refine_euler_from_translation_first(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    dataset_root = build_imported_dataset(tmp_path / "dataset", stack_indices=(1, 2))
+    config = make_test_config()
+    config.multistack_correction.translation_first = True
+    config.multistack_correction.transform_type = "euler"
+    config.multistack_correction.initial_translation_voxels = [0, 0, -10]
+
+    timelapse_register = make_fake_registration(
+        [
+            (0.0, 0.0, 0.0),
+            (0.0, 0.0, 0.0),
+            (0.0, 0.0, 0.0),
+            (0.0, 0.0, 0.0),
+        ]
+    )
+    stack_register = make_fake_registration(
+        [
+            (0.0, 0.0, -0.5),
+            (0.0, 0.0, -0.25),
+        ]
+    )
+
+    monkeypatch.setattr(
+        "timelapsedhrpqct.workflows.timelapse_registration.register_images",
+        timelapse_register,
+    )
+    monkeypatch.setattr(
+        "timelapsedhrpqct.workflows.multistack_correction.register_images",
+        stack_register,
+    )
+
+    run_timelapse_registration(dataset_root=dataset_root, config=config)
+    run_stack_correction(dataset_root=dataset_root, config=config)
+
+    assert [call["settings"].transform_type for call in stack_register.calls] == [
+        "translation",
+        "euler",
+    ]
+    assert stack_register.calls[1]["settings"].initial_translation_voxels[0] == 0.0
+    assert stack_register.calls[1]["settings"].initial_translation_voxels[1] == 0.0
+    assert stack_register.calls[1]["settings"].initial_translation_voxels[2] < -8.0
+
+    meta_path = stack_correction_metadata_path(dataset_root, "001", "radius", 2)
+    metadata = _load_json(meta_path)
+    assert metadata["method"] == "adjacent_superstack_registration_translation_refined_euler"
+    assert metadata["translation_first_metadata"]["offset"] == [0.0, 0.0, -0.5]

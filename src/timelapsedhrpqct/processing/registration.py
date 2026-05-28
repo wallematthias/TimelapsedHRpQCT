@@ -51,36 +51,79 @@ def _is_truthy_env(value: str | None) -> bool:
     return value.strip().lower() in {"1", "true", "yes", "on"}
 
 
+def _debug_stats_max_voxels() -> int:
+    """Return the voxel cap for registration debug summaries."""
+    raw = os.environ.get("TIMELAPSE_REGISTRATION_DEBUG_MAX_VOXELS")
+    if raw is None:
+        return 50_000_000
+    try:
+        return max(0, int(raw))
+    except ValueError:
+        return 50_000_000
+
+
+def _image_total_voxels(image: sitk.Image) -> int:
+    """Return total voxel count from image geometry without materializing data."""
+    total = 1
+    for size in image.GetSize():
+        total *= int(size)
+    return int(total)
+
+
 def _image_debug_summary(image: sitk.Image) -> dict[str, Any]:
     """Build lightweight geometry/intensity summary for debug logging."""
-    arr = sitk.GetArrayViewFromImage(image)
-    return {
+    total_voxels = _image_total_voxels(image)
+    summary: dict[str, Any] = {
         "dimension": int(image.GetDimension()),
         "size": [int(v) for v in image.GetSize()],
         "spacing": [float(v) for v in image.GetSpacing()],
         "origin": [float(v) for v in image.GetOrigin()],
         "direction": [float(v) for v in image.GetDirection()],
-        "dtype": str(arr.dtype),
-        "min": float(np.min(arr)) if arr.size else float("nan"),
-        "max": float(np.max(arr)) if arr.size else float("nan"),
-        "mean": float(np.mean(arr)) if arr.size else float("nan"),
+        "pixel_type": image.GetPixelIDTypeAsString(),
+        "total_voxels": total_voxels,
     }
+    if total_voxels > _debug_stats_max_voxels():
+        summary["intensity_stats"] = "skipped_large_image"
+        return summary
+
+    arr = sitk.GetArrayViewFromImage(image)
+    summary.update(
+        {
+            "dtype": str(arr.dtype),
+            "min": float(np.min(arr)) if arr.size else float("nan"),
+            "max": float(np.max(arr)) if arr.size else float("nan"),
+            "mean": float(np.mean(arr)) if arr.size else float("nan"),
+        }
+    )
+    return summary
 
 
 def _mask_debug_summary(mask: sitk.Image | None) -> dict[str, Any] | None:
     """Build mask occupancy and geometry summary for debug logging."""
     if mask is None:
         return None
-    arr = sitk.GetArrayViewFromImage(sitk.Cast(mask > 0, sitk.sitkUInt8))
-    return {
+    total_voxels = _image_total_voxels(mask)
+    summary: dict[str, Any] = {
         "size": [int(v) for v in mask.GetSize()],
         "spacing": [float(v) for v in mask.GetSpacing()],
         "origin": [float(v) for v in mask.GetOrigin()],
         "direction": [float(v) for v in mask.GetDirection()],
-        "nonzero_voxels": int(np.count_nonzero(arr)),
-        "total_voxels": int(arr.size),
-        "occupancy_fraction": (float(np.count_nonzero(arr)) / float(arr.size)) if arr.size else float("nan"),
+        "pixel_type": mask.GetPixelIDTypeAsString(),
+        "total_voxels": total_voxels,
     }
+    if total_voxels > _debug_stats_max_voxels():
+        summary["occupancy_stats"] = "skipped_large_mask"
+        return summary
+
+    arr = sitk.GetArrayViewFromImage(sitk.Cast(mask > 0, sitk.sitkUInt8))
+    nonzero_voxels = int(np.count_nonzero(arr))
+    summary.update(
+        {
+            "nonzero_voxels": nonzero_voxels,
+            "occupancy_fraction": (float(nonzero_voxels) / float(arr.size)) if arr.size else float("nan"),
+        }
+    )
+    return summary
 
 
 def _should_trace_registration(settings: RegistrationSettings) -> bool:

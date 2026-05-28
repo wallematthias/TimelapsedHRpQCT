@@ -1,8 +1,8 @@
-profile: shriners
-description: Shriners analysis profile using seg_gauss segmentation and grayscale-delta-only remodelling.
+profile: eth-uofc-compatibility
+description: ETH/UofC analysis profile using IPL-compatible grayscale resampling for legacy comparison.
 
 multistack_correction:
-  enabled: true
+  enabled: false
 
 masks:
   segmentation:
@@ -16,14 +16,15 @@ analysis:
     dilation_voxels: 0
     erosion_voxels: 0
   binary_reclassification:
-    enabled: false
+    enabled: true
   pair_mode: adjacent
-  thresholds: [220]
-  cluster_sizes: [0]
+  thresholds: [225]
+  cluster_sizes: [12]
   gaussian_filter: true
   gaussian_sigma: 1.2
+  image_interpolator: ipl_cubic
 
 visualization:
   enabled: true
-  threshold: 220
-  cluster_size: 0
+  threshold: 225
+  cluster_size: 12

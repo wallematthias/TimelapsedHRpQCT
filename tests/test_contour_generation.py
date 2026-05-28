@@ -1,12 +1,18 @@
 from __future__ import annotations
 
+import sys
+import types
+
 import numpy as np
 import SimpleITK as sitk
 
 from timelapsedhrpqct.processing.contour_generation import (
     ContourGenerationParams,
     _contour_support_binarization_xyz,
+    _fill_holes_xy,
+    _restore_terminal_slices,
     generate_masks_from_image,
+    numpy_xyz_bool_to_sitk,
     segmentation_aligned_contour_params,
     sitk_to_numpy_xyz,
 )
@@ -102,6 +108,90 @@ def test_generate_masks_from_image_with_downsampled_morphology() -> None:
     assert int(refine_meta.get("band_voxels", 0)) > 0
 
 
+def test_generate_masks_from_image_can_use_geodesic_periosteal_contour(monkeypatch) -> None:
+    shape = (48, 48, 16)
+    x, y, z = np.indices(shape)
+    cx, cy = shape[0] // 2, shape[1] // 2
+    radius = np.sqrt((x - cx) ** 2 + (y - cy) ** 2)
+
+    image_xyz = np.zeros(shape, dtype=np.float32)
+    peri = (radius <= 14) & (z >= 2) & (z <= 13)
+    cortex = peri & (radius >= 10)
+    trab = peri & ~cortex
+    image_xyz[cortex] = 950.0
+    image_xyz[trab] = 700.0
+
+    calls = {}
+
+    def fake_contour(density, voxel_size_mm=None, bone_threshold=250.0, fill_holes=True, **_kwargs):
+        calls["shape"] = density.shape
+        calls["voxel_size_mm"] = voxel_size_mm
+        calls["bone_threshold"] = bone_threshold
+        calls["fill_holes"] = fill_holes
+        return peri, [peri]
+
+    fake_module = types.SimpleNamespace(contour=fake_contour)
+    monkeypatch.setitem(sys.modules, "hrpqct_geodesic_contour", fake_module)
+
+    image = sitk.GetImageFromArray(np.transpose(image_xyz, (2, 1, 0)))
+    image.SetSpacing((0.061, 0.061, 0.061))
+    params = ContourGenerationParams()
+    params.outer.contour_method = "geodesic_fracture"
+    params.outer.geodesic_bone_threshold = 275.0
+    params.outer.geodesic_fill_holes = True
+    params.inner.use_adaptive_threshold = False
+    params.inner.endosteal_threshold = 500.0
+    params.inner.trabecular_close_radius = 0
+    params.inner.site = "radius"
+
+    result = generate_masks_from_image(image, params)
+
+    full = sitk_to_numpy_xyz(result.full) > 0
+    assert full[peri].all()
+    assert calls == {
+        "shape": shape,
+        "voxel_size_mm": (0.061, 0.061, 0.061),
+        "bone_threshold": 275.0,
+        "fill_holes": True,
+    }
+    assert result.metadata["contour_method"] == "geodesic_fracture_outer_contour"
+    assert result.metadata["periosteal_contour_method"] == "geodesic_fracture"
+    assert result.metadata["endosteal_contour_method"] == "standard"
+    assert result.metadata["outer_edge_refinement"]["support_mask_count"] == 1
+
+
+def test_generate_masks_from_image_can_skip_endosteal_contour() -> None:
+    shape = (32, 32, 8)
+    image_xyz = np.zeros(shape, dtype=np.float32)
+    image_xyz[8:24, 8:24, 2:6] = 700.0
+    image = sitk.GetImageFromArray(np.transpose(image_xyz, (2, 1, 0)))
+
+    params = ContourGenerationParams()
+    params.outer.use_adaptive_threshold = False
+    params.outer.periosteal_threshold = 300.0
+    params.outer.periosteal_kernelsize = 1
+    params.outer.periosteal_open_radius = 0
+    params.inner.contour_method = "none"
+    params.segmentation.method = "seg_gauss"
+    params.segmentation.gaussian_sigma = 0.0
+    params.segmentation.trab_threshold = 320.0
+    params.segmentation.cort_threshold = 450.0
+    params.segmentation.min_size_voxels = 0
+
+    result = generate_masks_from_image(image, params)
+
+    full = sitk_to_numpy_xyz(result.full) > 0
+    trab = sitk_to_numpy_xyz(result.trab) > 0
+    cort = sitk_to_numpy_xyz(result.cort) > 0
+    seg = sitk_to_numpy_xyz(result.seg) > 0
+
+    assert full.any()
+    assert np.array_equal(trab, full)
+    assert not cort.any()
+    assert seg.any()
+    assert result.metadata["endosteal_contour_method"] == "none"
+
+
 def test_generate_masks_preserves_boundary_trabecular_compartment() -> None:
     shape = (80, 80, 168)
     x, y, z = np.indices(shape)
@@ -135,6 +225,28 @@ def test_generate_masks_preserves_boundary_trabecular_compartment() -> None:
     # Boundary slices should not collapse to all-cortical from z-direction peeling.
     assert trab_mask[:, :, -1].any()
     assert not np.array_equal(cort_mask[:, :, -2], full[:, :, -2])
+
+
+def test_terminal_outer_restore_is_filled_per_slice() -> None:
+    shape = (32, 32, 4)
+    x, y, _z = np.indices(shape)
+    radius = np.sqrt((x - 16) ** 2 + (y - 16) ** 2)
+    annulus = (radius <= 10) & (radius >= 7)
+    filled_disk = radius <= 10
+
+    mask_xyz = np.zeros(shape, dtype=bool)
+    mask_xyz[:, :, 1] = filled_disk[:, :, 1]
+    seed_xyz = np.zeros(shape, dtype=bool)
+    seed_xyz[:, :, 0] = annulus[:, :, 0]
+
+    restored = _restore_terminal_slices(
+        numpy_xyz_bool_to_sitk(mask_xyz),
+        numpy_xyz_bool_to_sitk(seed_xyz),
+    )
+    filled = sitk_to_numpy_xyz(_fill_holes_xy(restored)) > 0
+
+    assert filled[16, 16, 0]
+    assert filled[:, :, 0].sum() > seed_xyz[:, :, 0].sum()
 
 
 def test_seg_gauss_contour_support_uses_segmentation_thresholds_and_sigma() -> None:

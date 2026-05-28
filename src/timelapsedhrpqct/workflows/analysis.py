@@ -60,6 +60,11 @@ from timelapsedhrpqct.processing.analysis_io import (
     discover_analysis_subject_ids,
 )
 from timelapsedhrpqct.io.metadata import parse_processing_log
+from timelapsedhrpqct.io.aim import _get_aim_calibration_constants_from_processing_log
+from timelapsedhrpqct.processing.ipl_resampling import (
+    full_cubic_support_mask,
+    ipl_cubic_resample,
+)
 from timelapsedhrpqct.processing.transform_chain import compose_transforms
 from timelapsedhrpqct.processing.transform_apply import _interpolator
 from timelapsedhrpqct.utils.sitk_helpers import (
@@ -84,8 +89,19 @@ def _resample_image(
     *,
     is_mask: bool,
     image_interpolator: str = "linear",
+    native_slope: float | None = None,
+    native_intercept: float | None = None,
 ) -> sitk.Image:
     """Resample an image into `reference` space with mask-aware interpolation."""
+    normalized_interpolator = str(image_interpolator).strip().lower()
+    if not is_mask and normalized_interpolator in {"ipl", "ipl_cubic", "ipl-cubic"}:
+        return ipl_cubic_resample(
+            image,
+            reference,
+            transform,
+            native_slope=native_slope,
+            native_intercept=native_intercept,
+        )
     interpolator = sitk.sitkNearestNeighbor if is_mask else _interpolator(image_interpolator)
     pixel_id = sitk.sitkUInt8 if is_mask else sitk.sitkFloat32
     out = sitk.Resample(
@@ -158,6 +174,8 @@ def _resample_source_domain(
     source_reference: sitk.Image,
     target_reference: sitk.Image,
     transform: sitk.Transform,
+    *,
+    image_interpolator: str = "linear",
 ) -> np.ndarray:
     """Return target-space voxels covered by the source image domain."""
     if _same_image_geometry(source_reference, target_reference) and _transform_preserves_image_corners(
@@ -165,6 +183,8 @@ def _resample_source_domain(
         target_reference,
     ):
         return np.ones(tuple(reversed(target_reference.GetSize())), dtype=bool)
+    if str(image_interpolator).strip().lower() in {"ipl", "ipl_cubic", "ipl-cubic"}:
+        return full_cubic_support_mask(source_reference, target_reference, transform)
     domain_img = sitk.Image(source_reference.GetSize(), sitk.sitkUInt8)
     domain_img.CopyInformation(source_reference)
     domain_img += 1
@@ -531,8 +551,27 @@ class _PairwiseSessionInputs:
     image_path: Path
     seg_path: Path | None
     mask_paths: dict[str, Path]
+    metadata_path: Path | None
     target_from_baseline: sitk.Transform
     source_from_baseline: sitk.Transform
+
+
+def _native_density_calibration_from_metadata(
+    metadata_path: Path | None,
+) -> tuple[float | None, float | None]:
+    """Return density = native * slope + intercept calibration from stack metadata."""
+    if metadata_path is None or not metadata_path.exists():
+        return None, None
+    try:
+        payload = json.loads(metadata_path.read_text(encoding="utf-8"))
+        image_meta = payload.get("image_metadata", {})
+        log = str(image_meta.get("processing_log", ""))
+        mu_scaling, _water, _air, density_slope, density_intercept = (
+            _get_aim_calibration_constants_from_processing_log(log)
+        )
+    except Exception:
+        return None, None
+    return float(density_slope) / float(mu_scaling), float(density_intercept)
 
 
 def _series_source_core_in_t0_space(
@@ -573,6 +612,7 @@ def _series_source_core_in_t0_space(
             source_reference=source_reference,
             target_reference=target_reference,
             transform=transform,
+            image_interpolator=params.image_interpolator,
         )
         _smoothed, core = _maybe_smooth_density_with_domain(zero_image, domain, params)
         series_core &= core
@@ -619,6 +659,7 @@ def _get_analysis_params(config: AppConfig) -> AnalysisParams:
     compartments = ["trab", "cort", "full"]
     remodeling_thresholds = [225.0]
     cluster_sizes = [12]
+    cluster_connectivity = 6
     pair_mode = "adjacent"
     erosion_voxels = 1
     use_filled_images = False
@@ -639,6 +680,7 @@ def _get_analysis_params(config: AppConfig) -> AnalysisParams:
         compartments = list(getattr(cfg, "compartments", compartments))
         remodeling_thresholds = [float(x) for x in getattr(cfg, "thresholds", remodeling_thresholds)]
         cluster_sizes = [int(x) for x in getattr(cfg, "cluster_sizes", cluster_sizes)]
+        cluster_connectivity = int(getattr(cfg, "cluster_connectivity", cluster_connectivity))
         pair_mode = str(getattr(cfg, "pair_mode", pair_mode))
         erosion_voxels = int(
             getattr(getattr(cfg, "valid_region", None), "erosion_voxels", erosion_voxels)
@@ -723,6 +765,7 @@ def _get_analysis_params(config: AppConfig) -> AnalysisParams:
         compartments=compartments,
         remodeling_thresholds=remodeling_thresholds,
         cluster_sizes=cluster_sizes,
+        cluster_connectivity=cluster_connectivity,
         pair_mode=pair_mode,
         erosion_voxels=erosion_voxels,
         use_filled_images=use_filled_images,
@@ -1097,6 +1140,7 @@ def _pairwise_fixed_t0_outputs(
                     image_path=record.image_path,
                     seg_path=record.seg_path,
                     mask_paths=record.mask_paths,
+                    metadata_path=record.metadata_path,
                     target_from_baseline=transform_to_baseline,
                     source_from_baseline=sitk.Transform(transform_to_baseline),
                 )
@@ -1143,6 +1187,7 @@ def _pairwise_fixed_t0_outputs(
                 image_path=session.image_path,
                 seg_path=session.seg_path,
                 mask_paths=session.mask_paths,
+                metadata_path=session.metadata_path,
                 target_from_baseline=_load_session_to_baseline_transform(
                     dataset_root=dataset_root,
                     subject_id=subject_id,
@@ -1318,6 +1363,9 @@ def _pairwise_fixed_t0_outputs(
                 t0_to_t1 = direct_t0_to_t1
 
             source0_img = load_image(rec0.image_path)
+            source0_native_slope, source0_native_intercept = _native_density_calibration_from_metadata(
+                rec0.metadata_path
+            )
             if _same_image_geometry(source0_img, ref_img) and _transform_preserves_image_corners(
                 source0_to_t0,
                 ref_img,
@@ -1330,11 +1378,14 @@ def _pairwise_fixed_t0_outputs(
                     source0_to_t0,
                     is_mask=False,
                     image_interpolator=params.image_interpolator,
+                    native_slope=source0_native_slope,
+                    native_intercept=source0_native_intercept,
                 )
             dens0_domain = _resample_source_domain(
                 source_reference=source0_img,
                 target_reference=ref_img,
                 transform=source0_to_t0,
+                image_interpolator=params.image_interpolator,
             )
             dens0, dens0_smoothing_core = _maybe_smooth_density_with_domain(
                 image_to_array(dens0_img).astype(np.float32, copy=False),
@@ -1342,17 +1393,23 @@ def _pairwise_fixed_t0_outputs(
                 params,
             )
             moving_img = load_image(rec1.image_path)
+            moving_native_slope, moving_native_intercept = _native_density_calibration_from_metadata(
+                rec1.metadata_path
+            )
             dens1_img = _resample_image(
                 moving_img,
                 ref_img,
                 t0_to_t1,
                 is_mask=False,
                 image_interpolator=params.image_interpolator,
+                native_slope=moving_native_slope,
+                native_intercept=moving_native_intercept,
             )
             dens1_domain = _resample_source_domain(
                 source_reference=moving_img,
                 target_reference=ref_img,
                 transform=t0_to_t1,
+                image_interpolator=params.image_interpolator,
             )
             dens1, dens1_smoothing_core = _maybe_smooth_density_with_domain(
                 image_to_array(dens1_img).astype(np.float32, copy=False),
@@ -1512,6 +1569,7 @@ def _pairwise_fixed_t0_outputs(
                     valid=classification_valid,
                     threshold=thr,
                     cluster_size=cluster_size,
+                    cluster_connectivity=params.cluster_connectivity,
                     method=params.method,
                     seg_arr_t0=seg0_for_analysis,
                     seg_arr_t1=seg1_for_analysis,

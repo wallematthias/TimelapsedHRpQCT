@@ -63,7 +63,7 @@ from timelapsedhrpqct.workflows.analysis import _direct_pairwise_resample_transf
 from tests._pipeline_helpers import write_image
 
 
-def test_remodelling_fraction_denominator_supports_ucsf_bone_union_mode():
+def test_remodelling_fraction_denominator_supports_bone_union_mode():
     valid = np.ones((2, 2, 2), dtype=bool)
     b0 = np.zeros_like(valid)
     b1 = np.zeros_like(valid)
@@ -983,6 +983,12 @@ def test_component_and_small_object_helpers_behave_as_expected() -> None:
     filtered = remove_small(binary, min_size=2)
     assert int(np.count_nonzero(filtered)) == 2
     assert not bool(filtered[2, 2, 2])
+
+    diagonal = np.zeros((3, 3, 3), dtype=bool)
+    diagonal[0, 0, 0] = True
+    diagonal[1, 1, 1] = True
+    assert int(np.count_nonzero(remove_small(diagonal, min_size=2, connectivity=6))) == 0
+    assert int(np.count_nonzero(remove_small(diagonal, min_size=2, connectivity=26))) == 2
 
 
 def test_build_series_common_masks_and_label_image() -> None:

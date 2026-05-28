@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from importlib.resources import files
 from pathlib import Path
 from typing import Any
@@ -8,6 +9,16 @@ import yaml
 
 
 PROFILE_PACKAGE_DIR = "configs/profiles"
+PRIVATE_PROFILE_NAMES = {"shriners", "ucsf"}
+
+
+def _include_private_profiles() -> bool:
+    return os.environ.get("TIMELAPSE_INCLUDE_PRIVATE_PROFILES", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
 
 
 def _profiles_root():
@@ -17,11 +28,17 @@ def _profiles_root():
 def list_config_profiles() -> list[str]:
     """Return bundled user-facing config profile names."""
     root = _profiles_root()
-    return sorted(path.name.removesuffix(".yml") for path in root.iterdir() if path.name.endswith(".yml"))
+    names = [path.name.removesuffix(".yml") for path in root.iterdir() if path.name.endswith(".yml")]
+    if not _include_private_profiles():
+        names = [name for name in names if name not in PRIVATE_PROFILE_NAMES]
+    return sorted(names)
 
 
 def read_profile(profile: str) -> dict[str, Any]:
     """Read one bundled profile as a raw config mapping."""
+    if profile in PRIVATE_PROFILE_NAMES and not _include_private_profiles():
+        available = ", ".join(list_config_profiles())
+        raise ValueError(f"Unknown config profile '{profile}'. Available profiles: {available}")
     path = _profiles_root().joinpath(f"{profile}.yml")
     if not path.is_file():
         available = ", ".join(list_config_profiles())
@@ -36,6 +53,9 @@ def read_profile(profile: str) -> dict[str, Any]:
 
 def profile_text(profile: str) -> str:
     """Return the raw bundled profile text."""
+    if profile in PRIVATE_PROFILE_NAMES and not _include_private_profiles():
+        available = ", ".join(list_config_profiles())
+        raise ValueError(f"Unknown config profile '{profile}'. Available profiles: {available}")
     path = _profiles_root().joinpath(f"{profile}.yml")
     if not path.is_file():
         available = ", ".join(list_config_profiles())

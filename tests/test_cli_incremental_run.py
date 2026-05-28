@@ -17,6 +17,7 @@ from timelapsedhrpqct.cli import (
     _needs_apply_transforms,
     _needs_filling,
     _needs_timelapse_registration,
+    _run_mode_from_args,
     _sessions_needing_import,
 )
 from timelapsedhrpqct.dataset.artifacts import (
@@ -59,6 +60,7 @@ def test_parser_uses_repo_default_config_for_commands() -> None:
     assert run_args.restructure_raw is False
     assert import_args.force_header_discovery is False
     assert run_args.force_header_discovery is False
+    assert run_args.mode == "auto"
 
 
 def test_parser_accepts_copy_raw_inputs_for_import_and_run() -> None:
@@ -148,7 +150,7 @@ def test_parser_accepts_scanco_transform_commands() -> None:
 def test_parser_accepts_professional_cli_commands() -> None:
     parser = _build_parser()
 
-    doctor_args = parser.parse_args(["doctor", "--profile", "low-memory"])
+    doctor_args = parser.parse_args(["doctor", "--profile", "multistack"])
     inspect_args = parser.parse_args(["inspect", "/tmp/dataset"])
     list_args = parser.parse_args(["config", "list"])
     show_args = parser.parse_args(["config", "show", "multistack"])
@@ -161,7 +163,7 @@ def test_parser_accepts_professional_cli_commands() -> None:
     )
 
     assert doctor_args.command == "doctor"
-    assert doctor_args.profile == "low-memory"
+    assert doctor_args.profile == "multistack"
     assert inspect_args.command == "inspect"
     assert inspect_args.dataset_root == Path("/tmp/dataset")
     assert list_args.command == "config"
@@ -526,6 +528,83 @@ def test_needs_analysis_reruns_when_visualization_enabled_in_config_but_outputs_
 def test_filling_enabled_reads_config_flag() -> None:
     assert _filling_enabled(SimpleNamespace(fusion=SimpleNamespace(enable_filling=True))) is True
     assert _filling_enabled(SimpleNamespace(fusion=SimpleNamespace(enable_filling=False))) is False
+
+
+def test_run_mode_auto_follows_multistack_config() -> None:
+    assert (
+        _run_mode_from_args(
+            SimpleNamespace(mode="auto"),
+            SimpleNamespace(multistack_correction=SimpleNamespace(enabled=True)),
+        )
+        == "multistack"
+    )
+    assert (
+        _run_mode_from_args(
+            SimpleNamespace(mode="auto"),
+            SimpleNamespace(multistack_correction=SimpleNamespace(enabled=False)),
+        )
+        == "regular"
+    )
+    assert (
+        _run_mode_from_args(
+            SimpleNamespace(mode="multistack"),
+            SimpleNamespace(multistack_correction=SimpleNamespace(enabled=False)),
+        )
+        == "multistack"
+    )
+
+
+def test_cmd_run_auto_runs_stack_correction_when_config_enabled(monkeypatch, tmp_path: Path) -> None:
+    dataset_root = tmp_path / "imported_dataset"
+    input_root = tmp_path / "raw"
+    input_root.mkdir()
+    dataset_root.mkdir()
+
+    config = SimpleNamespace(
+        discovery=SimpleNamespace(),
+        multistack_correction=SimpleNamespace(enabled=True),
+        fusion=SimpleNamespace(enable_filling=False),
+        analysis=SimpleNamespace(use_filled_images=False),
+    )
+
+    monkeypatch.setattr("timelapsedhrpqct.cli._load_config_or_die", lambda path: config)
+    monkeypatch.setattr(
+        "timelapsedhrpqct.cli.discover_raw_sessions",
+        lambda root, discovery_config, force_header_discovery=False, canonicalize_sessions=False: [
+            RawSession("001", "C1", Path("/tmp/C1.AIM"))
+        ],
+    )
+    monkeypatch.setattr("timelapsedhrpqct.cli._cmd_import", lambda args: 0)
+    monkeypatch.setattr("timelapsedhrpqct.cli._needs_mask_generation", lambda dataset_root: False)
+    monkeypatch.setattr("timelapsedhrpqct.cli._needs_timelapse_registration", lambda dataset_root: False)
+    monkeypatch.setattr("timelapsedhrpqct.cli._needs_stack_correction", lambda dataset_root: True)
+    monkeypatch.setattr("timelapsedhrpqct.cli._needs_apply_transforms", lambda dataset_root: False)
+    monkeypatch.setattr("timelapsedhrpqct.cli._needs_filling", lambda dataset_root: False)
+    monkeypatch.setattr(
+        "timelapsedhrpqct.cli._needs_analysis",
+        lambda dataset_root, config, args: False,
+    )
+
+    stack_calls: list[object] = []
+    monkeypatch.setattr("timelapsedhrpqct.cli._cmd_stack_correct", lambda args: stack_calls.append(args) or 0)
+
+    rc = _cmd_run(
+        argparse.Namespace(
+            input_root=input_root,
+            output_root=dataset_root,
+            config=tmp_path / "config.yml",
+            mode="auto",
+            dry_run=False,
+            skip_mask_generation=False,
+            thr=None,
+            clusters=None,
+            visualize=None,
+            force_header_discovery=False,
+        )
+    )
+
+    assert rc == 0
+    assert len(stack_calls) == 1
 
 
 def test_cmd_run_skips_fill_when_disabled_and_analysis_does_not_require_filled(monkeypatch, tmp_path: Path) -> None:

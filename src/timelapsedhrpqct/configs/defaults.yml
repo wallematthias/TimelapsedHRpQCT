@@ -230,6 +230,21 @@ masks:
         # Width of edge refinement band in voxels; range: 1-15.
         morphology_refine_band_voxels: 3
 
+  outer:
+    # Global periosteal contour override. Site defaults above keep this standard unless overridden.
+    # Options: standard | geodesic_fracture.
+    contour_method: standard
+    # Bone threshold passed to the geodesic fracture contour method.
+    geodesic_bone_threshold: 250
+    # Fill internal holes in the geodesic fracture periosteal mask.
+    # Options: true | false.
+    geodesic_fill_holes: true
+
+  inner:
+    # Endosteal/trabecular-cortical contour method.
+    # Options: standard | none.
+    contour_method: standard
+
   segmentation:
     # Segmentation method for generating binary/label images from masks/image.
     # Options: adaptive | seg_gauss | laplace_hamming.
@@ -343,9 +358,10 @@ timelapsed_registration:
 # Multistack Correction
 # -----------------------------------------------------------------------------
 multistack_correction:
-  # Run multistack correction when command/mode requests it.
+  # In run --mode auto, run multistack correction and filling when enabled.
+  # The multistack profile enables this by default.
   # Options: true | false.
-  enabled: true
+  enabled: false
   # Write multistack correction QC/debug outputs and verbose backend logs.
   # Options: true | false.
   debug: false
@@ -394,6 +410,9 @@ multistack_correction:
   # Use available full masks for stack correction.
   # Options: true | false.
   use_masks: true
+  # For Euler stack correction, run a translation pre-pass and use it to initialize Euler refinement.
+  # Options: true | false.
+  translation_first: false
 
 # -----------------------------------------------------------------------------
 # Transform Application
@@ -463,6 +482,9 @@ analysis:
   # Minimum connected cluster sizes retained in remodelling maps; range: 1-10000 voxels.
   cluster_sizes:
     - 12
+  # Connected-component neighborhood for remodelling cluster filtering.
+  # Options: 6 | 18 | 26. Use 6 to match IPL/Scanco topology 6 behavior.
+  cluster_connectivity: 6
   # Session-pair schedule.
   # Options: adjacent | baseline | all_pairs.
   pair_mode: adjacent
@@ -476,15 +498,17 @@ analysis:
   gaussian_sigma: 1.2
   # Denominator used for formation/resorption fraction columns.
   # Options: baseline_bone | bone_union | mean_bone | valid_region.
-  # baseline_bone preserves historical fraction-of-BV0 behavior; bone_union
-  # matches UCSF-style reporting when events are detected in the full common mask.
+  # baseline_bone preserves historical fraction-of-BV0 behavior; bone_union uses
+  # the union of baseline/follow-up bone when events are detected in the full common mask.
   fraction_denominator: baseline_bone
   # Interpolator for grayscale image resampling during pairwise_fixed_t0 analysis.
-  # Options: linear | bspline | hamming_windowed_sinc | nearest.
+  # Options: linear | bspline | hamming_windowed_sinc | nearest | ipl_cubic.
   # This is separate from transform.image_interpolator because analysis can
   # resample directly into each t0 pair space without rerunning transform outputs.
-  # bspline is useful when comparing against manufacturer/legacy registered images.
-  image_interpolator: linear
+  # bspline is the standard balance of smooth grayscale resampling and speed.
+  # ipl_cubic matches Scanco IPL-style native-short cubic resampling and excludes
+  # voxels without a complete cubic stencil from pairwise common regions.
+  image_interpolator: bspline
   # Prefer a unique external direct pairwise transform for each t0/t1 analysis pair.
   # Options: true | false.
   # true uses DAT-derived T3->T1 directly when available instead of chaining

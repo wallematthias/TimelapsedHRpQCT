@@ -26,6 +26,7 @@ class SessionAnalysisInputs:
     image_path: Path
     seg_path: Path | None
     mask_paths: dict[str, Path]
+    metadata_path: Path | None = None
 
 
 def discover_analysis_subject_ids(dataset_root: Path) -> list[str] | list[tuple[str, str]]:
@@ -88,6 +89,7 @@ def discover_analysis_sessions(
                 image_path=image_path,
                 seg_path=seg_path,
                 mask_paths=mask_paths,
+                metadata_path=record.metadata_path,
             )
         )
 

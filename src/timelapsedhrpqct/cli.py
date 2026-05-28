@@ -452,12 +452,12 @@ def _build_parser() -> argparse.ArgumentParser:
     _add_benchmark_argument(run_parser)
     run_parser.add_argument(
         "--mode",
-        choices=("regular", "multistack"),
-        default="regular",
+        choices=("auto", "regular", "multistack"),
+        default="auto",
         help=(
-            "Pipeline mode. "
-            "'regular' skips stack correction and filling. "
-            "'multistack' runs the full multistack workflow."
+            "Pipeline mode. 'auto' follows config.multistack_correction.enabled, "
+            "'regular' skips stack correction and filling, and 'multistack' runs "
+            "the full multistack workflow."
         ),
     )
     run_parser.add_argument(
@@ -1219,8 +1219,16 @@ def _multistack_correction_enabled(config: AppConfig) -> bool:
     """Helper for multistack correction enabled."""
     cfg = getattr(config, "multistack_correction", None)
     if cfg is None:
-        return True
+        return False
     return bool(getattr(cfg, "enabled", True))
+
+
+def _run_mode_from_args(args: argparse.Namespace, config: AppConfig) -> str:
+    """Resolve run mode from CLI args and config."""
+    mode = str(getattr(args, "mode", "auto") or "auto")
+    if mode == "auto":
+        return "multistack" if _multistack_correction_enabled(config) else "regular"
+    return mode
 
 
 def _cmd_import(args: argparse.Namespace) -> int:
@@ -1706,6 +1714,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
     output_root: Path = (args.output_root or _default_output_root(input_root)).resolve()
     config = _load_config_for_args(args)
     profile = _config_profile(args)
+    run_mode = _run_mode_from_args(args, config)
     benchmark = benchmark_from_args(args, command="run", dataset_root=output_root)
 
     _print_citation_notice()
@@ -1773,7 +1782,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
     else:
         print("[timelapse] register: baseline transforms already exist -> skip")
 
-    if args.mode == "multistack" and _multistack_correction_enabled(config):
+    if run_mode == "multistack":
         # 4. stackcorrect
         if _needs_stack_correction(dataset_root):
             sc_args = argparse.Namespace(
@@ -1789,8 +1798,6 @@ def _cmd_run(args: argparse.Namespace) -> int:
                 return rc
         else:
             print("[timelapse] stackcorrect: final transforms already exist -> skip")
-    elif args.mode == "multistack":
-        print("[timelapse] stackcorrect: disabled by config.multistack_correction.enabled -> skip")
 
     # 5. transform
     if _needs_apply_transforms(dataset_root):
@@ -1808,7 +1815,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
     else:
         print("[timelapse] transform: fused transformed sessions already exist -> skip")
 
-    if args.mode == "multistack":
+    if run_mode == "multistack":
         # 6. fill
         if _filling_enabled(config):
             if _needs_filling(dataset_root):

@@ -59,6 +59,7 @@ class DiscoveryConfig:
 
 @dataclass(slots=True)
 class OuterContourConfig:
+    contour_method: str = "standard"
     periosteal_threshold: float = 300.0
     periosteal_kernelsize: int = 5
     periosteal_open_radius: int = 2
@@ -71,10 +72,13 @@ class OuterContourConfig:
     init_pad: int = 15
     fill_holes: bool = True
     use_adaptive_threshold: bool = True
+    geodesic_bone_threshold: float = 250.0
+    geodesic_fill_holes: bool = True
 
 
 @dataclass(slots=True)
 class InnerContourConfig:
+    contour_method: str = "standard"
     site: str = "misc"
     endosteal_threshold: float = 500.0
     endosteal_kernelsize: int = 3
@@ -244,6 +248,7 @@ class MultistackCorrectionConfig:
     initializer: str = "identity"
     number_of_resolutions: int = 4
     use_masks: bool = True
+    translation_first: bool = False
 
     debug: bool = False
 
@@ -296,6 +301,7 @@ class AnalysisConfig:
     compartments: list[str] = field(default_factory=lambda: ["full", "trab", "cort"])
     thresholds: list[float] = field(default_factory=lambda: [225.0])
     cluster_sizes: list[int] = field(default_factory=lambda: [12])
+    cluster_connectivity: int = 6
     pair_mode: str = "adjacent"
     use_filled_images: bool = False
     gaussian_filter: bool = True

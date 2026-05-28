@@ -63,7 +63,7 @@ timelapse run /data/hrpqct \
 
 When overrides are present, analysis reruns even if previous analysis outputs already exist.
 
-## Example 6: Single-stack workflow
+## Example 6: Regular single-stack workflow
 
 ```bash
 timelapse run /data/hrpqct --mode regular

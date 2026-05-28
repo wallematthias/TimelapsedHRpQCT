@@ -12,6 +12,7 @@ from timelapsedhrpqct.processing.stack_correction import (
     prepare_pairwise_registration_inputs,
 )
 from timelapsedhrpqct.processing.registration import RegistrationSettings
+from timelapsedhrpqct.processing import registration
 
 
 def _float_image_with_size(size_xyz: tuple[int, int, int]) -> sitk.Image:
@@ -174,3 +175,31 @@ def test_embed_2d_transform_in_3d_keeps_in_plane_motion_only() -> None:
 
     p = tx3d.TransformPoint((5.0, 6.0, 7.5))
     assert abs(p[2] - 7.5) < 1e-6
+
+
+def test_registration_debug_summary_skips_large_mask_counts(monkeypatch) -> None:
+    mask = _mask_with_z_extent(2, 10)
+    monkeypatch.setenv("TIMELAPSE_REGISTRATION_DEBUG_MAX_VOXELS", "1")
+
+    def fail_count_nonzero(_array):
+        raise AssertionError("large-mask debug summary should not scan mask voxels")
+
+    monkeypatch.setattr(registration.np, "count_nonzero", fail_count_nonzero)
+
+    summary = registration._mask_debug_summary(mask)
+
+    assert summary is not None
+    assert summary["total_voxels"] == 12 * 8 * 8
+    assert summary["occupancy_stats"] == "skipped_large_mask"
+    assert "nonzero_voxels" not in summary
+
+
+def test_registration_debug_summary_counts_small_masks(monkeypatch) -> None:
+    mask = _mask_with_z_extent(2, 4)
+    monkeypatch.setenv("TIMELAPSE_REGISTRATION_DEBUG_MAX_VOXELS", "10000")
+
+    summary = registration._mask_debug_summary(mask)
+
+    assert summary is not None
+    assert summary["nonzero_voxels"] == 2 * 4 * 4
+    assert summary["occupancy_fraction"] > 0

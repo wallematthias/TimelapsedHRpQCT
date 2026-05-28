@@ -411,6 +411,10 @@ def _configured_mask_roles(config: AppConfig) -> list[str]:
     return [role for role in roles if role in {"full", "trab", "cort"}]
 
 
+def _empty_mask_like(reference: sitk.Image) -> sitk.Image:
+    return sitk.Cast(reference > np.finfo(np.float32).max, sitk.sitkUInt8)
+
+
 def _existing_generated_paths(item: StackImageInput, generate_seg: bool) -> tuple[dict[str, Path], Path | None]:
     """Return existing generated paths."""
     paths = _stack_paths(item)
@@ -597,15 +601,23 @@ def run_mask_generation(dataset_root: str | Path, config: AppConfig, benchmark=N
 
         # Case 2: only seg missing, masks already exist -> generate seg only
         elif need_generate_seg:
-            if not all(paths[role].exists() for role in ("full", "trab", "cort")):
+            if "full" in configured_roles and configured_roles == ["full"]:
+                required_roles = ("full",)
+            else:
+                required_roles = ("full", "trab", "cort")
+            if not all(paths[role].exists() for role in required_roles):
                 raise ValueError(
-                    "Segmentation generation from existing masks requires full, trab, and cort masks."
+                    "Segmentation generation from existing masks requires the configured mask roles."
                 )
 
             print("[timelapse]   reading existing masks")
             full_mask = sitk.ReadImage(str(paths["full"]))
-            trab_mask = sitk.ReadImage(str(paths["trab"]))
-            cort_mask = sitk.ReadImage(str(paths["cort"]))
+            if configured_roles == ["full"]:
+                trab_mask = full_mask
+                cort_mask = _empty_mask_like(full_mask)
+            else:
+                trab_mask = sitk.ReadImage(str(paths["trab"]))
+                cort_mask = sitk.ReadImage(str(paths["cort"]))
 
             print("[timelapse]   generating segmentation from existing masks")
             with benchmark.section(

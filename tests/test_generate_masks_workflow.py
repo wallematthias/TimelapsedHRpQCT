@@ -127,6 +127,22 @@ def test_site_defaults_can_override_morphology_downsample_factor() -> None:
     assert params.outer.morphology_downsample_factor == 2
 
 
+def test_outer_geodesic_config_is_derived() -> None:
+    config = AppConfig()
+    config.masks.outer.contour_method = "geodesic_fracture"
+    config.masks.outer.geodesic_bone_threshold = 275.0
+    config.masks.outer.geodesic_fill_holes = False
+
+    params = _derive_params(config)
+
+    assert params.outer.contour_method == "geodesic_fracture"
+    assert params.outer.geodesic_bone_threshold == 275.0
+    assert params.outer.geodesic_fill_holes is False
+
+    site_params = _apply_site_defaults(params, config, "radius")
+    assert site_params.outer.contour_method == "geodesic_fracture"
+
+
 def test_sided_site_uses_generic_site_defaults() -> None:
     config = AppConfig()
 

@@ -22,6 +22,7 @@ class AnalysisParams:
     compartments: list[str]
     remodeling_thresholds: list[float]
     cluster_sizes: list[int]
+    cluster_connectivity: int
     pair_mode: str
     erosion_voxels: int
     use_filled_images: bool
@@ -255,12 +256,34 @@ def build_series_common_masks(
     return common_masks
 
 
-def remove_small(binary: np.ndarray, min_size: int) -> np.ndarray:
+def _connectivity_structure(connectivity: int) -> np.ndarray:
+    """Return a 3D connected-component structure for 6, 18, or 26 neighbors."""
+    connectivity = int(connectivity)
+    if connectivity == 6:
+        return np.array(
+            [
+                [[0, 0, 0], [0, 1, 0], [0, 0, 0]],
+                [[0, 1, 0], [1, 1, 1], [0, 1, 0]],
+                [[0, 0, 0], [0, 1, 0], [0, 0, 0]],
+            ],
+            dtype=bool,
+        )
+    if connectivity == 18:
+        struct = np.ones((3, 3, 3), dtype=bool)
+        struct[0, 0, 0] = struct[0, 0, 2] = struct[0, 2, 0] = struct[0, 2, 2] = False
+        struct[2, 0, 0] = struct[2, 0, 2] = struct[2, 2, 0] = struct[2, 2, 2] = False
+        return struct
+    if connectivity == 26:
+        return np.ones((3, 3, 3), dtype=bool)
+    raise ValueError("cluster_connectivity must be one of: 6, 18, 26")
+
+
+def remove_small(binary: np.ndarray, min_size: int, connectivity: int = 6) -> np.ndarray:
     """Remove connected components smaller than `min_size` voxels."""
     min_size = int(min_size)
     if min_size <= 1 or not np.any(binary):
         return binary
-    lbl, n = label(binary)
+    lbl, n = label(binary, structure=_connectivity_structure(connectivity))
     if n == 0:
         return np.asarray(binary, dtype=bool)
     counts = np.bincount(lbl.ravel())
@@ -476,6 +499,7 @@ def _classify_pair_remodelling(
     valid: np.ndarray,
     threshold: float,
     cluster_size: int,
+    cluster_connectivity: int = 6,
     method: str,
     seg_arr_t0: np.ndarray | None,
     seg_arr_t1: np.ndarray | None,
@@ -516,10 +540,10 @@ def _classify_pair_remodelling(
     else:
         raise ValueError(f"Unsupported analysis method: {method}")
 
-    formation = remove_small(formation_raw, cluster_size)
-    resorption = remove_small(resorption_raw, cluster_size)
-    mineralisation = remove_small(mineralisation_raw, cluster_size)
-    demineralisation = remove_small(demineralisation_raw, cluster_size)
+    formation = remove_small(formation_raw, cluster_size, cluster_connectivity)
+    resorption = remove_small(resorption_raw, cluster_size, cluster_connectivity)
+    mineralisation = remove_small(mineralisation_raw, cluster_size, cluster_connectivity)
+    demineralisation = remove_small(demineralisation_raw, cluster_size, cluster_connectivity)
     quiescent = quiescent_support & ~(formation | resorption)
 
     bv0 = int(np.count_nonzero(b0))
@@ -705,6 +729,7 @@ def compute_remodelling_outputs(
                         valid=valid,
                         threshold=thr,
                         cluster_size=cluster_size,
+                        cluster_connectivity=params.cluster_connectivity,
                         method=params.method,
                         seg_arr_t0=seg0,
                         seg_arr_t1=seg1,

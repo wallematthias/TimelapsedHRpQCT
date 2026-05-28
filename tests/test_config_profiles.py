@@ -18,10 +18,11 @@ def test_builtin_profiles_are_discoverable() -> None:
     assert "standard" in profiles
     assert "xct1-standard" in profiles
     assert "eth-uofc" in profiles
-    assert "ucsf" in profiles
-    assert "shriners" in profiles
-    assert "low-memory" in profiles
+    assert "eth-uofc-compatibility" in profiles
     assert "multistack" in profiles
+    assert "ped-fx" in profiles
+    assert "ucsf" not in profiles
+    assert "shriners" not in profiles
 
 
 def test_profile_is_applied_before_user_config(tmp_path: Path) -> None:
@@ -36,9 +37,9 @@ visualization:
         encoding="utf-8",
     )
 
-    config = load_config(user_config, profile="low-memory")
+    config = load_config(user_config, profile="multistack")
 
-    assert config.analysis.space == "baseline_common"
+    assert config.multistack_correction.enabled is True
     assert config.analysis.thresholds == [300]
     assert config.visualization.enabled is True
 
@@ -92,8 +93,7 @@ def test_study_profiles_define_expected_analysis_methods() -> None:
     standard = load_config(profile="standard")
     xct1 = load_config(profile="xct1-standard")
     eth_uofc = load_config(profile="eth-uofc")
-    ucsf = load_config(profile="ucsf")
-    shriners = load_config(profile="shriners")
+    eth_uofc_compat = load_config(profile="eth-uofc-compatibility")
 
     assert standard.masks.segmentation.method == "laplace_hamming"
     assert standard.analysis.method == "auto"
@@ -103,6 +103,7 @@ def test_study_profiles_define_expected_analysis_methods() -> None:
     assert standard.analysis.thresholds == [225]
     assert standard.analysis.cluster_sizes == [12]
     assert standard.analysis.gaussian_filter is True
+    assert standard.analysis.image_interpolator == "bspline"
 
     assert xct1.masks.segmentation.method == "laplace_hamming"
     assert xct1.analysis.method == "auto"
@@ -113,8 +114,9 @@ def test_study_profiles_define_expected_analysis_methods() -> None:
     assert xct1.analysis.cluster_sizes == [5]
     assert xct1.analysis.gaussian_filter is True
     assert xct1.analysis.gaussian_sigma == 0.8
+    assert xct1.analysis.image_interpolator == "bspline"
 
-    for config in (eth_uofc,):
+    for config in (eth_uofc, eth_uofc_compat):
         assert config.masks.segmentation.method == "seg_gauss"
         assert config.analysis.method == "auto"
         assert config.analysis.change_region.source == "common_mask"
@@ -124,33 +126,85 @@ def test_study_profiles_define_expected_analysis_methods() -> None:
         assert config.analysis.cluster_sizes == [12]
         assert config.analysis.gaussian_filter is True
 
-    assert ucsf.masks.segmentation.method == "laplace_hamming"
-    assert ucsf.analysis.method == "auto"
-    assert ucsf.analysis.change_region.source == "common_mask"
-    assert ucsf.analysis.change_region.dilation_voxels == 0
-    assert ucsf.analysis.change_region.erosion_voxels == 0
-    assert ucsf.analysis.binary_reclassification.enabled is False
-    assert ucsf.analysis.fraction_denominator == "bone_union"
-    assert _get_analysis_params(ucsf).method == "grayscale_delta_only"
-    assert _get_analysis_params(ucsf).fraction_denominator == "bone_union"
-    assert ucsf.analysis.thresholds == [475]
-    assert ucsf.analysis.cluster_sizes == [5]
-    assert ucsf.analysis.gaussian_filter is False
+    assert eth_uofc.analysis.image_interpolator == "bspline"
+    assert eth_uofc_compat.analysis.image_interpolator == "ipl_cubic"
 
-    assert shriners.masks.segmentation.method == "seg_gauss"
-    assert shriners.analysis.method == "auto"
-    assert shriners.analysis.change_region.source == "common_mask"
-    assert shriners.analysis.binary_reclassification.enabled is False
-    assert _get_analysis_params(shriners).method == "grayscale_delta_only"
-    assert shriners.analysis.thresholds == [220]
-    assert shriners.analysis.cluster_sizes == [0]
-    assert shriners.analysis.gaussian_filter is True
+def test_multistack_profile_matches_standard_analysis_protocol() -> None:
+    standard = load_config(profile="standard")
+    multistack = load_config(profile="multistack")
+
+    assert multistack.masks.segmentation.method == standard.masks.segmentation.method
+    assert multistack.analysis.space == standard.analysis.space
+    assert multistack.analysis.change_detection == standard.analysis.change_detection
+    assert multistack.analysis.change_region.source == standard.analysis.change_region.source
+    assert multistack.analysis.change_region.dilation_voxels == standard.analysis.change_region.dilation_voxels
+    assert multistack.analysis.change_region.erosion_voxels == standard.analysis.change_region.erosion_voxels
+    assert multistack.analysis.binary_reclassification.enabled == standard.analysis.binary_reclassification.enabled
+    assert multistack.analysis.pair_mode == standard.analysis.pair_mode
+    assert multistack.analysis.thresholds == standard.analysis.thresholds
+    assert multistack.analysis.cluster_sizes == standard.analysis.cluster_sizes
+    assert multistack.analysis.gaussian_filter == standard.analysis.gaussian_filter
+    assert multistack.analysis.gaussian_sigma == standard.analysis.gaussian_sigma
+    assert multistack.analysis.image_interpolator == "bspline"
+    assert multistack.visualization.enabled == standard.visualization.enabled
+    assert multistack.visualization.threshold == standard.visualization.threshold
+    assert multistack.visualization.cluster_size == standard.visualization.cluster_size
+    assert multistack.multistack_correction.enabled is True
+    assert multistack.multistack_correction.method == "superstack"
+    assert multistack.multistack_correction.metric == "correlation"
+    assert multistack.multistack_correction.sampling_percentage == 0.05
+    assert multistack.multistack_correction.initial_translation_voxels == [0, 0, -10]
+    assert multistack.multistack_correction.overlap_crop_buffer_voxels == 20
+    assert multistack.multistack_correction.number_of_resolutions == 4
+    assert multistack.multistack_correction.use_masks is True
+    assert multistack.multistack_correction.translation_first is True
+
+
+def test_ped_fx_profile_uses_multistack_geodesic_gauss_and_full_only_masks() -> None:
+    multistack = load_config(profile="multistack")
+    ped_fx = load_config(profile="ped-fx")
+
+    assert ped_fx.import_.stack_depth == 168
+    assert ped_fx.multistack_correction.enabled is True
+    assert ped_fx.multistack_correction.method == multistack.multistack_correction.method
+    assert ped_fx.multistack_correction.metric == multistack.multistack_correction.metric
+    assert ped_fx.multistack_correction.sampling_percentage == multistack.multistack_correction.sampling_percentage
+    assert ped_fx.multistack_correction.initial_translation_voxels == [0, 0, -3]
+    assert ped_fx.multistack_correction.translation_first is True
+    assert ped_fx.masks.roles == ["full"]
+    assert ped_fx.masks.outer.contour_method == "geodesic_fracture"
+    assert ped_fx.masks.outer.geodesic_bone_threshold == 250
+    assert ped_fx.masks.outer.geodesic_fill_holes is True
+    assert ped_fx.masks.inner.contour_method == "none"
+    assert ped_fx.masks.segmentation.method == "seg_gauss"
+    assert ped_fx.analysis.compartments == ["full"]
+    assert ped_fx.analysis.space == multistack.analysis.space
+    assert ped_fx.analysis.change_detection == multistack.analysis.change_detection
+    assert ped_fx.analysis.binary_reclassification.enabled == multistack.analysis.binary_reclassification.enabled
+    assert ped_fx.analysis.image_interpolator == multistack.analysis.image_interpolator
+
+
+def test_study_profiles_do_not_enable_multistack_correction() -> None:
+    for profile_name in (
+        "standard",
+        "xct1-standard",
+        "eth-uofc",
+        "eth-uofc-compatibility",
+    ):
+        config = load_config(profile=profile_name)
+
+        assert config.multistack_correction.enabled is False
 
 
 def test_study_profiles_use_explicit_analysis_controls_not_legacy_method() -> None:
     profiles_dir = Path(__file__).resolve().parents[1] / "src" / "timelapsedhrpqct" / "configs" / "profiles"
 
-    for profile_name in ("standard", "xct1-standard", "eth-uofc", "ucsf", "shriners"):
+    for profile_name in (
+        "standard",
+        "xct1-standard",
+        "eth-uofc",
+        "eth-uofc-compatibility",
+    ):
         data = yaml.safe_load((profiles_dir / f"{profile_name}.yml").read_text(encoding="utf-8"))
         analysis = data.get("analysis") or {}
 

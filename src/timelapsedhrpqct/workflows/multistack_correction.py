@@ -272,6 +272,12 @@ def _default_stack_correction_settings(config: AppConfig) -> RegistrationSetting
     )
 
 
+def _translation_first_enabled(config: AppConfig) -> bool:
+    """Return whether superstack Euler correction should use a translation pre-pass."""
+    cfg = config.multistack_correction
+    return bool(getattr(cfg, "translation_first", False))
+
+
 def _stack_correction_method(config: AppConfig) -> str:
     """Helper for stack correction method."""
     return str(getattr(config.multistack_correction, "method", "superstack"))
@@ -523,6 +529,119 @@ def _write_pairwise_crop_debug(
         write_image(moving_mask, debug_dir / "moving_mask_crop.mha")
 
 
+def _transform_translation_voxels(
+    transform: sitk.Transform,
+    reference_image: sitk.Image,
+) -> tuple[float, float, float]:
+    """Estimate transform translation at the image origin in voxel units."""
+    origin = tuple(float(v) for v in reference_image.GetOrigin())
+    moved = transform.TransformPoint(origin)
+    spacing = tuple(float(v) for v in reference_image.GetSpacing())
+    return tuple(
+        (float(moved[i]) - origin[i]) / spacing[i] if spacing[i] else 0.0
+        for i in range(3)
+    )
+
+
+def _settings_for_translation_first(settings: RegistrationSettings) -> RegistrationSettings:
+    """Return registration settings for the translation pre-pass."""
+    return RegistrationSettings(
+        transform_type="translation",
+        metric=settings.metric,
+        sampling_percentage=settings.sampling_percentage,
+        interpolator=settings.interpolator,
+        optimizer=settings.optimizer,
+        number_of_iterations=settings.number_of_iterations,
+        automatic_parameter_estimation=settings.automatic_parameter_estimation,
+        sp_a=settings.sp_a,
+        maximum_step_length=settings.maximum_step_length,
+        sigmoid_scale_factor=settings.sigmoid_scale_factor,
+        number_of_gradient_measurements=settings.number_of_gradient_measurements,
+        number_of_jacobian_measurements=settings.number_of_jacobian_measurements,
+        initial_translation_voxels=settings.initial_translation_voxels,
+        initializer=settings.initializer,
+        number_of_resolutions=settings.number_of_resolutions,
+        use_masks=settings.use_masks,
+        debug=settings.debug,
+    )
+
+
+def _settings_for_euler_refinement(
+    settings: RegistrationSettings,
+    initial_translation_voxels: tuple[float, float, float],
+) -> RegistrationSettings:
+    """Return Euler settings initialized from a translation pre-pass."""
+    return RegistrationSettings(
+        transform_type=settings.transform_type,
+        metric=settings.metric,
+        sampling_percentage=settings.sampling_percentage,
+        interpolator=settings.interpolator,
+        optimizer=settings.optimizer,
+        number_of_iterations=settings.number_of_iterations,
+        automatic_parameter_estimation=settings.automatic_parameter_estimation,
+        sp_a=settings.sp_a,
+        maximum_step_length=settings.maximum_step_length,
+        sigmoid_scale_factor=settings.sigmoid_scale_factor,
+        number_of_gradient_measurements=settings.number_of_gradient_measurements,
+        number_of_jacobian_measurements=settings.number_of_jacobian_measurements,
+        initial_translation_voxels=initial_translation_voxels,
+        initializer="identity",
+        number_of_resolutions=settings.number_of_resolutions,
+        use_masks=settings.use_masks,
+        debug=settings.debug,
+    )
+
+
+def _register_superstack_pair(
+    fixed_image: sitk.Image,
+    moving_image: sitk.Image,
+    settings: RegistrationSettings,
+    *,
+    fixed_mask: sitk.Image | None,
+    moving_mask: sitk.Image | None,
+    translation_first: bool,
+) -> tuple[RegistrationResult, str, dict | None]:
+    """Register a pair of superstacks, optionally translation-initialized Euler."""
+    if translation_first and str(settings.transform_type).lower() == "euler":
+        translation_settings = _settings_for_translation_first(settings)
+        translation_result = register_images(
+            fixed_image=fixed_image,
+            moving_image=moving_image,
+            settings=translation_settings,
+            fixed_mask=fixed_mask,
+            moving_mask=moving_mask,
+        )
+        refined_translation_voxels = _transform_translation_voxels(
+            translation_result.transform,
+            reference_image=fixed_image,
+        )
+        refinement_settings = _settings_for_euler_refinement(
+            settings,
+            initial_translation_voxels=refined_translation_voxels,
+        )
+        result = register_images(
+            fixed_image=fixed_image,
+            moving_image=moving_image,
+            settings=refinement_settings,
+            fixed_mask=fixed_mask,
+            moving_mask=moving_mask,
+        )
+        return (
+            result,
+            "adjacent_superstack_registration_translation_refined_euler",
+            translation_result.metadata,
+        )
+
+    result = register_images(
+        fixed_image=fixed_image,
+        moving_image=moving_image,
+        settings=settings,
+        fixed_mask=fixed_mask,
+        moving_mask=moving_mask,
+    )
+    return result, "adjacent_superstack_registration", None
+
+
 def _estimate_stack_corrections_from_superstacks(
     dataset_root: Path,
     subject_id: str,
@@ -531,6 +650,7 @@ def _estimate_stack_corrections_from_superstacks(
     baseline_session: str,
     settings: RegistrationSettings,
     overlap_crop_buffer_voxels: int = 10,
+    translation_first: bool = False,
 ) -> dict[int, sitk.Transform]:
     """Helper for estimate stack corrections from superstacks."""
     adjacent_corrections: dict[int, sitk.Transform] = {
@@ -598,15 +718,16 @@ def _estimate_stack_corrections_from_superstacks(
         if crop_meta.get("reason") == "no_mask_overlap":
             result = identity_registration_result(settings)
             method = "identity_no_overlap_fallback"
+            translation_first_metadata = None
         else:
-            result = register_images(
+            result, method, translation_first_metadata = _register_superstack_pair(
                 fixed_image=fixed_super,
                 moving_image=moving_super,
                 settings=settings,
                 fixed_mask=fixed_mask,
                 moving_mask=moving_mask,
+                translation_first=translation_first,
             )
-            method = "adjacent_superstack_registration"
 
         adjacent_corrections[stack_index] = result.transform
 
@@ -632,6 +753,7 @@ def _estimate_stack_corrections_from_superstacks(
                 "optimizer_stop_condition": result.optimizer_stop_condition,
                 "iterations": result.iterations,
                 "registration_metadata": result.metadata,
+                "translation_first_metadata": translation_first_metadata,
                 "reference_stack_index": stack_index - 1,
                 "method": method,
                 "fixed_mask_used": fixed_mask is not None,
@@ -1011,6 +1133,7 @@ def run_stack_correction(
                     overlap_crop_buffer_voxels=int(
                         getattr(cfg, "overlap_crop_buffer_voxels", 10)
                     ),
+                    translation_first=_translation_first_enabled(config),
                 )
 
                 if cfg.debug:
