@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "timelapsed-hrpqct"
-version = "2.0.33"
+version = "2.0.34"
 description = "Longitudinal HR-pQCT timelapse analysis workflow with multistack support"
 readme = "README.md"
 requires-python = ">=3.11,<3.14"
@@ -16,7 +16,7 @@ dependencies = [
   "numpy>=2.1,<3.0; python_version >= '3.13'",
   "pandas",
   "itk-elastix",
-  "hrpqct-geodesic-contour>=0.1.1",
+  "hrpqct-geodesic-contour>=0.1.2",
   "PyYAML",
   "scikit-image>=0.24,<0.26",
   "scipy",
