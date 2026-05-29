@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
 import yaml
 
 from timelapsedhrpqct.config.loader import load_config
@@ -135,6 +136,10 @@ def test_study_profiles_define_expected_analysis_methods() -> None:
 
 
 def test_private_shriners_profile_inherits_disabled_ring_suppression(monkeypatch) -> None:
+    private_profile = Path("src/timelapsedhrpqct/configs/profiles/shriners.yml")
+    if not private_profile.is_file():
+        pytest.skip("Private shriners profile is not present in this checkout.")
+
     monkeypatch.setenv("TIMELAPSE_INCLUDE_PRIVATE_PROFILES", "1")
     shriners = load_config(profile="shriners")
 

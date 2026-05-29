@@ -115,7 +115,8 @@ def _mask_debug_summary(mask: sitk.Image | None) -> dict[str, Any] | None:
         summary["occupancy_stats"] = "skipped_large_mask"
         return summary
 
-    arr = sitk.GetArrayViewFromImage(sitk.Cast(mask > 0, sitk.sitkUInt8))
+    binary_mask = sitk.Cast(mask > 0, sitk.sitkUInt8)
+    arr = sitk.GetArrayViewFromImage(binary_mask)
     nonzero_voxels = int(np.count_nonzero(arr))
     summary.update(
         {
