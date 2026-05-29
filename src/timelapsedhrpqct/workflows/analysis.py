@@ -574,6 +574,95 @@ def _native_density_calibration_from_metadata(
     return float(density_slope) / float(mu_scaling), float(density_intercept)
 
 
+def _scanner_center_yx_from_metadata(
+    metadata_path: Path | None,
+    image_shape_zyx: tuple[int, int, int],
+) -> tuple[float, float] | None:
+    """Infer scanner/FOV center in current imported-stack voxel coordinates."""
+    if metadata_path is None or not metadata_path.exists():
+        return None
+    try:
+        payload = json.loads(metadata_path.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+
+    image_meta = payload.get("image_metadata", {}) if isinstance(payload, dict) else {}
+    log = str(image_meta.get("processing_log", ""))
+    isq_dims_match = re.search(
+        r"Orig-ISQ-Dim-p\s+([0-9]+)\s+([0-9]+)\s+([0-9]+)",
+        log,
+    )
+    position_raw = image_meta.get("position")
+    if (
+        isq_dims_match is not None
+        and isinstance(position_raw, (list, tuple))
+        and len(position_raw) >= 2
+    ):
+        offset_raw = image_meta.get("offset", (0, 0, 0))
+        if not (isinstance(offset_raw, (list, tuple)) and len(offset_raw) >= 2):
+            offset_raw = (0, 0, 0)
+        isq_x = float(isq_dims_match.group(1))
+        isq_y = float(isq_dims_match.group(2))
+        center_x = (isq_x - 1.0) / 2.0 - float(position_raw[0]) - float(offset_raw[0])
+        center_y = (isq_y - 1.0) / 2.0 - float(position_raw[1]) - float(offset_raw[1])
+        crop = payload.get("crop", {}) if isinstance(payload, dict) else {}
+        if isinstance(crop, dict) and crop.get("applied"):
+            roi = crop.get("applied_roi_index_xyz")
+            if isinstance(roi, (list, tuple)) and len(roi) >= 2:
+                center_x -= float(roi[0])
+                center_y -= float(roi[1])
+        return center_y, center_x
+
+    dims_raw = image_meta.get("dimensions")
+    if not (isinstance(dims_raw, (list, tuple)) and len(dims_raw) >= 2):
+        geometry = payload.get("geometry_original_full_image", {})
+        dims_raw = geometry.get("size")
+    if not (isinstance(dims_raw, (list, tuple)) and len(dims_raw) >= 2):
+        dims_raw = (image_shape_zyx[2], image_shape_zyx[1], image_shape_zyx[0])
+
+    center_x = (float(dims_raw[0]) - 1.0) / 2.0
+    center_y = (float(dims_raw[1]) - 1.0) / 2.0
+
+    crop = payload.get("crop", {}) if isinstance(payload, dict) else {}
+    if isinstance(crop, dict) and crop.get("applied"):
+        roi = crop.get("applied_roi_index_xyz")
+        if isinstance(roi, (list, tuple)) and len(roi) >= 2:
+            center_x -= float(roi[0])
+            center_y -= float(roi[1])
+
+    return center_y, center_x
+
+
+def _scanner_centers_yx_for_pair(
+    *,
+    fixed_metadata_path: Path | None,
+    moving_metadata_path: Path | None,
+    fixed_image: sitk.Image,
+    moving_image: sitk.Image,
+    fixed_to_moving_transform: sitk.Transform,
+) -> list[tuple[float, float]]:
+    """Return fixed and moving detector centers in fixed image index coordinates."""
+    fixed_shape = tuple(reversed(fixed_image.GetSize()))
+    moving_shape = tuple(reversed(moving_image.GetSize()))
+    fixed_center = _scanner_center_yx_from_metadata(fixed_metadata_path, fixed_shape)
+    moving_center = _scanner_center_yx_from_metadata(moving_metadata_path, moving_shape)
+    centers: list[tuple[float, float]] = []
+    if fixed_center is not None:
+        centers.append(fixed_center)
+    if moving_center is not None:
+        try:
+            moving_z = (moving_image.GetSize()[2] - 1.0) / 2.0
+            moving_point = moving_image.TransformContinuousIndexToPhysicalPoint(
+                (moving_center[1], moving_center[0], moving_z)
+            )
+            fixed_point = fixed_to_moving_transform.GetInverse().TransformPoint(moving_point)
+            fixed_index = fixed_image.TransformPhysicalPointToContinuousIndex(fixed_point)
+            centers.append((float(fixed_index[1]), float(fixed_index[0])))
+        except Exception:
+            pass
+    return centers
+
+
 def _series_source_core_in_t0_space(
     *,
     dataset_root: Path,
@@ -671,6 +760,15 @@ def _get_analysis_params(config: AppConfig) -> AnalysisParams:
     full_mask_dilation_voxels = 2
     change_region_source = "common_mask"
     binary_reclassification_enabled = True
+    ring_artifact_suppression_enabled = False
+    ring_artifact_suppression_mode = "component"
+    ring_artifact_suppression_proximity_voxels = 1
+    ring_artifact_suppression_axial_radius_voxels = 0
+    ring_artifact_suppression_radial_bin_width_voxels = 1.0
+    ring_artifact_suppression_min_radius_band_events = 100
+    ring_artifact_suppression_radial_band_padding_voxels = 2
+    ring_artifact_suppression_max_radius_bands = 2
+    ring_artifact_suppression_min_radius_band_separation_voxels = 8
     marrow_mask_dilation_voxels = 2
     marrow_mask_erosion_voxels = 0
 
@@ -710,6 +808,63 @@ def _get_analysis_params(config: AppConfig) -> AnalysisParams:
         binary = getattr(cfg, "binary_reclassification", None)
         binary_reclassification_enabled = (
             True if binary is None else bool(getattr(binary, "enabled", False))
+        )
+        ring_suppression = getattr(cfg, "ring_artifact_suppression", None)
+        ring_artifact_suppression_enabled = (
+            False if ring_suppression is None else bool(getattr(ring_suppression, "enabled", False))
+        )
+        ring_artifact_suppression_mode = str(
+            getattr(ring_suppression, "mode", ring_artifact_suppression_mode)
+            or ring_artifact_suppression_mode
+        ).strip().lower()
+        ring_artifact_suppression_proximity_voxels = int(
+            getattr(
+                ring_suppression,
+                "proximity_voxels",
+                ring_artifact_suppression_proximity_voxels,
+            )
+        )
+        ring_artifact_suppression_axial_radius_voxels = int(
+            getattr(
+                ring_suppression,
+                "axial_radius_voxels",
+                ring_artifact_suppression_axial_radius_voxels,
+            )
+        )
+        ring_artifact_suppression_radial_bin_width_voxels = float(
+            getattr(
+                ring_suppression,
+                "radial_bin_width_voxels",
+                ring_artifact_suppression_radial_bin_width_voxels,
+            )
+        )
+        ring_artifact_suppression_min_radius_band_events = int(
+            getattr(
+                ring_suppression,
+                "min_radius_band_events",
+                ring_artifact_suppression_min_radius_band_events,
+            )
+        )
+        ring_artifact_suppression_radial_band_padding_voxels = int(
+            getattr(
+                ring_suppression,
+                "radial_band_padding_voxels",
+                ring_artifact_suppression_radial_band_padding_voxels,
+            )
+        )
+        ring_artifact_suppression_max_radius_bands = int(
+            getattr(
+                ring_suppression,
+                "max_radius_bands",
+                ring_artifact_suppression_max_radius_bands,
+            )
+        )
+        ring_artifact_suppression_min_radius_band_separation_voxels = int(
+            getattr(
+                ring_suppression,
+                "min_radius_band_separation_voxels",
+                ring_artifact_suppression_min_radius_band_separation_voxels,
+            )
         )
         marrow_mask_dilation_voxels = int(
             getattr(
@@ -777,6 +932,17 @@ def _get_analysis_params(config: AppConfig) -> AnalysisParams:
         full_mask_dilation_voxels=full_mask_dilation_voxels,
         change_region_source=change_region_source,
         binary_reclassification_enabled=binary_reclassification_enabled,
+        ring_artifact_suppression_enabled=ring_artifact_suppression_enabled,
+        ring_artifact_suppression_mode=ring_artifact_suppression_mode,
+        ring_artifact_suppression_proximity_voxels=ring_artifact_suppression_proximity_voxels,
+        ring_artifact_suppression_axial_radius_voxels=ring_artifact_suppression_axial_radius_voxels,
+        ring_artifact_suppression_radial_bin_width_voxels=ring_artifact_suppression_radial_bin_width_voxels,
+        ring_artifact_suppression_min_radius_band_events=ring_artifact_suppression_min_radius_band_events,
+        ring_artifact_suppression_radial_band_padding_voxels=ring_artifact_suppression_radial_band_padding_voxels,
+        ring_artifact_suppression_max_radius_bands=ring_artifact_suppression_max_radius_bands,
+        ring_artifact_suppression_min_radius_band_separation_voxels=(
+            ring_artifact_suppression_min_radius_band_separation_voxels
+        ),
         marrow_mask_dilation_voxels=marrow_mask_dilation_voxels,
         marrow_mask_erosion_voxels=marrow_mask_erosion_voxels,
         trajectory_selected_adjacent_pairs=None,
@@ -1417,6 +1583,14 @@ def _pairwise_fixed_t0_outputs(
                 params,
             )
             del dens0_smoothing_core, dens1_smoothing_core
+            ring_centers_yx = _scanner_centers_yx_for_pair(
+                fixed_metadata_path=rec0.metadata_path,
+                moving_metadata_path=rec1.metadata_path,
+                fixed_image=ref_img,
+                moving_image=moving_img,
+                fixed_to_moving_transform=t0_to_t1,
+            )
+            ring_center_yx = ring_centers_yx[0] if ring_centers_yx else None
 
         with benchmark.section(
             "analysis.prepare_pair_masks",
@@ -1575,6 +1749,19 @@ def _pairwise_fixed_t0_outputs(
                     seg_arr_t1=seg1_for_analysis,
                     marrow_mask=None,
                     marrow_mask_erosion_voxels=params.marrow_mask_erosion_voxels,
+                    ring_artifact_suppression_enabled=params.ring_artifact_suppression_enabled,
+                    ring_artifact_suppression_mode=params.ring_artifact_suppression_mode,
+                    ring_artifact_suppression_proximity_voxels=params.ring_artifact_suppression_proximity_voxels,
+                    ring_artifact_suppression_axial_radius_voxels=params.ring_artifact_suppression_axial_radius_voxels,
+                    ring_artifact_suppression_radial_bin_width_voxels=params.ring_artifact_suppression_radial_bin_width_voxels,
+                    ring_artifact_suppression_min_radius_band_events=params.ring_artifact_suppression_min_radius_band_events,
+                    ring_artifact_suppression_radial_band_padding_voxels=params.ring_artifact_suppression_radial_band_padding_voxels,
+                    ring_artifact_suppression_max_radius_bands=params.ring_artifact_suppression_max_radius_bands,
+                    ring_artifact_suppression_min_radius_band_separation_voxels=(
+                        params.ring_artifact_suppression_min_radius_band_separation_voxels
+                    ),
+                    ring_artifact_suppression_center_yx=ring_center_yx,
+                    ring_artifact_suppression_centers_yx=ring_centers_yx or None,
                 )
                 formation_full = np.asarray(classified["formation"], dtype=bool)
                 resorption_full = np.asarray(classified["resorption"], dtype=bool)
@@ -1583,6 +1770,9 @@ def _pairwise_fixed_t0_outputs(
                 b0_full = np.asarray(classified["b0"], dtype=bool)
                 b1_full = np.asarray(classified["b1"], dtype=bool)
                 quiescent_full = np.asarray(classified["quiescent"], dtype=bool)
+                ring_suppressed_formation_vox = int(classified["ring_suppressed_formation_vox"])
+                ring_suppressed_resorption_vox = int(classified["ring_suppressed_resorption_vox"])
+                ring_suppressed_radius_bands = int(classified["ring_suppressed_radius_bands"])
 
                 for compartment in effective_compartments:
                     trajectory_event_maps = trajectory_event_maps_by_compartment[compartment]
@@ -1653,6 +1843,30 @@ def _pairwise_fixed_t0_outputs(
                             "real_overlap_frac_of_union": safe_frac(real_overlap, union_real),
                             "formation_vox": formation_vox,
                             "resorption_vox": resorption_vox,
+                            "ring_artifact_suppression_enabled": params.ring_artifact_suppression_enabled,
+                            "ring_artifact_suppression_mode": params.ring_artifact_suppression_mode,
+                            "ring_artifact_suppression_proximity_voxels": params.ring_artifact_suppression_proximity_voxels,
+                            "ring_artifact_suppression_axial_radius_voxels": params.ring_artifact_suppression_axial_radius_voxels,
+                            "ring_artifact_suppression_radial_bin_width_voxels": params.ring_artifact_suppression_radial_bin_width_voxels,
+                            "ring_artifact_suppression_min_radius_band_events": params.ring_artifact_suppression_min_radius_band_events,
+                            "ring_artifact_suppression_radial_band_padding_voxels": params.ring_artifact_suppression_radial_band_padding_voxels,
+                            "ring_artifact_suppression_max_radius_bands": params.ring_artifact_suppression_max_radius_bands,
+                            "ring_artifact_suppression_min_radius_band_separation_voxels": params.ring_artifact_suppression_min_radius_band_separation_voxels,
+                            "ring_suppressed_formation_vox": ring_suppressed_formation_vox,
+                            "ring_suppressed_resorption_vox": ring_suppressed_resorption_vox,
+                            "ring_suppressed_radius_bands": ring_suppressed_radius_bands,
+                            "ring_artifact_center_count": len(ring_centers_yx),
+                            "ring_artifact_center_source": (
+                                "isq_position_metadata" if ring_center_yx is not None else "image_center"
+                            ),
+                            "ring_artifact_center_y": float(classified["ring_artifact_center_y"]),
+                            "ring_artifact_center_x": float(classified["ring_artifact_center_x"]),
+                            "ring_artifact_moving_center_y": (
+                                float(ring_centers_yx[1][0]) if len(ring_centers_yx) > 1 else float("nan")
+                            ),
+                            "ring_artifact_moving_center_x": (
+                                float(ring_centers_yx[1][1]) if len(ring_centers_yx) > 1 else float("nan")
+                            ),
                             "mineralisation_vox": mineralisation_vox,
                             "demineralisation_vox": demineralisation_vox,
                             "formation_frac_bv0": safe_frac(
@@ -2043,6 +2257,17 @@ def run_analysis(
             full_mask_dilation_voxels=params.full_mask_dilation_voxels,
             change_region_source=params.change_region_source,
             binary_reclassification_enabled=params.binary_reclassification_enabled,
+            ring_artifact_suppression_enabled=params.ring_artifact_suppression_enabled,
+            ring_artifact_suppression_mode=params.ring_artifact_suppression_mode,
+            ring_artifact_suppression_proximity_voxels=params.ring_artifact_suppression_proximity_voxels,
+            ring_artifact_suppression_axial_radius_voxels=params.ring_artifact_suppression_axial_radius_voxels,
+            ring_artifact_suppression_radial_bin_width_voxels=params.ring_artifact_suppression_radial_bin_width_voxels,
+            ring_artifact_suppression_min_radius_band_events=params.ring_artifact_suppression_min_radius_band_events,
+            ring_artifact_suppression_radial_band_padding_voxels=params.ring_artifact_suppression_radial_band_padding_voxels,
+            ring_artifact_suppression_max_radius_bands=params.ring_artifact_suppression_max_radius_bands,
+            ring_artifact_suppression_min_radius_band_separation_voxels=(
+                params.ring_artifact_suppression_min_radius_band_separation_voxels
+            ),
             marrow_mask_dilation_voxels=params.marrow_mask_dilation_voxels,
             marrow_mask_erosion_voxels=params.marrow_mask_erosion_voxels,
             trajectory_selected_adjacent_pairs=params.trajectory_selected_adjacent_pairs,

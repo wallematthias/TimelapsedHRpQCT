@@ -294,6 +294,19 @@ class AnalysisBinaryReclassificationConfig:
 
 
 @dataclass(slots=True)
+class AnalysisRingArtifactSuppressionConfig:
+    enabled: bool = False
+    mode: str = "polar"
+    proximity_voxels: int = 1
+    axial_radius_voxels: int = 0
+    radial_bin_width_voxels: float = 1.0
+    min_radius_band_events: int = 100
+    radial_band_padding_voxels: int = 2
+    max_radius_bands: int = 2
+    min_radius_band_separation_voxels: int = 8
+
+
+@dataclass(slots=True)
 class AnalysisConfig:
     space: str = "pairwise_fixed_t0"
     method: str = "auto"
@@ -315,6 +328,9 @@ class AnalysisConfig:
     change_region: AnalysisChangeRegionConfig = field(default_factory=AnalysisChangeRegionConfig)
     binary_reclassification: AnalysisBinaryReclassificationConfig = field(
         default_factory=AnalysisBinaryReclassificationConfig
+    )
+    ring_artifact_suppression: AnalysisRingArtifactSuppressionConfig = field(
+        default_factory=AnalysisRingArtifactSuppressionConfig
     )
     valid_region: AnalysisValidRegionConfig = field(default_factory=AnalysisValidRegionConfig)
 

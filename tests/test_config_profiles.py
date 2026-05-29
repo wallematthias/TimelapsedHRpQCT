@@ -114,6 +114,10 @@ def test_study_profiles_define_expected_analysis_methods() -> None:
     assert xct1.analysis.cluster_sizes == [5]
     assert xct1.analysis.gaussian_filter is True
     assert xct1.analysis.gaussian_sigma == 0.8
+    assert xct1.analysis.ring_artifact_suppression.enabled is True
+    assert xct1.analysis.ring_artifact_suppression.mode == "polar"
+    assert xct1.analysis.ring_artifact_suppression.radial_band_padding_voxels == 2
+    assert xct1.analysis.ring_artifact_suppression.max_radius_bands == 2
     assert xct1.analysis.image_interpolator == "bspline"
 
     for config in (eth_uofc, eth_uofc_compat):
@@ -128,6 +132,15 @@ def test_study_profiles_define_expected_analysis_methods() -> None:
 
     assert eth_uofc.analysis.image_interpolator == "bspline"
     assert eth_uofc_compat.analysis.image_interpolator == "ipl_cubic"
+
+
+def test_private_shriners_profile_inherits_disabled_ring_suppression(monkeypatch) -> None:
+    monkeypatch.setenv("TIMELAPSE_INCLUDE_PRIVATE_PROFILES", "1")
+    shriners = load_config(profile="shriners")
+
+    assert shriners.analysis.ring_artifact_suppression.enabled is False
+    assert shriners.analysis.ring_artifact_suppression.mode == "polar"
+
 
 def test_multistack_profile_matches_standard_analysis_protocol() -> None:
     standard = load_config(profile="standard")

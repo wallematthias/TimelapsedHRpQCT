@@ -22,6 +22,14 @@ analysis:
   cluster_sizes: [5]
   gaussian_filter: true
   gaussian_sigma: 0.8
+  ring_artifact_suppression:
+    enabled: true
+    mode: polar
+    radial_bin_width_voxels: 1.0
+    min_radius_band_events: 100
+    radial_band_padding_voxels: 2
+    max_radius_bands: 2
+    min_radius_band_separation_voxels: 8
   image_interpolator: bspline
 
 visualization:

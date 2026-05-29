@@ -22,6 +22,8 @@ from timelapsedhrpqct.analysis.remodelling import (
     safe_mean,
     safe_rmse,
     safe_sd,
+    suppress_opposite_event_pairs,
+    suppress_polar_ring_bands,
 )
 
 __all__ = [
@@ -48,4 +50,6 @@ __all__ = [
     "safe_mean",
     "safe_rmse",
     "safe_sd",
+    "suppress_opposite_event_pairs",
+    "suppress_polar_ring_bands",
 ]

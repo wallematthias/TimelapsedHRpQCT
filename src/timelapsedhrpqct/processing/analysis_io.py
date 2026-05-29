@@ -123,6 +123,15 @@ def build_analysis_summary_metadata(
     full_mask_dilation_voxels: int = 2,
     change_region_source: str = "common_mask",
     binary_reclassification_enabled: bool = True,
+    ring_artifact_suppression_enabled: bool = False,
+    ring_artifact_suppression_mode: str = "component",
+    ring_artifact_suppression_proximity_voxels: int = 1,
+    ring_artifact_suppression_axial_radius_voxels: int = 0,
+    ring_artifact_suppression_radial_bin_width_voxels: float = 1.0,
+    ring_artifact_suppression_min_radius_band_events: int = 100,
+    ring_artifact_suppression_radial_band_padding_voxels: int = 2,
+    ring_artifact_suppression_max_radius_bands: int = 2,
+    ring_artifact_suppression_min_radius_band_separation_voxels: int = 8,
     marrow_mask_dilation_voxels: int = 2,
     marrow_mask_erosion_voxels: int = 0,
     trajectory_selected_adjacent_pairs: list[str] | None = None,
@@ -153,6 +162,29 @@ def build_analysis_summary_metadata(
         "full_mask_dilation_voxels": int(full_mask_dilation_voxels),
         "change_region_source": str(change_region_source),
         "binary_reclassification_enabled": bool(binary_reclassification_enabled),
+        "ring_artifact_suppression_enabled": bool(ring_artifact_suppression_enabled),
+        "ring_artifact_suppression_mode": str(ring_artifact_suppression_mode),
+        "ring_artifact_suppression_proximity_voxels": int(
+            ring_artifact_suppression_proximity_voxels
+        ),
+        "ring_artifact_suppression_axial_radius_voxels": int(
+            ring_artifact_suppression_axial_radius_voxels
+        ),
+        "ring_artifact_suppression_radial_bin_width_voxels": float(
+            ring_artifact_suppression_radial_bin_width_voxels
+        ),
+        "ring_artifact_suppression_min_radius_band_events": int(
+            ring_artifact_suppression_min_radius_band_events
+        ),
+        "ring_artifact_suppression_radial_band_padding_voxels": int(
+            ring_artifact_suppression_radial_band_padding_voxels
+        ),
+        "ring_artifact_suppression_max_radius_bands": int(
+            ring_artifact_suppression_max_radius_bands
+        ),
+        "ring_artifact_suppression_min_radius_band_separation_voxels": int(
+            ring_artifact_suppression_min_radius_band_separation_voxels
+        ),
         "marrow_mask_dilation_voxels": int(marrow_mask_dilation_voxels),
         "marrow_mask_erosion_voxels": int(marrow_mask_erosion_voxels),
         "visualization_enabled": visualization_enabled,

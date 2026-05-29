@@ -531,6 +531,34 @@ analysis:
     # Options: true | false.
     enabled: true
 
+  ring_artifact_suppression:
+    # Remove locally paired positive/negative event dipoles before cluster filtering.
+    # The polar mode uses AIM scanner/FOV center metadata when available to find
+    # sign-specific circular event bands; component mode is a local opposite-sign
+    # fallback. Validate on repeat scans because true cortical remodeling can
+    # also occur near circular anatomy.
+    # Options: true | false.
+    enabled: false
+    # Ring artifact suppression strategy.
+    # Options: component | polar.
+    mode: polar
+    # In-plane search radius for opposite-sign event pairing; range: 0-5 voxels.
+    proximity_voxels: 1
+    # Axial search radius for opposite-sign pairing; range: 0-2 voxels.
+    axial_radius_voxels: 0
+    # Width of polar radius bins for scanner-centered ring detection; range: 0.5-5 voxels.
+    radial_bin_width_voxels: 1.0
+    # Minimum event voxels in a radius bin before it can be selected as a ring peak.
+    # Reasonable range: 10-1000; larger values are more conservative.
+    min_radius_band_events: 100
+    # Extra neighboring radius bins removed around each selected detector ring; range: 0-5 bins.
+    radial_band_padding_voxels: 2
+    # Maximum number of detector ring peaks removed per comparison; range: 1-4.
+    # Two is the physical default for pairwise timelapse: one ring family per scan.
+    max_radius_bands: 2
+    # Minimum separation between selected detector ring peaks; range: 1-50 voxels.
+    min_radius_band_separation_voxels: 8
+
   valid_region:
     # Erosion applied to valid common region before analysis; range: 0-10 voxels.
     erosion_voxels: 1

@@ -34,6 +34,15 @@ class AnalysisParams:
     full_mask_dilation_voxels: int
     change_region_source: str
     binary_reclassification_enabled: bool
+    ring_artifact_suppression_enabled: bool
+    ring_artifact_suppression_mode: str
+    ring_artifact_suppression_proximity_voxels: int
+    ring_artifact_suppression_axial_radius_voxels: int
+    ring_artifact_suppression_radial_bin_width_voxels: float
+    ring_artifact_suppression_min_radius_band_events: int
+    ring_artifact_suppression_radial_band_padding_voxels: int
+    ring_artifact_suppression_max_radius_bands: int
+    ring_artifact_suppression_min_radius_band_separation_voxels: int
     marrow_mask_dilation_voxels: int
     marrow_mask_erosion_voxels: int
     trajectory_selected_adjacent_pairs: list[str] | None
@@ -292,6 +301,214 @@ def remove_small(binary: np.ndarray, min_size: int, connectivity: int = 6) -> np
     return keep[lbl]
 
 
+def suppress_opposite_event_pairs(
+    formation: np.ndarray,
+    resorption: np.ndarray,
+    *,
+    proximity_voxels: int = 1,
+    axial_radius_voxels: int = 0,
+) -> tuple[np.ndarray, np.ndarray, int, int]:
+    """
+    Suppress locally paired formation/resorption dipoles.
+
+    Scanner ring artifacts in threshold-only delta maps often appear as adjacent
+    positive and negative thin bands. This optional filter finds local opposite-
+    sign event seeds, then removes the connected event components containing
+    those seeds. It is applied before connected-component filtering.
+    """
+    formation_mask = np.asarray(formation, dtype=bool)
+    resorption_mask = np.asarray(resorption, dtype=bool)
+    if not np.any(formation_mask) or not np.any(resorption_mask):
+        return formation_mask, resorption_mask, 0, 0
+
+    xy_radius = max(0, int(proximity_voxels))
+    z_radius = max(0, int(axial_radius_voxels))
+    if xy_radius == 0 and z_radius == 0:
+        paired = formation_mask & resorption_mask
+        removed = int(np.count_nonzero(paired))
+        return formation_mask & ~paired, resorption_mask & ~paired, removed, removed
+
+    structure = np.ones(
+        (2 * z_radius + 1, 2 * xy_radius + 1, 2 * xy_radius + 1),
+        dtype=bool,
+    )
+    near_resorption = binary_dilation(resorption_mask, structure=structure)
+    near_formation = binary_dilation(formation_mask, structure=structure)
+    formation_seed = formation_mask & near_resorption
+    resorption_seed = resorption_mask & near_formation
+    formation_artifact = _components_touching_seed(formation_mask, formation_seed)
+    resorption_artifact = _components_touching_seed(resorption_mask, resorption_seed)
+    return (
+        formation_mask & ~formation_artifact,
+        resorption_mask & ~resorption_artifact,
+        int(np.count_nonzero(formation_artifact)),
+        int(np.count_nonzero(resorption_artifact)),
+    )
+
+
+def _components_touching_seed(binary: np.ndarray, seed: np.ndarray) -> np.ndarray:
+    """Return full 3D components from `binary` that intersect `seed`."""
+    if not np.any(binary) or not np.any(seed):
+        return np.zeros_like(binary, dtype=bool)
+    lbl, n = label(binary, structure=_connectivity_structure(6))
+    if n == 0:
+        return np.zeros_like(binary, dtype=bool)
+    touched = np.unique(lbl[np.asarray(seed, dtype=bool)])
+    touched = touched[touched != 0]
+    if touched.size == 0:
+        return np.zeros_like(binary, dtype=bool)
+    return np.isin(lbl, touched)
+
+
+def suppress_polar_ring_bands(
+    formation: np.ndarray,
+    resorption: np.ndarray,
+    *,
+    center_yx: tuple[float, float] | None = None,
+    centers_yx: list[tuple[float, float]] | tuple[tuple[float, float], ...] | None = None,
+    radial_bin_width_voxels: float = 1.0,
+    min_radius_band_events: int = 100,
+    radial_band_padding_voxels: int = 2,
+    max_radius_bands: int = 2,
+    min_radius_band_separation_voxels: int = 8,
+) -> tuple[np.ndarray, np.ndarray, int, int, int, tuple[float, float]]:
+    """
+    Suppress circular/radial event bands from suspect detector radii.
+
+    Unlike local dipole suppression, this does not require nearby formation and
+    resorption. A scanner-center mismatch can make a ring artifact appear as a
+    formation-only or resorption-only band, so suspicious radius bins are found
+    independently for each sign. Once a radius bin is flagged, that detector
+    band is treated as suspect for both signs.
+    """
+    formation_mask = np.asarray(formation, dtype=bool)
+    resorption_mask = np.asarray(resorption, dtype=bool)
+    shape = formation_mask.shape
+    if centers_yx is None:
+        if center_yx is None:
+            center_yx = ((shape[1] - 1.0) / 2.0, (shape[2] - 1.0) / 2.0)
+        centers = [(float(center_yx[0]), float(center_yx[1]))]
+    else:
+        centers = [(float(center[0]), float(center[1])) for center in centers_yx]
+        if not centers:
+            centers = [((shape[1] - 1.0) / 2.0, (shape[2] - 1.0) / 2.0)]
+    bin_width = max(float(radial_bin_width_voxels), 1e-6)
+    min_events = max(1, int(min_radius_band_events))
+
+    yy, xx = np.indices(shape[1:], dtype=np.float32)
+    band_candidates: list[tuple[int, int, np.ndarray, np.ndarray]] = []
+    for center_index, center in enumerate(centers):
+        radius_bins = np.floor(
+            np.sqrt((yy - center[0]) ** 2 + (xx - center[1]) ** 2) / bin_width
+        ).astype(np.int32, copy=False)
+        n_bins = int(radius_bins.max()) + 1 if radius_bins.size else 0
+        formation_counts = _radius_band_counts(formation_mask, radius_bins, n_bins)
+        resorption_counts = _radius_band_counts(resorption_mask, radius_bins, n_bins)
+        counts = formation_counts + resorption_counts
+        selected = _selected_detector_radius_peaks(
+            counts,
+            min_events=min_events,
+            max_bands=max_radius_bands,
+            min_separation=int(min_radius_band_separation_voxels),
+        )
+        for radius in selected:
+            band_candidates.append((int(counts[radius]), center_index, radius, radius_bins))
+
+    band_candidates.sort(key=lambda item: item[0], reverse=True)
+    formation_artifact = np.zeros_like(formation_mask, dtype=bool)
+    resorption_artifact = np.zeros_like(resorption_mask, dtype=bool)
+    n_bands = 0
+    for _count, _center_index, radius, radius_bins in band_candidates[: max(1, int(max_radius_bands))]:
+        suspicious_bins = _fixed_width_radius_band(
+            radius,
+            n_bins=int(radius_bins.max()) + 1,
+            padding=int(radial_band_padding_voxels),
+        )
+        artifact2d = suspicious_bins[radius_bins]
+        artifact3d = np.broadcast_to(artifact2d, formation_mask.shape)
+        formation_artifact |= formation_mask & artifact3d
+        resorption_artifact |= resorption_mask & artifact3d
+        n_bands += 1
+    return (
+        formation_mask & ~formation_artifact,
+        resorption_mask & ~resorption_artifact,
+        int(np.count_nonzero(formation_artifact)),
+        int(np.count_nonzero(resorption_artifact)),
+        n_bands,
+        centers[0],
+    )
+
+
+def _selected_detector_radius_peaks(
+    counts: np.ndarray,
+    *,
+    min_events: int,
+    max_bands: int,
+    min_separation: int,
+) -> list[int]:
+    counts = np.asarray(counts, dtype=np.int64)
+    candidates = np.flatnonzero(counts >= max(1, int(min_events)))
+    selected: list[int] = []
+    separation = max(0, int(min_separation))
+    for radius in sorted(candidates, key=lambda idx: int(counts[idx]), reverse=True):
+        radius = int(radius)
+        if all(abs(radius - other) >= separation for other in selected):
+            selected.append(radius)
+        if len(selected) >= max(1, int(max_bands)):
+            break
+    return selected
+
+
+def _fixed_width_radius_band(radius: int, *, n_bins: int, padding: int) -> np.ndarray:
+    suspicious_bins = np.zeros(max(0, int(n_bins)), dtype=bool)
+    if suspicious_bins.size == 0:
+        return suspicious_bins
+    pad = max(0, int(padding))
+    lo = max(0, int(radius) - pad)
+    hi = min(suspicious_bins.size, int(radius) + pad + 1)
+    suspicious_bins[lo:hi] = True
+    return suspicious_bins
+
+
+def _select_detector_radius_bands(
+    counts: np.ndarray,
+    *,
+    min_events: int,
+    max_bands: int,
+    min_separation: int,
+    padding: int,
+) -> tuple[np.ndarray, int]:
+    """Select strongest detector-radius peaks and expand them to fixed-width bands."""
+    counts = np.asarray(counts, dtype=np.int64)
+    if counts.size == 0:
+        return np.zeros(0, dtype=bool), 0
+    selected = _selected_detector_radius_peaks(
+        counts,
+        min_events=min_events,
+        max_bands=max_bands,
+        min_separation=min_separation,
+    )
+    if not selected:
+        return np.zeros_like(counts, dtype=bool), 0
+
+    suspicious_bins = np.zeros_like(counts, dtype=bool)
+    for radius in selected:
+        suspicious_bins |= _fixed_width_radius_band(
+            radius,
+            n_bins=counts.size,
+            padding=padding,
+        )
+    return suspicious_bins, len(selected)
+
+
+def _radius_band_counts(mask3d: np.ndarray, radius_bins: np.ndarray, n_bins: int) -> np.ndarray:
+    """Count event voxels per x/y radius bin across all slices."""
+    if n_bins <= 0 or not np.any(mask3d):
+        return np.zeros(max(0, n_bins), dtype=np.int64)
+    bins3d = np.broadcast_to(radius_bins, mask3d.shape)
+    return np.bincount(bins3d[mask3d], minlength=n_bins)
+
+
 def remodelling_fraction_denominator(
     *,
     mode: str,
@@ -505,6 +722,17 @@ def _classify_pair_remodelling(
     seg_arr_t1: np.ndarray | None,
     marrow_mask: np.ndarray | None = None,
     marrow_mask_erosion_voxels: int = 0,
+    ring_artifact_suppression_enabled: bool = False,
+    ring_artifact_suppression_mode: str = "component",
+    ring_artifact_suppression_proximity_voxels: int = 1,
+    ring_artifact_suppression_axial_radius_voxels: int = 0,
+    ring_artifact_suppression_radial_bin_width_voxels: float = 1.0,
+    ring_artifact_suppression_min_radius_band_events: int = 100,
+    ring_artifact_suppression_radial_band_padding_voxels: int = 2,
+    ring_artifact_suppression_max_radius_bands: int = 2,
+    ring_artifact_suppression_min_radius_band_separation_voxels: int = 8,
+    ring_artifact_suppression_center_yx: tuple[float, float] | None = None,
+    ring_artifact_suppression_centers_yx: list[tuple[float, float]] | None = None,
 ) -> dict[str, np.ndarray | int | float]:
     """Classify voxel-wise remodelling states for one session pair."""
     thr = float(threshold)
@@ -540,6 +768,53 @@ def _classify_pair_remodelling(
     else:
         raise ValueError(f"Unsupported analysis method: {method}")
 
+    ring_suppressed_formation_vox = 0
+    ring_suppressed_resorption_vox = 0
+    ring_suppressed_radius_bands = 0
+    ring_center_y = float("nan")
+    ring_center_x = float("nan")
+    if ring_artifact_suppression_enabled:
+        mode = str(ring_artifact_suppression_mode or "component").strip().lower()
+        if mode == "polar":
+            (
+                formation_raw,
+                resorption_raw,
+                ring_suppressed_formation_vox,
+                ring_suppressed_resorption_vox,
+                ring_suppressed_radius_bands,
+                ring_center,
+            ) = suppress_polar_ring_bands(
+                formation_raw,
+                resorption_raw,
+                center_yx=ring_artifact_suppression_center_yx,
+                centers_yx=ring_artifact_suppression_centers_yx,
+                radial_bin_width_voxels=ring_artifact_suppression_radial_bin_width_voxels,
+                min_radius_band_events=ring_artifact_suppression_min_radius_band_events,
+                radial_band_padding_voxels=ring_artifact_suppression_radial_band_padding_voxels,
+                max_radius_bands=ring_artifact_suppression_max_radius_bands,
+                min_radius_band_separation_voxels=(
+                    ring_artifact_suppression_min_radius_band_separation_voxels
+                ),
+            )
+            ring_center_y, ring_center_x = ring_center
+        elif mode == "component":
+            (
+                formation_raw,
+                resorption_raw,
+                ring_suppressed_formation_vox,
+                ring_suppressed_resorption_vox,
+            ) = suppress_opposite_event_pairs(
+                formation_raw,
+                resorption_raw,
+                proximity_voxels=ring_artifact_suppression_proximity_voxels,
+                axial_radius_voxels=ring_artifact_suppression_axial_radius_voxels,
+            )
+        else:
+            raise ValueError(
+                "Unsupported analysis.ring_artifact_suppression.mode: "
+                f"{ring_artifact_suppression_mode}. Use one of: component, polar."
+            )
+
     formation = remove_small(formation_raw, cluster_size, cluster_connectivity)
     resorption = remove_small(resorption_raw, cluster_size, cluster_connectivity)
     mineralisation = remove_small(mineralisation_raw, cluster_size, cluster_connectivity)
@@ -560,6 +835,11 @@ def _classify_pair_remodelling(
         "bv1_vox": bv1,
         "formation_vox": int(np.count_nonzero(formation)),
         "resorption_vox": int(np.count_nonzero(resorption)),
+        "ring_suppressed_formation_vox": int(ring_suppressed_formation_vox),
+        "ring_suppressed_resorption_vox": int(ring_suppressed_resorption_vox),
+        "ring_suppressed_radius_bands": int(ring_suppressed_radius_bands),
+        "ring_artifact_center_y": float(ring_center_y),
+        "ring_artifact_center_x": float(ring_center_x),
     }
 
 
@@ -580,6 +860,17 @@ def compute_pair_remodelling_preview(
     support_mask_t1: np.ndarray | None = None,
     marrow_mask_dilation_voxels: int = 0,
     marrow_mask_erosion_voxels: int = 0,
+    ring_artifact_suppression_enabled: bool = False,
+    ring_artifact_suppression_mode: str = "component",
+    ring_artifact_suppression_proximity_voxels: int = 1,
+    ring_artifact_suppression_axial_radius_voxels: int = 0,
+    ring_artifact_suppression_radial_bin_width_voxels: float = 1.0,
+    ring_artifact_suppression_min_radius_band_events: int = 100,
+    ring_artifact_suppression_radial_band_padding_voxels: int = 2,
+    ring_artifact_suppression_max_radius_bands: int = 2,
+    ring_artifact_suppression_min_radius_band_separation_voxels: int = 8,
+    ring_artifact_suppression_center_yx: tuple[float, float] | None = None,
+    ring_artifact_suppression_centers_yx: list[tuple[float, float]] | None = None,
 ) -> PairRemodellingPreview:
     """Compute interactive remodelling preview arrays for a single pair."""
     if image_arr_t0.shape != image_arr_t1.shape:
@@ -620,6 +911,19 @@ def compute_pair_remodelling_preview(
         seg_arr_t1=seg_arr_t1,
         marrow_mask=None,
         marrow_mask_erosion_voxels=marrow_mask_erosion_voxels,
+        ring_artifact_suppression_enabled=ring_artifact_suppression_enabled,
+        ring_artifact_suppression_mode=ring_artifact_suppression_mode,
+        ring_artifact_suppression_proximity_voxels=ring_artifact_suppression_proximity_voxels,
+        ring_artifact_suppression_axial_radius_voxels=ring_artifact_suppression_axial_radius_voxels,
+        ring_artifact_suppression_radial_bin_width_voxels=ring_artifact_suppression_radial_bin_width_voxels,
+        ring_artifact_suppression_min_radius_band_events=ring_artifact_suppression_min_radius_band_events,
+        ring_artifact_suppression_radial_band_padding_voxels=ring_artifact_suppression_radial_band_padding_voxels,
+        ring_artifact_suppression_max_radius_bands=ring_artifact_suppression_max_radius_bands,
+        ring_artifact_suppression_min_radius_band_separation_voxels=(
+            ring_artifact_suppression_min_radius_band_separation_voxels
+        ),
+        ring_artifact_suppression_center_yx=ring_artifact_suppression_center_yx,
+        ring_artifact_suppression_centers_yx=ring_artifact_suppression_centers_yx,
     )
     formation = classified["formation"]
     resorption = classified["resorption"]
@@ -735,6 +1039,17 @@ def compute_remodelling_outputs(
                         seg_arr_t1=seg1,
                         marrow_mask=None,
                         marrow_mask_erosion_voxels=params.marrow_mask_erosion_voxels,
+                        ring_artifact_suppression_enabled=params.ring_artifact_suppression_enabled,
+                        ring_artifact_suppression_mode=params.ring_artifact_suppression_mode,
+                        ring_artifact_suppression_proximity_voxels=params.ring_artifact_suppression_proximity_voxels,
+                        ring_artifact_suppression_axial_radius_voxels=params.ring_artifact_suppression_axial_radius_voxels,
+                        ring_artifact_suppression_radial_bin_width_voxels=params.ring_artifact_suppression_radial_bin_width_voxels,
+                        ring_artifact_suppression_min_radius_band_events=params.ring_artifact_suppression_min_radius_band_events,
+                        ring_artifact_suppression_radial_band_padding_voxels=params.ring_artifact_suppression_radial_band_padding_voxels,
+                        ring_artifact_suppression_max_radius_bands=params.ring_artifact_suppression_max_radius_bands,
+                        ring_artifact_suppression_min_radius_band_separation_voxels=(
+                            params.ring_artifact_suppression_min_radius_band_separation_voxels
+                        ),
                     )
                     b0 = classified["b0"]
                     b1 = classified["b1"]
@@ -777,6 +1092,9 @@ def compute_remodelling_outputs(
 
                     formation_vox = int(classified["formation_vox"])
                     resorption_vox = int(classified["resorption_vox"])
+                    ring_suppressed_formation_vox = int(classified["ring_suppressed_formation_vox"])
+                    ring_suppressed_resorption_vox = int(classified["ring_suppressed_resorption_vox"])
+                    ring_suppressed_radius_bands = int(classified["ring_suppressed_radius_bands"])
                     mineralisation_vox = int(np.count_nonzero(mineralisation))
                     demineralisation_vox = int(np.count_nonzero(demineralisation))
                     quiescent_vox = int(np.count_nonzero(quiescent))
@@ -826,6 +1144,20 @@ def compute_remodelling_outputs(
                             "real_overlap_frac_of_union": safe_frac(real_overlap, union_real),
                             "formation_vox": formation_vox,
                             "resorption_vox": resorption_vox,
+                            "ring_artifact_suppression_enabled": params.ring_artifact_suppression_enabled,
+                            "ring_artifact_suppression_mode": params.ring_artifact_suppression_mode,
+                            "ring_artifact_suppression_proximity_voxels": params.ring_artifact_suppression_proximity_voxels,
+                            "ring_artifact_suppression_axial_radius_voxels": params.ring_artifact_suppression_axial_radius_voxels,
+                            "ring_artifact_suppression_radial_bin_width_voxels": params.ring_artifact_suppression_radial_bin_width_voxels,
+                            "ring_artifact_suppression_min_radius_band_events": params.ring_artifact_suppression_min_radius_band_events,
+                            "ring_artifact_suppression_radial_band_padding_voxels": params.ring_artifact_suppression_radial_band_padding_voxels,
+                            "ring_artifact_suppression_max_radius_bands": params.ring_artifact_suppression_max_radius_bands,
+                            "ring_artifact_suppression_min_radius_band_separation_voxels": params.ring_artifact_suppression_min_radius_band_separation_voxels,
+                            "ring_suppressed_formation_vox": ring_suppressed_formation_vox,
+                            "ring_suppressed_resorption_vox": ring_suppressed_resorption_vox,
+                            "ring_suppressed_radius_bands": ring_suppressed_radius_bands,
+                            "ring_artifact_center_y": float(classified["ring_artifact_center_y"]),
+                            "ring_artifact_center_x": float(classified["ring_artifact_center_x"]),
                             "mineralisation_vox": mineralisation_vox,
                             "demineralisation_vox": demineralisation_vox,
                             "formation_frac_bv0": safe_frac(

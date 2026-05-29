@@ -26,6 +26,8 @@ from timelapsedhrpqct.analysis.remodelling import (
     safe_mean,
     safe_rmse,
     safe_sd,
+    suppress_opposite_event_pairs,
+    suppress_polar_ring_bands,
 )
 from timelapsedhrpqct.config.models import AppConfig
 from timelapsedhrpqct.dataset.derivative_paths import (
@@ -418,6 +420,47 @@ def test_compute_pair_remodelling_preview_respects_cluster_filter_and_smoothing(
     assert np.count_nonzero(filtered.formation) == 0
     assert np.max(smoothed.delta) < np.max(raw.delta)
     assert np.allclose(raw.delta, maybe_smooth_density(followup_img, gaussian_filter=False, gaussian_sigma=1.2))
+
+
+def test_compute_pair_remodelling_preview_can_suppress_opposite_ring_dipoles():
+    shape = (5, 7, 7)
+    valid = np.ones(shape, dtype=bool)
+    baseline_img = np.zeros(shape, dtype=np.float32)
+    followup_img = np.zeros(shape, dtype=np.float32)
+    followup_img[2, 3, 3] = 300.0
+    baseline_img[2, 3, 4] = 300.0
+
+    unsuppressed = compute_pair_remodelling_preview(
+        image_arr_t0=baseline_img,
+        image_arr_t1=followup_img,
+        seg_arr_t0=None,
+        seg_arr_t1=None,
+        valid_mask=valid,
+        threshold=200.0,
+        cluster_size=1,
+        method="grayscale_delta_only",
+        gaussian_filter=False,
+    )
+    suppressed = compute_pair_remodelling_preview(
+        image_arr_t0=baseline_img,
+        image_arr_t1=followup_img,
+        seg_arr_t0=None,
+        seg_arr_t1=None,
+        valid_mask=valid,
+        threshold=200.0,
+        cluster_size=1,
+        method="grayscale_delta_only",
+        gaussian_filter=False,
+        ring_artifact_suppression_enabled=True,
+        ring_artifact_suppression_mode="component",
+        ring_artifact_suppression_proximity_voxels=1,
+        ring_artifact_suppression_axial_radius_voxels=0,
+    )
+
+    assert int(np.count_nonzero(unsuppressed.formation)) == 1
+    assert int(np.count_nonzero(unsuppressed.resorption)) == 1
+    assert int(np.count_nonzero(suppressed.formation)) == 0
+    assert int(np.count_nonzero(suppressed.resorption)) == 0
 
 def test_domain_normalized_smoothing_preserves_constant_source_values_and_marks_core():
     image = np.full((21, 21, 21), 100.0, dtype=np.float32)
@@ -989,6 +1032,185 @@ def test_component_and_small_object_helpers_behave_as_expected() -> None:
     diagonal[1, 1, 1] = True
     assert int(np.count_nonzero(remove_small(diagonal, min_size=2, connectivity=6))) == 0
     assert int(np.count_nonzero(remove_small(diagonal, min_size=2, connectivity=26))) == 2
+
+
+def test_ring_artifact_suppression_removes_nearby_opposite_events_only() -> None:
+    formation = np.zeros((3, 7, 7), dtype=bool)
+    resorption = np.zeros_like(formation)
+    formation[1, 3, 3] = True
+    resorption[1, 3, 4] = True
+    formation[1, 0, 0] = True
+    resorption[2, 6, 6] = True
+
+    filtered_f, filtered_r, removed_f, removed_r = suppress_opposite_event_pairs(
+        formation,
+        resorption,
+        proximity_voxels=1,
+        axial_radius_voxels=0,
+    )
+
+    assert removed_f == 1
+    assert removed_r == 1
+    assert not bool(filtered_f[1, 3, 3])
+    assert not bool(filtered_r[1, 3, 4])
+    assert bool(filtered_f[1, 0, 0])
+    assert bool(filtered_r[2, 6, 6])
+
+
+def test_polar_ring_suppression_removes_single_sign_radius_bands() -> None:
+    formation = np.zeros((1, 21, 21), dtype=bool)
+    resorption = np.zeros_like(formation)
+    center = (10.0, 10.0)
+    yy, xx = np.indices((21, 21))
+    ring = np.abs(np.sqrt((yy - center[0]) ** 2 + (xx - center[1]) ** 2) - 6.0) < 0.35
+    formation[0] = ring
+    formation[0, 10, 10] = True
+    resorption[0, 4, 10] = True
+
+    filtered_f, filtered_r, removed_f, removed_r, n_bands, used_center = suppress_polar_ring_bands(
+        formation,
+        resorption,
+        center_yx=center,
+        radial_bin_width_voxels=1.0,
+        min_radius_band_events=10,
+        radial_band_padding_voxels=1,
+    )
+
+    assert removed_f >= 10
+    assert removed_r == 1
+    assert n_bands >= 1
+    assert used_center == center
+    assert not np.any(filtered_f & ring[None, ...])
+    assert not bool(filtered_r[0, 4, 10])
+    assert bool(filtered_f[0, 10, 10])
+
+
+def test_polar_ring_suppression_removes_padded_detector_band_blips() -> None:
+    formation = np.zeros((1, 31, 31), dtype=bool)
+    resorption = np.zeros_like(formation)
+    center = (15.0, 15.0)
+    yy, xx = np.indices((31, 31))
+    ring = np.abs(np.sqrt((yy - center[0]) ** 2 + (xx - center[1]) ** 2) - 7.0) < 0.35
+    formation[0] = ring
+    formation[0, 7, 15] = True
+    resorption[0, 15, 23] = True
+    formation[0, 15, 15] = True
+
+    filtered_f, filtered_r, removed_f, removed_r, n_bands, _ = suppress_polar_ring_bands(
+        formation,
+        resorption,
+        center_yx=center,
+        radial_bin_width_voxels=1.0,
+        min_radius_band_events=10,
+        radial_band_padding_voxels=1,
+    )
+
+    assert removed_f >= 10
+    assert removed_r == 1
+    assert n_bands >= 1
+    assert not bool(filtered_f[0, 7, 15])
+    assert not bool(filtered_r[0, 15, 23])
+    assert bool(filtered_f[0, 15, 15])
+
+
+def test_polar_ring_suppression_limits_user_defined_radius_count() -> None:
+    formation = np.zeros((1, 41, 41), dtype=bool)
+    resorption = np.zeros_like(formation)
+    center = (20.0, 20.0)
+    yy, xx = np.indices((41, 41))
+    radius = np.sqrt((yy - center[0]) ** 2 + (xx - center[1]) ** 2)
+    inner = np.abs(radius - 6.0) < 0.35
+    outer = np.abs(radius - 12.0) < 0.35
+    formation[0] = inner | outer
+
+    filtered_f, _, _, _, n_bands, _ = suppress_polar_ring_bands(
+        formation,
+        resorption,
+        center_yx=center,
+        radial_bin_width_voxels=1.0,
+        min_radius_band_events=10,
+        radial_band_padding_voxels=1,
+        max_radius_bands=1,
+        min_radius_band_separation_voxels=4,
+    )
+
+    assert n_bands == 1
+    assert not np.any(filtered_f & outer[None, ...])
+    assert np.any(filtered_f & inner[None, ...])
+
+
+def test_polar_ring_suppression_supports_two_detector_centers() -> None:
+    formation = np.zeros((1, 61, 61), dtype=bool)
+    resorption = np.zeros_like(formation)
+    center0 = (20.0, 20.0)
+    center1 = (35.0, 38.0)
+    yy, xx = np.indices((61, 61))
+    ring0 = np.abs(np.sqrt((yy - center0[0]) ** 2 + (xx - center0[1]) ** 2) - 8.0) < 0.35
+    ring1 = np.abs(np.sqrt((yy - center1[0]) ** 2 + (xx - center1[1]) ** 2) - 9.0) < 0.35
+    formation[0] = ring0
+    resorption[0] = ring1
+
+    filtered_f, filtered_r, removed_f, removed_r, n_bands, used_center = suppress_polar_ring_bands(
+        formation,
+        resorption,
+        centers_yx=[center0, center1],
+        radial_bin_width_voxels=1.0,
+        min_radius_band_events=10,
+        radial_band_padding_voxels=1,
+        max_radius_bands=2,
+        min_radius_band_separation_voxels=4,
+    )
+
+    assert n_bands == 2
+    assert used_center == center0
+    assert removed_f > 0
+    assert removed_r > 0
+    assert not np.any(filtered_f & ring0[None, ...])
+    assert not np.any(filtered_r & ring1[None, ...])
+
+
+def test_scanner_center_yx_from_metadata_accounts_for_crop(tmp_path: Path) -> None:
+    meta_path = tmp_path / "stack.json"
+    meta_path.write_text(
+        json.dumps(
+            {
+                "image_metadata": {"dimensions": [100, 80, 20]},
+                "crop": {
+                    "applied": True,
+                    "applied_roi_index_xyz": [10, 20, 0],
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    center = analysis_workflow._scanner_center_yx_from_metadata(meta_path, (20, 60, 60))
+
+    assert center == (19.5, 39.5)
+
+
+def test_scanner_center_yx_from_metadata_prefers_isq_position(tmp_path: Path) -> None:
+    meta_path = tmp_path / "stack.json"
+    meta_path.write_text(
+        json.dumps(
+            {
+                "image_metadata": {
+                    "dimensions": [594, 554, 168],
+                    "position": [814, 603, 0],
+                    "offset": [0, 0, 0],
+                    "processing_log": (
+                        "Orig-ISQ-Dim-p                      2304       2304        168"
+                    ),
+                },
+                "crop": {"applied": False},
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    center = analysis_workflow._scanner_center_yx_from_metadata(meta_path, (168, 554, 594))
+
+    assert center == (548.5, 337.5)
 
 
 def test_build_series_common_masks_and_label_image() -> None:

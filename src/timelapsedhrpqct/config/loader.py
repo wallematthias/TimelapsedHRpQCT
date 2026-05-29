@@ -10,6 +10,7 @@ import yaml
 from timelapsedhrpqct.config.models import (
     AnalysisBinaryReclassificationConfig,
     AnalysisChangeRegionConfig,
+    AnalysisRingArtifactSuppressionConfig,
     AnalysisConfig,
     AnalysisValidRegionConfig,
     AppConfig,
@@ -119,6 +120,7 @@ def load_config(path: str | Path | None = None, *, profile: str | None = None) -
     masks_seg_raw = _normalize_segmentation_aliases(masks_raw.get("segmentation", {}))
     analysis_change_region_raw = analysis_raw.get("change_region", {})
     analysis_binary_raw = analysis_raw.get("binary_reclassification", {})
+    analysis_ring_raw = analysis_raw.get("ring_artifact_suppression", {})
     analysis_valid_region_raw = analysis_raw.get("valid_region", {})
     visualization_label_map_raw = visualization_raw.get("label_map", {})
 
@@ -142,13 +144,23 @@ def load_config(path: str | Path | None = None, *, profile: str | None = None) -
         "analysis",
         AnalysisConfig,
         analysis_raw,
-        excluded={"change_region", "binary_reclassification", "valid_region"},
+        excluded={
+            "change_region",
+            "binary_reclassification",
+            "ring_artifact_suppression",
+            "valid_region",
+        },
     )
     _warn_unknown_keys("analysis.change_region", AnalysisChangeRegionConfig, analysis_change_region_raw)
     _warn_unknown_keys(
         "analysis.binary_reclassification",
         AnalysisBinaryReclassificationConfig,
         analysis_binary_raw,
+    )
+    _warn_unknown_keys(
+        "analysis.ring_artifact_suppression",
+        AnalysisRingArtifactSuppressionConfig,
+        analysis_ring_raw,
     )
     _warn_unknown_keys("analysis.valid_region", AnalysisValidRegionConfig, analysis_valid_region_raw)
     _warn_unknown_keys("visualization", VisualizationConfig, visualization_raw, excluded={"label_map"})
@@ -197,7 +209,13 @@ def load_config(path: str | Path | None = None, *, profile: str | None = None) -
                 {
                     k: v
                     for k, v in analysis_raw.items()
-                    if k not in {"change_region", "binary_reclassification", "valid_region"}
+                    if k
+                    not in {
+                        "change_region",
+                        "binary_reclassification",
+                        "ring_artifact_suppression",
+                        "valid_region",
+                    }
                 },
             ),
             change_region=AnalysisChangeRegionConfig(
@@ -210,6 +228,12 @@ def load_config(path: str | Path | None = None, *, profile: str | None = None) -
                 **_filter_dataclass_kwargs(
                     AnalysisBinaryReclassificationConfig,
                     analysis_binary_raw,
+                )
+            ),
+            ring_artifact_suppression=AnalysisRingArtifactSuppressionConfig(
+                **_filter_dataclass_kwargs(
+                    AnalysisRingArtifactSuppressionConfig,
+                    analysis_ring_raw,
                 )
             ),
             valid_region=AnalysisValidRegionConfig(
