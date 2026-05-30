@@ -115,7 +115,7 @@ def test_study_profiles_define_expected_analysis_methods() -> None:
     assert xct1.analysis.cluster_sizes == [5]
     assert xct1.analysis.gaussian_filter is True
     assert xct1.analysis.gaussian_sigma == 0.8
-    assert xct1.analysis.ring_artifact_suppression.enabled is True
+    assert xct1.analysis.ring_artifact_suppression.enabled is False
     assert xct1.analysis.ring_artifact_suppression.mode == "polar"
     assert xct1.analysis.ring_artifact_suppression.radial_band_padding_voxels == 2
     assert xct1.analysis.ring_artifact_suppression.max_radius_bands == 2
