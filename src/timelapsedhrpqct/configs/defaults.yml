@@ -431,6 +431,9 @@ transform:
 # Fusion and Filling
 # -----------------------------------------------------------------------------
 fusion:
+  # Strategy for fusing overlapping multistack grayscale images.
+  # Options: average | first | weighted_blend.
+  strategy: average
   # Enable fill stage in multistack run mode.
   # Options: true | false.
   enable_filling: false

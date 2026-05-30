@@ -62,6 +62,21 @@ filling:
     assert config.filling.support_closing_z == 9
 
 
+def test_fusion_strategy_is_loaded_from_config(tmp_path: Path) -> None:
+    user_config = tmp_path / "user.yml"
+    user_config.write_text(
+        """
+fusion:
+  strategy: weighted_blend
+""",
+        encoding="utf-8",
+    )
+
+    config = load_config(user_config)
+
+    assert config.fusion.strategy == "weighted_blend"
+
+
 def test_laplace_hamming_segmentation_settings_are_loaded(tmp_path: Path) -> None:
     user_config = tmp_path / "user.yml"
     user_config.write_text(
@@ -189,6 +204,7 @@ def test_ped_fx_profile_uses_multistack_geodesic_gauss_and_full_only_masks() -> 
     assert ped_fx.multistack_correction.sampling_percentage == multistack.multistack_correction.sampling_percentage
     assert ped_fx.multistack_correction.initial_translation_voxels == [0, 0, -3]
     assert ped_fx.multistack_correction.translation_first is True
+    assert ped_fx.fusion.strategy == "first"
     assert ped_fx.masks.roles == ["full"]
     assert ped_fx.masks.outer.contour_method == "geodesic_fracture"
     assert ped_fx.masks.outer.geodesic_bone_threshold == 250

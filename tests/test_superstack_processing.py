@@ -39,6 +39,23 @@ def test_build_superstack_from_aligned_contributors_averages_nonzero_values() ->
     assert superstack_arr[0, 1, 0] == pytest.approx(0.0)
 
 
+def test_build_superstack_from_aligned_contributors_accepts_first_strategy() -> None:
+    contributor_a = _image_from_array(np.array([[[10, 0], [0, 0]]], dtype=np.float32))
+    contributor_b = _image_from_array(np.array([[[20, 5], [0, 0]]], dtype=np.float32))
+
+    superstack, _supermask = build_superstack_from_aligned_contributors(
+        aligned_images=[contributor_a, contributor_b],
+        aligned_masks=None,
+        reference=contributor_a,
+        fusion_strategy="first",
+    )
+
+    superstack_arr = sitk.GetArrayFromImage(superstack)
+
+    assert superstack_arr[0, 0, 0] == pytest.approx(10.0)
+    assert superstack_arr[0, 0, 1] == pytest.approx(5.0)
+
+
 def test_build_superstack_from_aligned_contributors_unions_masks() -> None:
     contributor = _image_from_array(np.array([[[10, 0], [0, 0]]], dtype=np.float32))
     mask_a = _mask_from_array(np.array([[[1, 0], [0, 0]]], dtype=np.uint8))

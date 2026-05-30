@@ -22,11 +22,11 @@ from timelapsedhrpqct.dataset.derivative_paths import (
     timelapse_baseline_transform_path,
     transforms_dir,
 )
-from timelapsedhrpqct.dataset.layout import get_derivatives_root
 from timelapsedhrpqct.processing.qc import (
     build_corrected_superstack_qc_outputs,
 )
 from timelapsedhrpqct.processing.registration import (
+    RegistrationResult,
     RegistrationSettings,
     register_images,
 )
@@ -353,6 +353,7 @@ def _build_stack_superstack_in_common_reference(
     baseline_session: str,
     common_reference: sitk.Image,
     debug_save: bool,
+    fusion_strategy: str,
 ) -> tuple[sitk.Image, sitk.Image | None, dict]:
     """Build stack superstack in common reference."""
     session_ids: list[str] = []
@@ -415,6 +416,7 @@ def _build_stack_superstack_in_common_reference(
         aligned_images=aligned_images,
         aligned_masks=aligned_masks,
         reference=common_reference,
+        fusion_strategy=fusion_strategy,
     )
 
     if debug_save:
@@ -449,7 +451,11 @@ def _build_stack_superstack_in_common_reference(
                 "mask_strategy": (
                     "support_of_any_nonzero_contributor" if supermask is not None else None
                 ),
-                "intensity_strategy": "mean_over_nonzero_contributors",
+                "intensity_strategy": (
+                    "mean_over_nonzero_contributors"
+                    if fusion_strategy == "average"
+                    else fusion_strategy
+                ),
                 "construction": {
                     "composition": "timelapse_to_baseline_only",
                 },
@@ -476,6 +482,7 @@ def _build_all_superstacks(
     baseline_session: str,
     common_reference: sitk.Image,
     debug_save: bool,
+    fusion_strategy: str,
 ) -> dict[int, dict]:
     """Build all superstacks."""
     superstacks: dict[int, dict] = {}
@@ -490,6 +497,7 @@ def _build_all_superstacks(
             baseline_session=baseline_session,
             common_reference=common_reference,
             debug_save=debug_save,
+            fusion_strategy=fusion_strategy,
         )
         superstacks[stack_index] = {
             "image": superstack,
@@ -1050,10 +1058,12 @@ def run_stack_correction(
     settings = _default_stack_correction_settings(config)
     cfg = config.multistack_correction
     method = _stack_correction_method(config)
+    fusion_strategy = str(getattr(config.fusion, "strategy", "average")).lower()
 
     print(
         "[timelapse] stack correction settings: "
         f"method={method}, "
+        f"fusion={fusion_strategy}, "
         f"metric={settings.metric}, "
         f"optimizer={settings.optimizer}, "
         f"interpolator={settings.interpolator}, "
@@ -1121,6 +1131,7 @@ def run_stack_correction(
                     baseline_session=baseline_session,
                     common_reference=common_reference,
                     debug_save=cfg.debug,
+                    fusion_strategy=fusion_strategy,
                 )
 
                 cumulative_corrections = _estimate_stack_corrections_from_superstacks(

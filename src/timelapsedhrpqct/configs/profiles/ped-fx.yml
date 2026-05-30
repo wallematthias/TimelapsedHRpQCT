@@ -19,6 +19,9 @@ multistack_correction:
   translation_first: true
   debug: false
 
+fusion:
+  strategy: first
+
 masks:
   roles: [full]
   outer:

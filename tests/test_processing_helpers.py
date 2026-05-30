@@ -28,6 +28,62 @@ def test_fuse_images_averages_and_keeps_geometry() -> None:
     assert fused.GetOrigin() == a.GetOrigin()
 
 
+def test_fuse_images_first_keeps_first_nonzero_contributor() -> None:
+    a = sitk.GetImageFromArray(
+        np.array(
+            [
+                [[0.0, 2.0], [0.0, 0.0]],
+                [[4.0, 0.0], [0.0, 0.0]],
+                [[0.0, 0.0], [0.0, 0.0]],
+            ],
+            dtype=np.float32,
+        )
+    )
+    b = sitk.GetImageFromArray(
+        np.array(
+            [
+                [[10.0, 20.0], [0.0, 0.0]],
+                [[40.0, 50.0], [0.0, 0.0]],
+                [[60.0, 0.0], [0.0, 0.0]],
+            ],
+            dtype=np.float32,
+        )
+    )
+    a.CopyInformation(_img(0.0))
+    b.CopyInformation(_img(0.0))
+
+    fused = fuse_images([a, b], strategy="first")
+    out = sitk.GetArrayFromImage(fused)
+
+    assert out[0, 0, 0] == pytest.approx(10.0)
+    assert out[0, 0, 1] == pytest.approx(2.0)
+    assert out[1, 0, 0] == pytest.approx(4.0)
+    assert out[1, 0, 1] == pytest.approx(50.0)
+    assert out[2, 0, 0] == pytest.approx(60.0)
+    assert fused.GetSpacing() == a.GetSpacing()
+
+
+def test_fuse_images_weighted_blend_smooths_overlap_without_simple_average() -> None:
+    a = sitk.GetImageFromArray(
+        np.array([[[10.0]], [[10.0]], [[10.0]], [[10.0]], [[0.0]]], dtype=np.float32)
+    )
+    b = sitk.GetImageFromArray(
+        np.array([[[0.0]], [[20.0]], [[20.0]], [[20.0]], [[20.0]]], dtype=np.float32)
+    )
+    for img in (a, b):
+        img.SetSpacing((0.5, 0.5, 0.8))
+        img.SetOrigin((1.0, 2.0, 3.0))
+
+    fused = fuse_images([a, b], strategy="weighted_blend")
+    out = sitk.GetArrayFromImage(fused)[:, 0, 0]
+
+    assert out[0] == pytest.approx(10.0)
+    assert out[1] < 15.0
+    assert out[2] == pytest.approx(15.0)
+    assert out[3] > 15.0
+    assert out[4] == pytest.approx(20.0)
+
+
 def test_fuse_images_empty_raises() -> None:
     with pytest.raises(ValueError, match="No images provided"):
         fuse_images([])

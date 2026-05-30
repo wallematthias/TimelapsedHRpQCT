@@ -31,6 +31,7 @@ from timelapsedhrpqct.processing.fused_outputs import (
     build_fused_session_metadata,
     build_fused_session_record,
 )
+from timelapsedhrpqct.processing.fusion import fuse_images
 from timelapsedhrpqct.processing.transform_apply import _interpolator
 from timelapsedhrpqct.utils.sitk_helpers import load_image, write_image, write_json
 
@@ -368,6 +369,7 @@ def run_apply_transforms(
     mask_interpolator = str(
         getattr(transform_cfg, "mask_interpolator", "nearest")
     ).lower()
+    fusion_strategy = str(getattr(config.fusion, "strategy", "average")).lower()
     requested_subject = str(subject_id_filter).strip() if subject_id_filter else None
     requested_site = str(site_filter).strip() if site_filter else None
     records = [
@@ -409,6 +411,9 @@ def run_apply_transforms(
 
             image_sum = _make_float_accumulator(reference_image)
             image_count = _make_float_accumulator(reference_image)
+            aligned_images: list[sitk.Image] | None = (
+                [] if fusion_strategy != "average" else None
+            )
 
             mask_union_by_role: dict[str, sitk.Image] = {}
             seg_union: sitk.Image | None = None
@@ -437,8 +442,11 @@ def run_apply_transforms(
                 )
 
                 nonzero = sitk.Cast(image_tx != 0, sitk.sitkFloat32)
-                image_sum = image_sum + image_tx
-                image_count = image_count + nonzero
+                if aligned_images is None:
+                    image_sum = image_sum + image_tx
+                    image_count = image_count + nonzero
+                else:
+                    aligned_images.append(image_tx)
 
                 for role, mask_path in sorted(record.mask_paths.items()):
                     if not mask_path.exists():
@@ -500,12 +508,17 @@ def run_apply_transforms(
                     f"[apply]     stack-{stack_index:02d}: used {transform_source_kind}"
                 )
 
-                del image, image_tx, nonzero, transform
+                del image, nonzero, transform
+                if aligned_images is None:
+                    del image_tx
                 _free_memory()
 
-            fused_image = sitk.Divide(image_sum, image_count + 1e-6)
-            fused_image = sitk.Cast(fused_image, sitk.sitkFloat32)
-            fused_image.CopyInformation(reference_image)
+            if aligned_images is None:
+                fused_image = sitk.Divide(image_sum, image_count + 1e-6)
+                fused_image = sitk.Cast(fused_image, sitk.sitkFloat32)
+                fused_image.CopyInformation(reference_image)
+            else:
+                fused_image = fuse_images(aligned_images, strategy=fusion_strategy)
             fused_image_path = _fused_image_path(
                 dataset_root=dataset_root,
                 subject_id=subject_id,
@@ -591,6 +604,8 @@ def run_apply_transforms(
             )
 
             del image_sum, image_count, fused_image
+            if aligned_images is not None:
+                del aligned_images
             if seg_union is not None:
                 del seg_union
             for img in mask_union_by_role.values():

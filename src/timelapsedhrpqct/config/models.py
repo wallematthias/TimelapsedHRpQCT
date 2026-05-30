@@ -261,6 +261,7 @@ class TransformConfig:
 
 @dataclass(slots=True)
 class FusionConfig:
+    strategy: str = "average"
     enable_filling: bool = False
 
 
