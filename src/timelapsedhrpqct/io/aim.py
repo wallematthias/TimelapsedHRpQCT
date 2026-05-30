@@ -93,6 +93,43 @@ def _apply_scaling(np_image: np.ndarray, processing_log: str, scaling: str) -> n
     )
 
 
+def density_to_hu_int16(array: np.ndarray, processing_log: str) -> np.ndarray:
+    """
+    Convert calibrated BMD/density values back to Scanco signed-short HU.
+
+    This is the inverse of the density branch in `_apply_scaling`, followed by
+    the same native-count to HU calibration used by `read_aim(..., scaling="hu")`.
+    This is useful for workflows that need the Scanco HU convention after
+    images have already been imported as density.
+    """
+    mu_scaling, hu_mu_water, hu_mu_air, density_slope, density_intercept = (
+        _get_aim_calibration_constants_from_processing_log(processing_log)
+    )
+    density = array.astype(np.float64, copy=False)
+    native = (density - float(density_intercept)) * float(mu_scaling) / float(
+        density_slope
+    )
+    hu = native * 1000.0 / (
+        float(mu_scaling) * (float(hu_mu_water) - float(hu_mu_air))
+    ) - 1000.0 * float(hu_mu_water) / (float(hu_mu_water) - float(hu_mu_air))
+    hu = np.rint(hu)
+    hu = np.clip(hu, np.iinfo(np.int16).min, np.iinfo(np.int16).max)
+    return hu.astype(np.int16)
+
+
+def density_to_native_int16(array: np.ndarray, processing_log: str) -> np.ndarray:
+    """Convert calibrated BMD/density values back to native Scanco int16 counts."""
+    mu_scaling, _hu_mu_water, _hu_mu_air, density_slope, density_intercept = (
+        _get_aim_calibration_constants_from_processing_log(processing_log)
+    )
+    native = (array.astype(np.float64, copy=False) - float(density_intercept)) * float(
+        mu_scaling
+    ) / float(density_slope)
+    native = np.rint(native)
+    native = np.clip(native, np.iinfo(np.int16).min, np.iinfo(np.int16).max)
+    return native.astype(np.int16)
+
+
 def _normalize_scaling(scaling: str) -> str:
     """Helper for normalize scaling."""
     normalized = scaling.lower()
@@ -276,14 +313,7 @@ def _bmd_to_native_int16(array: np.ndarray, metadata: dict[str, Any]) -> np.ndar
     processing_log = str(
         metadata.get("processing_log_raw") or metadata.get("processing_log") or ""
     )
-    mu_scaling, _hu_mu_water, _hu_mu_air, density_slope, density_intercept = (
-        _get_aim_calibration_constants_from_processing_log(processing_log)
-    )
-    slope = float(density_slope) / float(mu_scaling)
-    native = (array.astype(np.float32) - float(density_intercept)) / slope
-    native = np.rint(native)
-    native = np.clip(native, np.iinfo(np.int16).min, np.iinfo(np.int16).max)
-    return native.astype(np.int16)
+    return density_to_native_int16(array, processing_log)
 
 
 def aim_metadata_from_import_json(

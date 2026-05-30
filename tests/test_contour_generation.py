@@ -415,7 +415,7 @@ def test_generate_masks_from_image_supports_laplace_hamming_segmentation() -> No
     params.inner.endosteal_threshold = 500.0
     params.inner.site = "radius"
     params.segmentation.method = "laplace_hamming"
-    params.segmentation.laplace_hamming_threshold = 8000.0
+    params.segmentation.laplace_hamming_threshold = 1500.0
     params.segmentation.laplace_hamming_low_pass_cutoff = 0.5
     params.segmentation.laplace_hamming_min_size_voxels = 5
 

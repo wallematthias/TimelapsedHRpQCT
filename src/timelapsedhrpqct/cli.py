@@ -32,16 +32,12 @@ from timelapsedhrpqct.dataset.derivative_paths import (
     existing_derivative_path,
     pairwise_remodelling_csv_path,
     trajectory_metrics_csv_path,
-    filled_image_path,
-    filled_seg_path,
-    filling_metadata_path,
     final_transform_path,
     timelapse_baseline_transform_path,
 )
 from timelapsedhrpqct.dataset.discovery import discover_raw_sessions
 from timelapsedhrpqct.dataset.layout import (
     get_derivative_session_dir,
-    get_derivatives_root,
     get_site_session_dir,
     get_sourcedata_session_dir,
 )
@@ -106,6 +102,22 @@ def _add_benchmark_argument(parser: argparse.ArgumentParser) -> None:
             "Record wall-clock timing sections and write JSON/CSV summaries "
             "under derivatives/TimelapsedHRpQCT/_artifacts."
         ),
+    )
+
+
+def _add_subject_site_arguments(parser: argparse.ArgumentParser) -> None:
+    """Add optional subject/site filters."""
+    parser.add_argument(
+        "--subject",
+        type=str,
+        default=None,
+        help="Optional subject filter (without 'sub-' prefix).",
+    )
+    parser.add_argument(
+        "--site",
+        type=str,
+        default=None,
+        help="Optional site filter (for example radius, tibia, tibia_left).",
     )
 
 
@@ -293,6 +305,7 @@ def _build_parser() -> argparse.ArgumentParser:
     _add_config_argument(gm_parser)
     _add_profile_argument(gm_parser)
     _add_benchmark_argument(gm_parser)
+    _add_subject_site_arguments(gm_parser)
 
     # ------------------------------------------------------------------
     # register
@@ -312,6 +325,7 @@ def _build_parser() -> argparse.ArgumentParser:
     _add_config_argument(tl_parser)
     _add_profile_argument(tl_parser)
     _add_benchmark_argument(tl_parser)
+    _add_subject_site_arguments(tl_parser)
 
     # ------------------------------------------------------------------
     # stackcorrect
@@ -350,6 +364,7 @@ def _build_parser() -> argparse.ArgumentParser:
     _add_config_argument(at_parser)
     _add_profile_argument(at_parser)
     _add_benchmark_argument(at_parser)
+    _add_subject_site_arguments(at_parser)
 
     # ------------------------------------------------------------------
     # fill
@@ -382,18 +397,7 @@ def _build_parser() -> argparse.ArgumentParser:
     _add_config_argument(analyse_parser)
     _add_profile_argument(analyse_parser)
     _add_benchmark_argument(analyse_parser)
-    analyse_parser.add_argument(
-        "--subject",
-        type=str,
-        default=None,
-        help="Optional subject filter (without 'sub-' prefix).",
-    )
-    analyse_parser.add_argument(
-        "--site",
-        type=str,
-        default=None,
-        help="Optional site filter (for example radius, tibia, tibia_left).",
-    )
+    _add_subject_site_arguments(analyse_parser)
     analyse_parser.add_argument(
         "--thr",
         type=float,
@@ -450,6 +454,7 @@ def _build_parser() -> argparse.ArgumentParser:
     _add_config_argument(run_parser)
     _add_profile_argument(run_parser)
     _add_benchmark_argument(run_parser)
+    _add_subject_site_arguments(run_parser)
     run_parser.add_argument(
         "--mode",
         choices=("auto", "regular", "multistack"),
@@ -1342,6 +1347,8 @@ def _cmd_generate_masks(args: argparse.Namespace) -> int:
                 dataset_root=dataset_root,
                 config=config,
                 benchmark=benchmark,
+                subject_id_filter=getattr(args, "subject", None),
+                site_filter=getattr(args, "site", None),
             )
     finally:
         benchmark.write()
@@ -1366,6 +1373,8 @@ def _cmd_timelapse_register(args: argparse.Namespace) -> int:
             run_timelapse_registration(
                 dataset_root=dataset_root,
                 config=config,
+                subject_id_filter=getattr(args, "subject", None),
+                site_filter=getattr(args, "site", None),
             )
     finally:
         benchmark.write()
@@ -1412,6 +1421,8 @@ def _cmd_apply_transforms(args: argparse.Namespace) -> int:
             run_apply_transforms(
                 dataset_root=dataset_root,
                 config=config,
+                subject_id_filter=getattr(args, "subject", None),
+                site_filter=getattr(args, "site", None),
             )
     finally:
         benchmark.write()
@@ -1757,6 +1768,8 @@ def _cmd_run(args: argparse.Namespace) -> int:
             config=args.config,
             profile=profile,
             benchmark=bool(getattr(args, "benchmark", False)),
+            subject=getattr(args, "subject", None),
+            site=getattr(args, "site", None),
         )
         with benchmark.section("stage.generate_masks", dataset_root=str(dataset_root)):
             rc = _cmd_generate_masks(gm_args)
@@ -1773,6 +1786,8 @@ def _cmd_run(args: argparse.Namespace) -> int:
             config=args.config,
             profile=profile,
             benchmark=bool(getattr(args, "benchmark", False)),
+            subject=getattr(args, "subject", None),
+            site=getattr(args, "site", None),
         )
         with benchmark.section("stage.register", dataset_root=str(dataset_root)):
             rc = _cmd_timelapse_register(tl_args)
@@ -1806,6 +1821,8 @@ def _cmd_run(args: argparse.Namespace) -> int:
             config=args.config,
             profile=profile,
             benchmark=bool(getattr(args, "benchmark", False)),
+            subject=getattr(args, "subject", None),
+            site=getattr(args, "site", None),
         )
         with benchmark.section("stage.transform", dataset_root=str(dataset_root)):
             rc = _cmd_apply_transforms(at_args)

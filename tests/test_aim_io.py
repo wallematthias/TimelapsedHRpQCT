@@ -98,6 +98,59 @@ def test_read_aim_mu_scaling(monkeypatch: pytest.MonkeyPatch) -> None:
     assert out_meta["unit"] == "mu"
 
 
+def test_density_to_hu_int16_matches_direct_native_hu_scaling() -> None:
+    processing_log = (
+        "Mu_Scaling 1000\n"
+        "HU: mu water 0.2409\n"
+        "Density: slope 1603.51904\n"
+        "Density: intercept -391.209015"
+    )
+    native = np.array([[[-500, 0, 1000, 3500]]], dtype=np.int16)
+    density = aim_io._apply_scaling(native, processing_log, "density").astype(np.float32)
+    expected_hu = np.rint(aim_io._apply_scaling(native, processing_log, "hu")).astype(
+        np.int16
+    )
+
+    out = aim_io.density_to_hu_int16(density, processing_log)
+
+    np.testing.assert_array_equal(out, expected_hu)
+
+
+def test_density_to_native_int16_roundtrips_density_scaling() -> None:
+    processing_log = (
+        "Mu_Scaling 1000\n"
+        "HU: mu water 0.2409\n"
+        "Density: slope 1603.51904\n"
+        "Density: intercept -391.209015"
+    )
+    native = np.array([[[-500, 0, 1000, 3500]]], dtype=np.int16)
+    density = aim_io._apply_scaling(native, processing_log, "density").astype(np.float32)
+
+    out = aim_io.density_to_native_int16(density, processing_log)
+
+    np.testing.assert_array_equal(out, native)
+
+
+def test_aim_calibration_equations_match_bonelab_reference_values() -> None:
+    processing_log = (
+        "Mu_Scaling 8192\n"
+        "Density: slope 1.60351904e+03\n"
+        "Density: intercept -3.91209015e+02\n"
+        "HU: mu water 0.24090"
+    )
+    mu_scaling, hu_mu_water, hu_mu_air, density_slope, density_intercept = (
+        aim_io._get_aim_calibration_constants_from_processing_log(processing_log)
+    )
+    hu_m = 1000.0 / (mu_scaling * (hu_mu_water - hu_mu_air))
+    hu_b = -1000.0 * hu_mu_water / (hu_mu_water - hu_mu_air)
+    density_m = density_slope / mu_scaling
+
+    assert hu_m == pytest.approx(0.5067260792860108)
+    assert hu_b == pytest.approx(-1000.0)
+    assert density_m == pytest.approx(0.1957420703125)
+    assert density_intercept == pytest.approx(-391.209015)
+
+
 def test_read_aim_prefers_element_size_for_spacing(monkeypatch: pytest.MonkeyPatch) -> None:
     arr_native = np.array([[[1, 2]]], dtype=np.int16)
     meta = {

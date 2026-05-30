@@ -80,11 +80,11 @@ class SegmentationParams:
     laplace_hamming_epsilon: float = 0.45
     laplace_hamming_amplitude: float = 1.0
     laplace_hamming_amplification: float = 1.0
-    laplace_hamming_input_offset: float = 32768.0
+    laplace_hamming_input_offset: float = 0.0
     laplace_hamming_ipl_scale_a: float = 77.7911
     laplace_hamming_ipl_scale_b: float = -1359190.17
     laplace_hamming_ipl_float_max: float = 200000.0
-    laplace_hamming_int16_max: float = 32768.0
+    laplace_hamming_int16_max: float = 32767.0
     laplace_hamming_min_size_voxels: int = 70
     laplace_hamming_backend: str = "cpu"
 
@@ -1234,8 +1234,6 @@ def inner_contour(
         if opt.get("trabecular_close_radius") is not None
         else site_defaults["trabecular_close_radius"]
     )
-    morphology_downsample_factor = _normalize_downsample_factor(opt.get("morphology_downsample_factor", 1))
-
     bb = _expand_slices(
         _boundingbox_from_mask(outer_mask_xyz),
         density_xyz.shape,

@@ -277,21 +277,18 @@ masks:
     # Overall frequency-domain amplification; keep 1.0 unless validating against a scanner-specific reference.
     # Reasonable range: 0.1-5.0.
     laplace_hamming_amplification: 1.0
-    # Offset added before filtering to match the reference Scanco signed-short HU convention.
+    # Offset added before filtering. The updated Kazakia reference works on native Scanco int16, so this is 0.
     # Reasonable range: 0-32768.
-    laplace_hamming_input_offset: 32768.0
-    # IPL linear scaling slope applied after filtering; scanner/reference-specific.
-    # Reasonable range: 1-200.
+    laplace_hamming_input_offset: 0.0
+    # Deprecated legacy scale fields retained for config compatibility; the current reference path uses norm_max directly.
     laplace_hamming_ipl_scale_a: 77.7911
-    # IPL linear scaling intercept applied after filtering; scanner/reference-specific.
-    # Reasonable range: -3000000-0.
     laplace_hamming_ipl_scale_b: -1359190.17
     # Upper clipping value before int16-style scaling; reference value is 200000.
     # Reasonable range: 10000-500000.
     laplace_hamming_ipl_float_max: 200000.0
-    # Final integer scaling maximum; reference value is 32768.
+    # Final integer scaling maximum; reference value is 32767.
     # Reasonable range: 32767-65535.
-    laplace_hamming_int16_max: 32768.0
+    laplace_hamming_int16_max: 32767.0
     # Laplace-Hamming fixed threshold in filtered/scaled units; reference value corresponds to 475 per mille.
     # Reasonable range: 8000-25000.
     laplace_hamming_threshold: 15564

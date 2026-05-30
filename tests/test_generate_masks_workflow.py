@@ -26,6 +26,17 @@ from timelapsedhrpqct.workflows.generate_masks import (
 
 from ._pipeline_helpers import write_image
 
+_CALIBRATION_LOG = (
+    "Mu_Scaling 1000\n"
+    "HU: mu water 0.2409\n"
+    "Density: slope 1603.51904\n"
+    "Density: intercept -391.209015"
+)
+
+
+def _expected_native_from_density(density: float) -> int:
+    return round((density - (-391.209015)) * 1000.0 / 1603.51904)
+
 
 def test_run_mask_generation_refreshes_imported_artifacts_for_existing_outputs(
     tmp_path: Path,
@@ -170,7 +181,6 @@ def test_adaptive_mode_regenerates_segmentation_when_masks_change(
     image_path = stack_dir / f"{stem}_image.mha"
     full_path = stack_dir / f"{stem}_mask-full.mha"
     trab_path = stack_dir / f"{stem}_mask-trab.mha"
-    cort_path = stack_dir / f"{stem}_mask-cort.mha"
     seg_path = stack_dir / f"{stem}_seg.mha"
     metadata_path = stack_dir / f"{stem}.json"
 
@@ -229,7 +239,7 @@ def test_adaptive_mode_regenerates_segmentation_when_masks_change(
     assert seg_out.exists()
 
 
-def test_laplace_hamming_mask_generation_passes_scanco_hu_to_contour_support(
+def test_laplace_hamming_mask_generation_passes_scanco_native_to_contour_support(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -240,18 +250,14 @@ def test_laplace_hamming_mask_generation_passes_scanco_hu_to_contour_support(
     stem = "sub-001_site-tibia_ses-T1_stack-01"
     image_path = stack_dir / f"{stem}_image.mha"
     metadata_path = stack_dir / f"{stem}.json"
-    source_aim = tmp_path / "scan.AIM"
-    source_aim.write_bytes(b"placeholder")
 
-    reference = sitk.GetImageFromArray(np.zeros((3, 4, 5), dtype=np.float32))
+    reference = sitk.GetImageFromArray(np.full((3, 4, 5), 2000.0, dtype=np.float32))
     reference.SetSpacing((0.061, 0.061, 0.061))
-    scanco_image = sitk.GetImageFromArray(np.full((3, 4, 5), 1234, dtype=np.int16))
-    scanco_image.CopyInformation(reference)
     sitk.WriteImage(reference, str(image_path))
     metadata_path.write_text(
         json.dumps(
             {
-                "source_image": str(source_aim),
+                "image_metadata": {"processing_log": _CALIBRATION_LOG},
                 "slice_range": {"stack_index": 1, "z_start": 0, "z_stop": 3, "depth": 3},
                 "crop": {"applied": False},
             }
@@ -286,10 +292,6 @@ def test_laplace_hamming_mask_generation_passes_scanco_hu_to_contour_support(
 
     captured = {}
 
-    def fake_read_laplace_hamming_aim(path: Path):
-        captured["read_laplace_hamming_aim"] = Path(path)
-        return scanco_image
-
     def fake_generate_masks_from_image(image, params, segmentation_image=None, verbose=False):
         captured["segmentation_input_value"] = int(
             sitk.GetArrayFromImage(segmentation_image)[0, 0, 0]
@@ -299,10 +301,6 @@ def test_laplace_hamming_mask_generation_passes_scanco_hu_to_contour_support(
     def fail_generate_segmentation_image(**kwargs):
         raise AssertionError("LH segmentation should be reused from contour generation")
 
-    monkeypatch.setattr(
-        "timelapsedhrpqct.workflows.generate_masks._read_laplace_hamming_aim",
-        fake_read_laplace_hamming_aim,
-    )
     monkeypatch.setattr(
         "timelapsedhrpqct.workflows.generate_masks.generate_masks_from_image",
         fake_generate_masks_from_image,
@@ -319,25 +317,21 @@ def test_laplace_hamming_mask_generation_passes_scanco_hu_to_contour_support(
 
     run_mask_generation(dataset_root, config)
 
-    assert captured["read_laplace_hamming_aim"] == source_aim
-    assert captured["segmentation_input_value"] == 1234
+    assert captured["segmentation_input_value"] == _expected_native_from_density(2000.0)
     meta = metadata_path.read_text(encoding="utf-8")
-    assert '"segmentation_input_unit": "scanco_hu_int16"' in meta
+    assert '"segmentation_input_unit": "scanco_native_int16"' in meta
+    assert '"segmentation_input_reader": "imported_density_to_native_int16"' in meta
     assert (stack_dir / f"{stem}_seg.nii.gz").exists()
 
 
-def test_laplace_hamming_segmentation_uses_scanco_hu_int16_values(
+def test_laplace_hamming_segmentation_uses_scanco_native_int16_values(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    source_aim = tmp_path / "scan.AIM"
-    source_aim.write_bytes(b"placeholder")
     image_path = tmp_path / "stack_image.nii.gz"
 
-    reference = sitk.GetImageFromArray(np.zeros((3, 4, 5), dtype=np.float32))
+    reference = sitk.GetImageFromArray(np.full((3, 4, 5), 2000.0, dtype=np.float32))
     reference.SetSpacing((0.061, 0.061, 0.061))
-    scanco_image = sitk.GetImageFromArray(np.full((3, 4, 5), 1234, dtype=np.int16))
-    scanco_image.CopyInformation(reference)
 
     item = StackImageInput(
         subject_id="001",
@@ -350,7 +344,7 @@ def test_laplace_hamming_segmentation_uses_scanco_hu_int16_values(
         stem="sub-001_site-tibia_ses-T1_stack-01",
     )
     metadata = {
-        "source_image": str(source_aim),
+        "image_metadata": {"processing_log": _CALIBRATION_LOG},
         "slice_range": {"stack_index": 1, "z_start": 0, "z_stop": 3, "depth": 3},
         "crop": {"applied": False},
     }
@@ -358,10 +352,6 @@ def test_laplace_hamming_segmentation_uses_scanco_hu_int16_values(
     params.segmentation.method = "laplace_hamming"
 
     captured = {}
-
-    def fake_read_laplace_hamming_aim(path: Path):
-        captured["read_laplace_hamming_aim"] = Path(path)
-        return scanco_image
 
     def fake_generate_seg_from_existing_masks(
         image,
@@ -374,10 +364,6 @@ def test_laplace_hamming_segmentation_uses_scanco_hu_int16_values(
         captured["seg_input_value"] = int(sitk.GetArrayFromImage(image)[0, 0, 0])
         return sitk.Cast(image > 0, sitk.sitkUInt8)
 
-    monkeypatch.setattr(
-        "timelapsedhrpqct.workflows.generate_masks._read_laplace_hamming_aim",
-        fake_read_laplace_hamming_aim,
-    )
     monkeypatch.setattr(
         "timelapsedhrpqct.workflows.generate_masks.generate_seg_from_existing_masks",
         fake_generate_seg_from_existing_masks,
@@ -394,29 +380,28 @@ def test_laplace_hamming_segmentation_uses_scanco_hu_int16_values(
         verbose=False,
     )
 
-    assert captured["read_laplace_hamming_aim"] == source_aim
-    assert captured["seg_input_value"] == 1234
-    assert source_meta["segmentation_input_unit"] == "scanco_hu_int16"
-    assert source_meta["segmentation_input_reader"] == "py_aimio_hu_int16"
+    assert captured["seg_input_value"] == _expected_native_from_density(2000.0)
+    assert source_meta["segmentation_input_unit"] == "scanco_native_int16"
+    assert source_meta["segmentation_input_reader"] == "imported_density_to_native_int16"
     assert seg.GetSize() == reference.GetSize()
     assert seg.GetSpacing() == reference.GetSpacing()
 
 
-def test_laplace_hamming_aim_reader_uses_hu_signed_short_values(
+def test_laplace_hamming_aim_reader_uses_native_signed_short_values(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     captured = {}
     source_aim = tmp_path / "scan.AIM"
-    hu_image = sitk.GetImageFromArray(
+    native_image = sitk.GetImageFromArray(
         np.array([[[1.2, 2.6], [-3.4, 4.0]]], dtype=np.float32)
     )
-    hu_image.SetSpacing((0.061, 0.061, 0.061))
+    native_image.SetSpacing((0.061, 0.061, 0.061))
 
     def fake_read_aim(path: Path, scaling: str = "bmd"):
         captured["path"] = Path(path)
         captured["scaling"] = scaling
-        return hu_image, {"unit": "hu"}
+        return native_image, {"unit": "native"}
 
     monkeypatch.setattr(
         "timelapsedhrpqct.workflows.generate_masks.read_aim",
@@ -425,7 +410,7 @@ def test_laplace_hamming_aim_reader_uses_hu_signed_short_values(
     out = _read_laplace_hamming_aim(source_aim)
     arr = sitk.GetArrayFromImage(out)
 
-    assert captured == {"path": source_aim, "scaling": "hu"}
+    assert captured == {"path": source_aim, "scaling": "native"}
     assert arr.dtype == np.int16
     np.testing.assert_array_equal(arr, np.array([[[1, 3], [-3, 4]]], dtype=np.int16))
-    assert out.GetSpacing() == hu_image.GetSpacing()
+    assert out.GetSpacing() == native_image.GetSpacing()

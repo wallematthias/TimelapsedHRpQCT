@@ -16,11 +16,11 @@ class LaplaceHammingParams:
     laplace_epsilon: float = 0.45
     hamming_amplitude: float = 1.0
     amplification: float = 1.0
-    input_offset: float = 32768.0
+    input_offset: float = 0.0
     ipl_scale_a: float = 77.7911
     ipl_scale_b: float = -1359190.17
     ipl_float_max: float = 200000.0
-    int16_max: float = 32768.0
+    int16_max: float = 32767.0
     threshold: float = 15564.0
     min_size_voxels: int = 70
     backend: str = "cpu"
@@ -49,6 +49,25 @@ def _remove_small_components_6(binary: np.ndarray, min_size_voxels: int) -> np.n
     keep[0] = False
     keep[sizes < min_size] = False
     return keep[labels]
+
+
+def _next_power_of_two(n: int) -> int:
+    """Return the next power of two used by IPL FFT mirror padding."""
+    return 1 if int(n) <= 1 else 2 ** int(np.ceil(np.log2(int(n))))
+
+
+def _mirror_pad_to_power_of_two(array: np.ndarray) -> tuple[np.ndarray, tuple[slice, ...]]:
+    """Mirror-pad each axis to the next power of two and return recovery slices."""
+    pad_widths = []
+    slices = []
+    for n in array.shape:
+        target = _next_power_of_two(int(n))
+        total = target - int(n)
+        lower = total // 2
+        upper = total - lower
+        pad_widths.append((lower, upper))
+        slices.append(slice(lower, lower + int(n)))
+    return np.pad(array, pad_widths, mode="reflect"), tuple(slices)
 
 
 def laplace_hamming_filter_xyz(
@@ -87,36 +106,34 @@ def laplace_hamming_filter_xyz(
     if spacing.shape != (3,) or np.any(spacing <= 0):
         raise ValueError(f"spacing_xyz must contain three positive values, got {spacing_xyz!r}")
 
-    dims = np.asarray(pixels.shape, dtype=np.int64)
-    phys = dims.astype(np.float64) * spacing
-    origin = dims // 2
-    max_freq = 1.0 / float(np.min(spacing))
-    lp_freq2 = (max_freq * float(p.low_pass_cutoff)) ** 2
-    hp_freq2 = (max_freq * float(p.high_pass_cutoff)) ** 2
-    if lp_freq2 <= 0:
+    dims = tuple(int(v) for v in pixels.shape)
+    freq_axes = [np.fft.fftfreq(dims[i], d=float(spacing[i])) for i in range(3)]
+    kx, ky, kz = np.meshgrid(*freq_axes, indexing="ij")
+    freq2 = kx * kx + ky * ky + kz * kz
+    freq = np.sqrt(freq2)
+
+    nyquist_min = 1.0 / (2.0 * float(np.min(spacing)))
+    lp_freq = float(p.low_pass_cutoff) * 2.0 * nyquist_min
+    hp_freq = float(p.high_pass_cutoff) * 2.0 * nyquist_min
+    if lp_freq <= 0:
         raise ValueError("Laplace-Hamming low_pass_cutoff must be positive.")
 
-    posx, posy, posz = np.mgrid[0:dims[0], 0:dims[1], 0:dims[2]]
-    freq2 = (
-        ((posx - origin[0]) / phys[0]) ** 2
-        + ((posy - origin[1]) / phys[1]) ** 2
-        + ((posz - origin[2]) / phys[2]) ** 2
+    band = (freq < lp_freq) & (freq >= hp_freq)
+    half_amp = float(p.hamming_amplitude) * 0.5
+    window = np.where(
+        band,
+        (1.0 - half_amp) + half_amp * np.cos(np.pi * freq / lp_freq),
+        0.0,
     )
-    band = (freq2 <= lp_freq2) & (freq2 >= hp_freq2)
     kernel = (
         float(p.amplification)
-        * (1.0 + float(p.laplace_epsilon) * (freq2 - 1.0))
-        * (
-            1.0
-            + (float(p.hamming_amplitude) / 2.0)
-            * (np.cos(np.pi * np.sqrt(freq2 / lp_freq2)) - 1.0)
-        )
+        * ((2.0 * np.pi) ** 2)
+        * ((1.0 - float(p.laplace_epsilon)) + float(p.laplace_epsilon) * freq2)
+        * window
     )
 
-    fft = np.fft.fftshift(np.fft.fftn(pixels.astype(np.complex128)))
-    filtered_fft = np.zeros_like(fft)
-    filtered_fft[band] = fft[band] * kernel[band]
-    return np.real(np.fft.ifftn(np.fft.ifftshift(filtered_fft)))
+    fft = np.fft.fftn(pixels.astype(np.complex128))
+    return np.real(np.fft.ifftn(fft * kernel))
 
 
 def _laplace_hamming_filter_xyz_torch_mps(
@@ -145,41 +162,36 @@ def _laplace_hamming_filter_xyz_torch_mps(
 
     device = torch.device("mps")
     pixels = torch.as_tensor(pixels_np, device=device, dtype=torch.float32) + float(p.input_offset)
-    dims = torch.tensor(tuple(pixels.shape), device=device, dtype=torch.float32)
     spacing_t = torch.tensor(tuple(float(v) for v in spacing), device=device, dtype=torch.float32)
-    phys = dims * spacing_t
-    origin = torch.floor(dims / 2.0)
-    max_freq = 1.0 / torch.min(spacing_t)
-    lp_freq2 = (max_freq * float(p.low_pass_cutoff)) ** 2
-    hp_freq2 = (max_freq * float(p.high_pass_cutoff)) ** 2
-    if float(lp_freq2.cpu()) <= 0:
+    nyquist_min = 1.0 / (2.0 * torch.min(spacing_t))
+    lp_freq = float(p.low_pass_cutoff) * 2.0 * nyquist_min
+    hp_freq = float(p.high_pass_cutoff) * 2.0 * nyquist_min
+    if float(lp_freq.cpu()) <= 0:
         raise ValueError("Laplace-Hamming low_pass_cutoff must be positive.")
 
     axes = [
-        torch.arange(int(size), device=device, dtype=torch.float32)
-        for size in pixels.shape
+        torch.fft.fftfreq(int(size), d=float(spacing[i]), device=device)
+        for i, size in enumerate(pixels.shape)
     ]
-    posx, posy, posz = torch.meshgrid(*axes, indexing="ij")
-    freq2 = (
-        ((posx - origin[0]) / phys[0]) ** 2
-        + ((posy - origin[1]) / phys[1]) ** 2
-        + ((posz - origin[2]) / phys[2]) ** 2
+    kx, ky, kz = torch.meshgrid(*axes, indexing="ij")
+    freq2 = kx * kx + ky * ky + kz * kz
+    freq = torch.sqrt(freq2)
+    band = (freq < lp_freq) & (freq >= hp_freq)
+    half_amp = float(p.hamming_amplitude) * 0.5
+    window = torch.where(
+        band,
+        (1.0 - half_amp) + half_amp * torch.cos(torch.pi * freq / lp_freq),
+        torch.zeros_like(freq),
     )
-    band = (freq2 <= lp_freq2) & (freq2 >= hp_freq2)
     kernel = (
         float(p.amplification)
-        * (1.0 + float(p.laplace_epsilon) * (freq2 - 1.0))
-        * (
-            1.0
-            + (float(p.hamming_amplitude) / 2.0)
-            * (torch.cos(torch.pi * torch.sqrt(freq2 / lp_freq2)) - 1.0)
-        )
+        * ((2.0 * torch.pi) ** 2)
+        * ((1.0 - float(p.laplace_epsilon)) + float(p.laplace_epsilon) * freq2)
+        * window
     )
 
-    fft = torch.fft.fftshift(torch.fft.fftn(pixels.to(torch.complex64)))
-    filtered_fft = torch.zeros_like(fft)
-    filtered_fft[band] = fft[band] * kernel[band].to(torch.complex64)
-    out = torch.real(torch.fft.ifftn(torch.fft.ifftshift(filtered_fft)))
+    fft = torch.fft.fftn(pixels.to(torch.complex64))
+    out = torch.real(torch.fft.ifftn(fft * kernel.to(torch.complex64)))
     return out.cpu().numpy()
 
 
@@ -192,19 +204,23 @@ def laplace_hamming_binarize_xyz(
 ) -> np.ndarray:
     """Return a Laplace-Hamming binary bone mask in x/y/z array order."""
     p = params or LaplaceHammingParams()
+    original = np.asarray(image_xyz)
+    extended = np.pad(original, ((1, 1), (1, 1), (1, 1)), mode="edge")
+    padded, original_slices = _mirror_pad_to_power_of_two(extended)
     filtered = laplace_hamming_filter_xyz(
-        image_xyz,
+        padded,
         spacing_xyz=spacing_xyz,
         params=p,
     )
-    ipl = np.clip(
-        float(p.ipl_scale_a) * filtered + float(p.ipl_scale_b),
-        None,
-        float(p.ipl_float_max),
+    scaled = filtered * (float(p.int16_max) / float(p.ipl_float_max))
+    scaled = np.clip(
+        scaled,
+        -float(p.int16_max),
+        float(p.int16_max),
     )
-    scaled = ipl * (float(p.int16_max) / float(p.ipl_float_max))
-    binary = scaled >= float(p.threshold)
-    binary = _remove_small_components_6(binary, int(p.min_size_voxels))
+    scaled = np.rint(scaled).astype(np.int16)
+    binary_extended = (scaled >= float(p.threshold)) & (scaled <= float(p.int16_max))
+    binary = binary_extended[original_slices][1:-1, 1:-1, 1:-1]
     if full_mask_xyz is not None:
         full = np.asarray(full_mask_xyz, dtype=bool)
         if full.shape != binary.shape:
@@ -212,4 +228,5 @@ def laplace_hamming_binarize_xyz(
                 f"full_mask_xyz shape {full.shape} does not match image shape {binary.shape}"
             )
         binary = binary & full
+    binary = _remove_small_components_6(binary, int(p.min_size_voxels))
     return np.ascontiguousarray(binary.astype(bool))

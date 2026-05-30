@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import SimpleITK as sitk
@@ -405,10 +404,19 @@ def _write_baseline_qc(
 def run_timelapse_registration(
     dataset_root: str | Path,
     config: AppConfig,
+    subject_id_filter: str | None = None,
+    site_filter: str | None = None,
 ) -> None:
     """Run sequential timelapse registrations and persist pairwise/baseline outputs."""
     dataset_root = Path(dataset_root)
-    records = iter_imported_stack_records(dataset_root)
+    requested_subject = str(subject_id_filter).strip() if subject_id_filter else None
+    requested_site = str(site_filter).strip() if site_filter else None
+    records = [
+        record
+        for record in iter_imported_stack_records(dataset_root)
+        if (requested_subject is None or record.subject_id == requested_subject)
+        and (requested_site is None or record.site == requested_site)
+    ]
     grouped = group_imported_stacks_by_subject_site_and_stack(records)
     settings = _registration_settings_from_config(config)
     cfg = config.timelapsed_registration

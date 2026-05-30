@@ -356,6 +356,8 @@ def _make_u8_accumulator(reference: sitk.Image) -> sitk.Image:
 def run_apply_transforms(
     dataset_root: str | Path,
     config: AppConfig,
+    subject_id_filter: str | None = None,
+    site_filter: str | None = None,
 ) -> None:
     """Run apply transforms."""
     dataset_root = Path(dataset_root)
@@ -366,7 +368,14 @@ def run_apply_transforms(
     mask_interpolator = str(
         getattr(transform_cfg, "mask_interpolator", "nearest")
     ).lower()
-    records = iter_imported_stack_records(dataset_root)
+    requested_subject = str(subject_id_filter).strip() if subject_id_filter else None
+    requested_site = str(site_filter).strip() if site_filter else None
+    records = [
+        record
+        for record in iter_imported_stack_records(dataset_root)
+        if (requested_subject is None or record.subject_id == requested_subject)
+        and (requested_site is None or record.site == requested_site)
+    ]
     grouped = group_imported_stacks_by_subject_site_and_stack(records)
 
     for (subject_id, site), stacks_by_index in grouped.items():

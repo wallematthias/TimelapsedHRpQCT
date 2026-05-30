@@ -17,7 +17,7 @@ from timelapsedhrpqct.dataset.artifacts import (
 )
 from timelapsedhrpqct.dataset.derivative_paths import derivative_image_filename
 from timelapsedhrpqct.dataset.models import StackSliceRange
-from timelapsedhrpqct.io.aim import read_aim
+from timelapsedhrpqct.io.aim import density_to_native_int16, read_aim
 from timelapsedhrpqct.processing.contour_generation import (
     ContourGenerationParams,
     generate_masks_from_image,
@@ -172,18 +172,43 @@ def _metadata_raw_image_path(metadata: dict) -> Path:
 
 def _read_laplace_hamming_aim(path: Path) -> sitk.Image:
     """
-    Read AIM voxels using the same Scanco HU signed-short convention as the LH reference.
+    Read AIM voxels using the native Scanco int16 convention as the LH reference.
 
-    For calibrated XtremeCT II AIM files this is HU-like signed-short data,
-    not the larger raw native attenuation counts returned by py_aimio. The
-    reference then adds 32768 and applies its own IPL-style scaling before
-    thresholding. Do not feed BMD or raw native counts here; both change the
-    threshold convention.
+    The updated Kazakia reference applies Scanco IPL's fft_laplace_hamming,
+    norm_max, and permille threshold steps directly to native attenuation
+    counts. Do not feed BMD or HU values here; both change the threshold
+    convention.
     """
-    hu_image, _meta = read_aim(path, scaling="hu")
-    arr_zyx = np.rint(sitk.GetArrayFromImage(hu_image)).astype(np.int16, copy=False)
+    native_image, _meta = read_aim(path, scaling="native")
+    arr_zyx = np.rint(sitk.GetArrayFromImage(native_image)).astype(np.int16, copy=False)
     image = sitk.GetImageFromArray(arr_zyx)
-    image.CopyInformation(hu_image)
+    image.CopyInformation(native_image)
+    return image
+
+
+def _processing_log_from_metadata(metadata: dict) -> str:
+    """Return AIM processing log stored by import, if available."""
+    image_meta = metadata.get("image_metadata") or {}
+    for raw in (
+        image_meta.get("processing_log_raw"),
+        image_meta.get("processing_log"),
+        metadata.get("processing_log_raw"),
+        metadata.get("processing_log"),
+    ):
+        if isinstance(raw, str) and raw.strip():
+            return raw
+    raise ValueError("Stack metadata does not contain AIM calibration processing_log.")
+
+
+def _density_image_to_laplace_hamming_native(
+    reference_image: sitk.Image,
+    metadata: dict,
+) -> sitk.Image:
+    """Convert imported density/BMD stack image to LH-compatible native int16."""
+    arr_zyx = sitk.GetArrayFromImage(reference_image)
+    native_zyx = density_to_native_int16(arr_zyx, _processing_log_from_metadata(metadata))
+    image = sitk.GetImageFromArray(native_zyx)
+    image.CopyInformation(reference_image)
     return image
 
 
@@ -203,40 +228,56 @@ def _laplace_hamming_stack_image(
     item: StackImageInput,
     metadata: dict,
     reference_image: sitk.Image,
-) -> sitk.Image:
+) -> tuple[sitk.Image, dict[str, object]]:
     """
-    Reconstruct the imported stack in Scanco signed-short HU for LH.
+    Reconstruct the imported stack in native Scanco int16 for LH.
 
     Imported `_image` artifacts intentionally store calibrated BMD/density
     values for registration and remodeling. The Sadoughi/Kazakia LH reference
-    threshold is calibrated for signed-short HU values plus the reference IPL
-    mapping, so the segmentation image must be re-read from the raw AIM on that
-    scale and then cropped/sliced exactly like the imported stack.
+    threshold is calibrated for native Scanco attenuation values followed by
+    IPL norm_max/permille thresholding, so the segmentation image is
+    reconstructed to that scale before thresholding. New imports use
+    calibration metadata stored in the JSON sidecar; older imports can still
+    fall back to the raw AIM path.
     """
-    raw_image_path = _metadata_raw_image_path(metadata)
-    scanco_image = _read_laplace_hamming_aim(raw_image_path)
+    try:
+        scanco_stack = _density_image_to_laplace_hamming_native(reference_image, metadata)
+        return scanco_stack, {
+            "segmentation_input_unit": "scanco_native_int16",
+            "segmentation_input_reader": "imported_density_to_native_int16",
+            "segmentation_input_path": str(item.image_path),
+            "segmentation_input_reason": "Laplace-Hamming threshold is calibrated for native Scanco attenuation values.",
+        }
+    except ValueError:
+        raw_image_path = _metadata_raw_image_path(metadata)
+        scanco_image = _read_laplace_hamming_aim(raw_image_path)
 
-    crop = metadata.get("crop") or {}
-    if bool(crop.get("applied", False)):
-        index = crop.get("applied_roi_index_xyz")
-        size = crop.get("applied_roi_size_xyz")
-        if index is None or size is None:
-            raise ValueError(
-                f"Missing crop ROI metadata for Laplace-Hamming stack {item.stem}."
+        crop = metadata.get("crop") or {}
+        if bool(crop.get("applied", False)):
+            index = crop.get("applied_roi_index_xyz")
+            size = crop.get("applied_roi_size_xyz")
+            if index is None or size is None:
+                raise ValueError(
+                    f"Missing crop ROI metadata for Laplace-Hamming stack {item.stem}."
+                )
+            scanco_image = _crop_image(
+                scanco_image,
+                index_xyz=tuple(int(v) for v in index),
+                size_xyz=tuple(int(v) for v in size),
+                pad_value=0,
             )
-        scanco_image = _crop_image(
-            scanco_image,
-            index_xyz=tuple(int(v) for v in index),
-            size_xyz=tuple(int(v) for v in size),
-            pad_value=0,
-        )
-        scanco_image = _reset_origin_to_zero(scanco_image)
+            scanco_image = _reset_origin_to_zero(scanco_image)
 
-    scanco_stack = _slice_image(
-        scanco_image,
-        _stack_slice_range_from_metadata(metadata, reference_image),
-    )
-    return _copy_information_from_reference(scanco_stack, reference_image)
+        scanco_stack = _slice_image(
+            scanco_image,
+            _stack_slice_range_from_metadata(metadata, reference_image),
+        )
+        return _copy_information_from_reference(scanco_stack, reference_image), {
+            "segmentation_input_unit": "scanco_native_int16",
+            "segmentation_input_reader": "py_aimio_native_int16",
+            "segmentation_input_path": str(raw_image_path),
+            "segmentation_input_reason": "Laplace-Hamming threshold is calibrated for native Scanco attenuation values.",
+        }
 
 
 def _generate_segmentation_image(
@@ -250,24 +291,18 @@ def _generate_segmentation_image(
     params: ContourGenerationParams,
     verbose: bool,
 ) -> tuple[sitk.Image, dict[str, object]]:
-    """Generate stack segmentation, using Scanco-convention HU values for LH."""
+    """Generate stack segmentation, using native Scanco values for LH."""
     seg_input = reference_image
     source_meta: dict[str, object] = {
         "segmentation_input_unit": "bmd",
         "segmentation_input_path": str(item.image_path),
     }
     if params.segmentation.method == "laplace_hamming":
-        seg_input = _laplace_hamming_stack_image(
+        seg_input, source_meta = _laplace_hamming_stack_image(
             item=item,
             metadata=metadata,
             reference_image=reference_image,
         )
-        source_meta = {
-            "segmentation_input_unit": "scanco_hu_int16",
-            "segmentation_input_reader": "py_aimio_hu_int16",
-            "segmentation_input_path": str(_metadata_raw_image_path(metadata)),
-            "segmentation_input_reason": "Laplace-Hamming threshold is calibrated for Scanco signed-short HU AIM values.",
-        }
 
     seg = generate_seg_from_existing_masks(
         image=seg_input,
@@ -293,8 +328,8 @@ def _segmentation_input_for_mask_generation(
     The normal imported stack is calibrated BMD/density and is also the
     contour image, so callers can pass None and let the processing layer use
     the main image. Laplace-Hamming is the one exception: its threshold is
-    calibrated to Scanco signed-short HU AIM values, so the support image must
-    be reconstructed from the raw AIM once and reused for support plus SEG.
+    calibrated to native Scanco attenuation values, so the support image must
+    be reconstructed on that scale once and reused for support plus SEG.
     """
     if params.segmentation.method != "laplace_hamming":
         return None, {
@@ -302,19 +337,10 @@ def _segmentation_input_for_mask_generation(
             "segmentation_input_path": str(item.image_path),
         }
 
-    raw_image_path = _metadata_raw_image_path(metadata)
-    return (
-        _laplace_hamming_stack_image(
-            item=item,
-            metadata=metadata,
-            reference_image=reference_image,
-        ),
-        {
-            "segmentation_input_unit": "scanco_hu_int16",
-            "segmentation_input_reader": "py_aimio_hu_int16",
-            "segmentation_input_path": str(raw_image_path),
-            "segmentation_input_reason": "Laplace-Hamming threshold is calibrated for Scanco signed-short HU AIM values.",
-        },
+    return _laplace_hamming_stack_image(
+        item=item,
+        metadata=metadata,
+        reference_image=reference_image,
     )
 
 
@@ -453,7 +479,13 @@ def _upsert_generated_outputs(
     )
 
 
-def run_mask_generation(dataset_root: str | Path, config: AppConfig, benchmark=None) -> None:
+def run_mask_generation(
+    dataset_root: str | Path,
+    config: AppConfig,
+    benchmark=None,
+    subject_id_filter: str | None = None,
+    site_filter: str | None = None,
+) -> None:
     """
     Generate missing stack-level masks and/or seg after import, before
     registration/transforms.
@@ -480,7 +512,14 @@ def run_mask_generation(dataset_root: str | Path, config: AppConfig, benchmark=N
         "on",
     }
 
-    items = discover_stack_images(dataset_root)
+    requested_subject = str(subject_id_filter).strip() if subject_id_filter else None
+    requested_site = str(site_filter).strip() if site_filter else None
+    items = [
+        item
+        for item in discover_stack_images(dataset_root)
+        if (requested_subject is None or item.subject_id == requested_subject)
+        and (requested_site is None or item.site == requested_site)
+    ]
     print(f"[timelapse] mask generation for {len(items)} stack image(s)")
     if verbose_masks:
         print("[timelapse] TIMELAPSE_MASK_DEBUG enabled")
