@@ -30,7 +30,7 @@ For routine use, prefer a built-in profile plus a small user config file:
 ```bash
 timelapse config list
 timelapse config write --profile multistack --output study.yml
-timelapse run /path/to/raw_data --mode multistack --profile multistack --config study.yml
+timelapse run /path/to/raw_data --profile multistack --config study.yml
 ```
 
 Config precedence is:
@@ -40,6 +40,8 @@ Config precedence is:
 3. user `--config`
 
 This means users usually edit only `study.yml`. Use `timelapse config explain --profile multistack --config study.yml` to inspect the effective settings.
+The default `--mode auto` follows the selected profile, so profiles that enable
+multistack correction run stack correction and filling without an extra mode flag.
 
 Useful setup and inspection commands:
 
@@ -50,14 +52,16 @@ timelapse migrate-legacy /path/to/raw_data/TimelapsedHRpQCT --dry-run
 timelapse config show standard
 ```
 
-Bundled study profiles include:
+## Bundled Profiles
 
-- `standard`: `laplace_hamming`, `grayscale_and_binary`, threshold `225`, cluster `12`, Gaussian filtering of remodelling sites.
-- `xct1-standard`: `laplace_hamming`, `grayscale_delta_only`, threshold `225`, cluster `5`, Gaussian filtering of remodelling sites with sigma `0.8`.
-- `eth-uofc`: legacy ETH/UofC `seg_gauss`, `grayscale_and_binary`, threshold `225`, cluster `12`, Gaussian filtering of remodelling sites.
-- `eth-uofc-compatibility`: same ETH/UofC protocol with IPL-compatible grayscale resampling for legacy comparisons.
-- `multistack`: standard study analysis with explicit multistack correction enabled.
-- `ped-fx`: pediatric fracture workflow with multistack correction, geodesic periosteal contouring, Gaussian segmentation, and full-mask-only analysis.
+| Profile | Intended use | Key settings |
+| --- | --- | --- |
+| `standard` | Default longitudinal distal radius/tibia analysis. | `laplace_hamming`, `grayscale_and_binary`, threshold `225`, cluster `12`, Gaussian remodelling-site filtering. |
+| `xct1-standard` | XCT1-style grayscale-only analysis. | `laplace_hamming`, `grayscale_delta_only`, threshold `225`, cluster `5`, Gaussian sigma `0.8`, ring compression off. |
+| `eth-uofc` | ETH/UofC legacy-style analysis. | `seg_gauss`, `grayscale_and_binary`, threshold `225`, cluster `12`. |
+| `eth-uofc-compatibility` | Legacy comparison against ETH/UofC IPL outputs. | ETH/UofC analysis with IPL-compatible grayscale resampling. |
+| `multistack` | Standard multistack datasets. | Standard analysis plus multistack correction and filling. |
+| `ped-fx` | Pediatric fracture/healing multistack datasets. | Multistack correction, geodesic periosteal contouring, Gaussian segmentation, full-mask-only analysis, first-contributor fusion. |
 
 Processed images and masks can be exported back to AIM. The exporter uses pipeline JSON
 sidecars to recover the original AIM calibration and processing log when available:
@@ -72,11 +76,13 @@ folder layout.
 
 ## Typical Workflows
 
-### Default run (regular mode)
+### Default run
 
 ```bash
 timelapse run /path/to/raw_data
 ```
+
+Without a profile, the default config runs the single-stack-style workflow.
 
 ### Default run but skip mask generation
 
@@ -84,17 +90,20 @@ timelapse run /path/to/raw_data
 timelapse run /path/to/raw_data --skip-mask-generation
 ```
 
-### Full multistack run
+### Standard multistack run
 
 ```bash
-timelapse run /path/to/raw_data --mode multistack
+timelapse run /path/to/raw_data --profile multistack
 ```
 
-### Regular run without stack correction and filling
+### Pediatric fracture multistack run
 
 ```bash
-timelapse run /path/to/raw_data --mode regular
+timelapse run /path/to/raw_data --profile ped-fx
 ```
+
+Use `--mode regular` or `--mode multistack` only when you need to override the
+selected profile explicitly.
 
 ### Dry-run import preview
 

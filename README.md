@@ -38,15 +38,28 @@ For each subject, the pipeline can:
 1. Import raw AIM sessions into stack-level working artifacts.
 2. Generate missing full, trabecular, cortical, and segmentation volumes.
 3. Register each stack longitudinally across sessions.
-4. In multistack mode, estimate stack-to-stack correction transforms from per-stack superstacks.
+4. When the selected profile enables multistack correction, estimate stack-to-stack correction transforms from per-stack superstacks.
 5. Apply the canonical final transforms once to original grayscale, mask, and segmentation data.
 6. Fill missing support regions in the fused transformed outputs.
 7. Compute pairwise remodelling and trajectory metrics.
 
-## Modes
+## Profiles
 
-- `regular`: timelapse registration, transform application, and analysis without multistack correction or filling.
-- `multistack`: full pipeline including stack correction and filling.
+Most routine workflow choices are made with `--profile`. The default `--mode auto`
+then follows the selected profile: single-stack profiles skip stack correction and
+filling, while multistack profiles run those stages.
+
+| Profile | Intended use | Key settings |
+| --- | --- | --- |
+| `standard` | Default longitudinal distal radius/tibia analysis. | Laplace-Hamming segmentation, grayscale + binary remodelling, threshold `225`, cluster `12`. |
+| `xct1-standard` | XCT1-style grayscale-only analysis. | Laplace-Hamming segmentation, grayscale-delta-only remodelling, threshold `225`, cluster `5`, ring compression off. |
+| `eth-uofc` | ETH/UofC legacy-style analysis. | `seg_gauss` segmentation, grayscale + binary remodelling, threshold `225`, cluster `12`. |
+| `eth-uofc-compatibility` | Legacy comparison against ETH/UofC IPL outputs. | ETH/UofC analysis with IPL-compatible grayscale resampling. |
+| `multistack` | Standard multistack datasets. | Standard analysis plus stack correction and filling. |
+| `ped-fx` | Pediatric fracture/healing multistack datasets. | Multistack correction, geodesic periosteal contouring, Gaussian segmentation, full-mask-only analysis, first-contributor fusion. |
+
+Use `--mode regular` or `--mode multistack` only as an explicit override; profile
+selection is the preferred interface.
 
 ## Install
 
@@ -170,7 +183,7 @@ timelapse undo-restructure /path/to/raw_data/imported_dataset --dry-run
 timelapse undo-restructure /path/to/raw_data/imported_dataset
 ```
 
-Run the default workflow (`regular` mode):
+Run the default workflow (`auto` mode; follows the selected profile):
 
 ```bash
 timelapse run /path/to/raw_data
@@ -188,16 +201,16 @@ Input discovery is recursive, so your source folder can be either flat/unstructu
 When filename parsing is ambiguous, discovery can fall back to AIM header metadata (`Index Patient`, `Index Measurement`, `Site`).
 Left/right site aliases are supported (`RL/RR/TL/TR/KL/KR`) while generic `radius/tibia/knee` remains fully supported.
 
-Run the full multistack workflow (if needed):
+Run a standard multistack workflow:
 
 ```bash
-timelapse run /path/to/raw_data --mode multistack
+timelapse run /path/to/raw_data --profile multistack
 ```
 
-Run the regular single-stack style workflow:
+Run a pediatric fracture multistack workflow:
 
 ```bash
-timelapse run /path/to/raw_data --mode regular
+timelapse run /path/to/raw_data --profile ped-fx
 ```
 
 Run stages manually:

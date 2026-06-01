@@ -23,15 +23,15 @@ This executes:
 1. import
 2. generate masks
 3. timelapsed registration
-4. multistack correction (only when `--mode multistack`)
+4. multistack correction (only when the selected profile enables it)
 5. transform application
 6. filling
 7. analysis
 
-## Example 3: Full multistack run
+## Example 3: Standard multistack run
 
 ```bash
-timelapse run /data/hrpqct --mode multistack
+timelapse run /data/hrpqct --profile multistack
 ```
 
 Use this when each session contains multiple stacks and you want stack correction + filling.
@@ -56,19 +56,21 @@ Or using `run` with analysis overrides:
 
 ```bash
 timelapse run /data/hrpqct \
-  --mode multistack \
+  --profile multistack \
   --thr 225 250 \
   --clusters 12
 ```
 
 When overrides are present, analysis reruns even if previous analysis outputs already exist.
 
-## Example 6: Regular single-stack workflow
+## Example 6: Pediatric fracture multistack workflow
 
 ```bash
-timelapse run /data/hrpqct --mode regular
+timelapse run /data/hrpqct --profile ped-fx
 ```
 
-Use this when each session already contains one complete stack and you do not need multistack correction or filling. `regular` is the default mode.
+Use this for pediatric fracture/healing datasets that need multistack correction, geodesic periosteal contouring, Gaussian segmentation, and full-mask-only analysis.
+
+For single-stack workflows, omit `--profile` or use a single-stack profile such as `standard`, `xct1-standard`, or `eth-uofc`. The default `--mode auto` follows the selected profile; use `--mode regular` or `--mode multistack` only when you need an explicit override.
 
 Pass `--config /path/to/other.yml` when you want to use a non-default configuration file.
