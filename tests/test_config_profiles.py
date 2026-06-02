@@ -138,6 +138,9 @@ def test_study_profiles_define_expected_analysis_methods() -> None:
 
     for config in (eth_uofc, eth_uofc_compat):
         assert config.masks.segmentation.method == "seg_gauss"
+        assert config.masks.segmentation.gaussian_sigma == 1.2
+        assert config.masks.segmentation.trab_threshold == 320
+        assert config.masks.segmentation.cort_threshold == 450
         assert config.analysis.method == "auto"
         assert config.analysis.change_region.source == "common_mask"
         assert config.analysis.binary_reclassification.enabled is True
