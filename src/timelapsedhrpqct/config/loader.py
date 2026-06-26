@@ -14,6 +14,7 @@ from timelapsedhrpqct.config.models import (
     AnalysisConfig,
     AnalysisValidRegionConfig,
     AppConfig,
+    AdaptiveInnerContourConfig,
     DiscoveryConfig,
     FusionConfig,
     FillingConfig,
@@ -118,6 +119,7 @@ def load_config(path: str | Path | None = None, *, profile: str | None = None) -
     masks_outer_raw = masks_raw.get("outer", {})
     masks_inner_raw = masks_raw.get("inner", {})
     masks_seg_raw = _normalize_segmentation_aliases(masks_raw.get("segmentation", {}))
+    masks_adaptive_inner_raw = masks_raw.get("adaptive_inner_contour", {})
     analysis_change_region_raw = analysis_raw.get("change_region", {})
     analysis_binary_raw = analysis_raw.get("binary_reclassification", {})
     analysis_ring_raw = analysis_raw.get("ring_artifact_suppression", {})
@@ -126,7 +128,12 @@ def load_config(path: str | Path | None = None, *, profile: str | None = None) -
 
     _warn_unknown_keys("import", ImportConfig, import_raw)
     _warn_unknown_keys("discovery", DiscoveryConfig, discovery_raw)
-    _warn_unknown_keys("masks", MasksConfig, masks_raw, excluded={"outer", "inner", "segmentation"})
+    _warn_unknown_keys(
+        "masks",
+        MasksConfig,
+        masks_raw,
+        excluded={"outer", "inner", "segmentation", "adaptive_inner_contour"},
+    )
     _warn_unknown_keys("masks.outer", OuterContourConfig, masks_outer_raw)
     _warn_unknown_keys("masks.inner", InnerContourConfig, masks_inner_raw)
     _warn_unknown_keys(
@@ -134,6 +141,11 @@ def load_config(path: str | Path | None = None, *, profile: str | None = None) -
         MaskSegmentationConfig,
         masks_seg_raw,
         excluded={"seg_gauss_threshold", "seg_gauss_sigma"},
+    )
+    _warn_unknown_keys(
+        "masks.adaptive_inner_contour",
+        AdaptiveInnerContourConfig,
+        masks_adaptive_inner_raw,
     )
     _warn_unknown_keys("timelapsed_registration", TimelapsedRegistrationConfig, timelapsed_raw)
     _warn_unknown_keys("multistack_correction", MultistackCorrectionConfig, multistack_raw)
@@ -172,7 +184,7 @@ def load_config(path: str | Path | None = None, *, profile: str | None = None) -
             {
                 k: v
                 for k, v in masks_raw.items()
-                if k not in {"outer", "inner", "segmentation"}
+                if k not in {"outer", "inner", "segmentation", "adaptive_inner_contour"}
             },
         ),
         outer=OuterContourConfig(
@@ -183,6 +195,12 @@ def load_config(path: str | Path | None = None, *, profile: str | None = None) -
         ),
         segmentation=MaskSegmentationConfig(
             **_filter_dataclass_kwargs(MaskSegmentationConfig, masks_seg_raw)
+        ),
+        adaptive_inner_contour=AdaptiveInnerContourConfig(
+            **_filter_dataclass_kwargs(
+                AdaptiveInnerContourConfig,
+                masks_adaptive_inner_raw,
+            )
         ),
     )
 

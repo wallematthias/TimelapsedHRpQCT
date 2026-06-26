@@ -18,6 +18,7 @@ from timelapsedhrpqct.workflows.generate_masks import (
     StackImageInput,
     _apply_site_defaults,
     _derive_params,
+    _generate_masks_with_adaptive_inner_contour,
     _generate_segmentation_image,
     _infer_scan_site,
     _read_laplace_hamming_aim,
@@ -322,6 +323,87 @@ def test_laplace_hamming_mask_generation_passes_scanco_native_to_contour_support
     assert '"segmentation_input_unit": "scanco_native_int16"' in meta
     assert '"segmentation_input_reader": "imported_density_to_native_int16"' in meta
     assert (stack_dir / f"{stem}_seg.nii.gz").exists()
+
+
+def test_adaptive_inner_contour_retries_and_selects_passing_candidate(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    image = sitk.GetImageFromArray(np.zeros((4, 16, 16), dtype=np.float32))
+    image.SetSpacing((0.082, 0.082, 0.082))
+
+    class _Result:
+        def __init__(self, img, peel):
+            self.full = img
+            self.trab = img
+            self.cort = img
+            self.seg = img
+            self.mask_provenance = {"full": "generated", "trab": "generated", "cort": "generated"}
+            self.metadata = {"inner_params": {"peel": peel}}
+
+    calls = []
+
+    def fake_generate_masks_from_image(image, params, segmentation_image=None, verbose=False):
+        calls.append(params.inner.peel)
+        return _Result(sitk.Cast(image == 0, sitk.sitkUInt8), params.inner.peel)
+
+    def fake_cortical_thickness_qc(full, trab, n_angles=96):
+        peel = calls[-1]
+        if peel == 3:
+            return {
+                "slice_count": 4,
+                "p95_thickness_mm": 5.0,
+                "max_thickness_mm": 8.0,
+                "median_cv": 0.7,
+                "max_bulge_fraction": 0.2,
+                "worst_z": 1,
+            }
+        return {
+            "slice_count": 4,
+            "p95_thickness_mm": 1.8,
+            "max_thickness_mm": 3.0,
+            "median_cv": 0.25,
+            "max_bulge_fraction": 0.08,
+            "worst_z": 2,
+        }
+
+    monkeypatch.setattr(
+        "timelapsedhrpqct.workflows.generate_masks.generate_masks_from_image",
+        fake_generate_masks_from_image,
+    )
+    monkeypatch.setattr(
+        "timelapsedhrpqct.workflows.generate_masks.cortical_thickness_qc",
+        fake_cortical_thickness_qc,
+    )
+
+    config = AppConfig()
+    config.masks.adaptive_inner_contour.enabled = True
+    config.masks.adaptive_inner_contour.max_attempts = 3
+    config.masks.adaptive_inner_contour.max_p95_thickness_mm = 2.5
+    config.masks.adaptive_inner_contour.max_thickness_mm = 4.0
+    config.masks.adaptive_inner_contour.max_median_cv = 0.35
+    config.masks.adaptive_inner_contour.max_bulge_fraction = 0.12
+    config.masks.adaptive_inner_contour.candidates = [
+        {"endosteal_kernelsize": 1, "peel": 1, "trabecular_close_radius": 12},
+        {"endosteal_kernelsize": 1, "peel": 0, "trabecular_close_radius": 8},
+    ]
+    params = _derive_params(config)
+    params.inner.peel = 3
+
+    result = _generate_masks_with_adaptive_inner_contour(
+        image=image,
+        params=params,
+        config=config,
+        segmentation_image=None,
+        verbose=False,
+    )
+
+    assert calls == [3, 1]
+    assert result.metadata["inner_params"]["peel"] == 1
+    adaptive_meta = result.metadata["adaptive_inner_contour"]
+    assert adaptive_meta["selected_attempt_index"] == 1
+    assert adaptive_meta["attempt_count"] == 2
+    assert adaptive_meta["attempts"][0]["passed"] is False
+    assert adaptive_meta["attempts"][1]["passed"] is True
 
 
 def test_laplace_hamming_segmentation_uses_scanco_native_int16_values(

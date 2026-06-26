@@ -115,6 +115,40 @@ masks:
   # Options: true | false.
   generate_segmentation: true
 
+  # QC guardrail for inward endosteal-contour bulging and open/too-thin cortex.
+  # Mask generation first evaluates the configured/default inner-contour result,
+  # then tries at most max_attempts - 1 candidate inner settings and keeps the
+  # first passing result, or the best-scoring attempted result if none pass.
+  adaptive_inner_contour:
+    # Options: true | false.
+    enabled: true
+    # Maximum total attempts including the initial configured/default attempt.
+    # Recommended range: 1-4.
+    max_attempts: 3
+    # Number of radial angles sampled per axial slice for cortical thickness QC.
+    # Recommended range: 48-192.
+    n_angles: 96
+    # Cortex-closure guardrails. A radial sector thinner than one voxel suggests
+    # the trabecular/endosteal mask touches the outer contour locally.
+    min_thickness_voxels: 1.0
+    max_thin_fraction: 0.02
+    # Bulge/regularity pass/fail limits. Null disables that specific limit.
+    max_p95_thickness_mm: 2.5
+    max_thickness_mm: 4.0
+    max_median_cv: 0.35
+    max_bulge_fraction: 0.12
+    # Minimum relative QC-score improvement required before accepting a later
+    # candidate as better than the current best.
+    min_score_improvement: 0.05
+    # Candidate inner-contour overrides tried in order after the initial result.
+    candidates:
+      - endosteal_kernelsize: 1
+        peel: 1
+        trabecular_close_radius: 12
+      - endosteal_kernelsize: 1
+        peel: 0
+        trabecular_close_radius: 8
+
   # Site-specific contour defaults. Binarization follows masks.segmentation.method;
   # these site presets only control contour morphology, padding, peel, and margins.
   # Kernel/radius, padding, peel, and margin values are voxel counts.

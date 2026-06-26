@@ -1,0 +1,33 @@
+profile: ucsf
+description: UCSF analysis profile using Laplace-Hamming segmentation and bone-union grayscale remodelling.
+
+multistack_correction:
+  enabled: false
+
+masks:
+  segmentation:
+    method: laplace_hamming
+
+analysis:
+  space: pairwise_fixed_t0
+  change_detection: grayscale_delta
+  change_region:
+    source: bone_union
+    dilation_voxels: 0
+    erosion_voxels: 0
+  valid_region:
+    erosion_voxels: 0
+  binary_reclassification:
+    enabled: false
+  fraction_denominator: baseline_bone
+  pair_mode: adjacent
+  thresholds: [475]
+  cluster_sizes: [5]
+  cluster_connectivity: 6
+  gaussian_filter: false
+  image_interpolator: ipl_cubic
+
+visualization:
+  enabled: true
+  threshold: 475
+  cluster_size: 5

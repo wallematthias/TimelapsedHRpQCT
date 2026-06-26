@@ -106,6 +106,116 @@ class GeneratedContours:
     metadata: dict[str, Any]
 
 
+def cortical_thickness_qc(
+    full: sitk.Image,
+    trab: sitk.Image,
+    *,
+    n_angles: int = 96,
+    min_full_voxels: int = 200,
+    min_trab_voxels: int = 50,
+) -> dict[str, Any]:
+    """
+    Summarize radial cortical thickness regularity from full/trab masks.
+
+    The guardrail is designed to catch inward endosteal-contour bulges where a
+    local cortical sector becomes much thicker than the rest of the slice.
+    """
+    full_xyz = sitk_to_numpy_xyz(full) > 0
+    trab_xyz = sitk_to_numpy_xyz(trab) > 0
+    spacing = float(full.GetSpacing()[0])
+    rows: list[dict[str, float | int]] = []
+
+    for z in range(full_xyz.shape[2]):
+        full_slice = full_xyz[:, :, z]
+        trab_slice = trab_xyz[:, :, z]
+        if int(full_slice.sum()) < min_full_voxels or int(trab_slice.sum()) < min_trab_voxels:
+            continue
+
+        cx, cy = ndi.center_of_mass(full_slice)
+        if not np.isfinite(cx) or not np.isfinite(cy):
+            continue
+
+        max_r = float(np.sqrt(full_slice.shape[0] ** 2 + full_slice.shape[1] ** 2))
+        rays = np.linspace(0.0, max_r, int(max_r) + 1)
+        thicknesses: list[float] = []
+
+        for theta in np.linspace(0.0, 2.0 * np.pi, int(n_angles), endpoint=False):
+            xs = np.rint(cx + rays * np.cos(theta)).astype(int)
+            ys = np.rint(cy + rays * np.sin(theta)).astype(int)
+            valid = (
+                (xs >= 0)
+                & (xs < full_slice.shape[0])
+                & (ys >= 0)
+                & (ys < full_slice.shape[1])
+            )
+            xs = xs[valid]
+            ys = ys[valid]
+            rr = rays[valid]
+            on_full = full_slice[xs, ys]
+            if not on_full.any():
+                continue
+            on_trab = trab_slice[xs, ys]
+            outer_r = rr[np.where(on_full)[0].max()]
+            inner_r = rr[np.where(on_trab)[0].max()] if on_trab.any() else 0.0
+            thicknesses.append(max(0.0, float(outer_r - inner_r)) * spacing)
+
+        if len(thicknesses) < max(8, int(n_angles) // 2):
+            continue
+
+        values = np.asarray(thicknesses, dtype=np.float32)
+        median = float(np.median(values))
+        mad = float(np.median(np.abs(values - median)))
+        threshold = median + max(0.35, 3.0 * mad)
+        rows.append(
+            {
+                "z": int(z),
+                "min_mm": float(values.min()),
+                "median_mm": median,
+                "p95_mm": float(np.percentile(values, 95)),
+                "max_mm": float(values.max()),
+                "cv": float(values.std() / median) if median > 0 else float("nan"),
+                "thin_fraction_lt_1voxel": float((values < spacing).mean()),
+                "bulge_fraction": float((values > threshold).mean()),
+                "bulge_threshold_mm": float(threshold),
+            }
+        )
+
+    if not rows:
+        return {
+            "slice_count": 0,
+            "voxel_size_mm": spacing,
+            "min_thickness_mm": None,
+            "median_thickness_mm": None,
+            "p95_thickness_mm": None,
+            "max_thickness_mm": None,
+            "median_cv": None,
+            "max_thin_fraction_lt_1voxel": None,
+            "max_bulge_fraction": None,
+            "worst_z": None,
+        }
+
+    mins = np.asarray([r["min_mm"] for r in rows], dtype=np.float32)
+    medians = np.asarray([r["median_mm"] for r in rows], dtype=np.float32)
+    p95s = np.asarray([r["p95_mm"] for r in rows], dtype=np.float32)
+    maxs = np.asarray([r["max_mm"] for r in rows], dtype=np.float32)
+    cvs = np.asarray([r["cv"] for r in rows], dtype=np.float32)
+    thins = np.asarray([r["thin_fraction_lt_1voxel"] for r in rows], dtype=np.float32)
+    bulges = np.asarray([r["bulge_fraction"] for r in rows], dtype=np.float32)
+    worst = rows[int(np.nanargmax(bulges + thins + 0.1 * np.nan_to_num(cvs)))]
+    return {
+        "slice_count": len(rows),
+        "voxel_size_mm": spacing,
+        "min_thickness_mm": float(np.nanmin(mins)),
+        "median_thickness_mm": float(np.nanmedian(medians)),
+        "p95_thickness_mm": float(np.nanmedian(p95s)),
+        "max_thickness_mm": float(np.nanmax(maxs)),
+        "median_cv": float(np.nanmedian(cvs)),
+        "max_thin_fraction_lt_1voxel": float(np.nanmax(thins)),
+        "max_bulge_fraction": float(np.nanmax(bulges)),
+        "worst_z": int(worst["z"]),
+    }
+
+
 def segmentation_aligned_contour_params(params: ContourGenerationParams) -> ContourGenerationParams:
     """Return contour params whose support thresholds follow the segmentation method."""
     aligned = copy.deepcopy(params)

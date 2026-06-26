@@ -11,6 +11,7 @@ from timelapsedhrpqct.processing.contour_generation import (
     _contour_support_binarization_xyz,
     _fill_holes_xy,
     _restore_terminal_slices,
+    cortical_thickness_qc,
     generate_masks_from_image,
     numpy_xyz_bool_to_sitk,
     segmentation_aligned_contour_params,
@@ -60,6 +61,28 @@ def test_generate_masks_from_image_with_sitk_contour_pipeline() -> None:
     assert full[shell_voxel]
     assert cort_mask[shell_voxel]
     assert not trab_mask[shell_voxel]
+
+
+def test_cortical_thickness_qc_reports_radial_bulge() -> None:
+    shape = (64, 64, 16)
+    x, y, z = np.indices(shape)
+    cx, cy = shape[0] // 2, shape[1] // 2
+    radius = np.sqrt((x - cx) ** 2 + (y - cy) ** 2)
+
+    full_xyz = (radius <= 20) & (z >= 2) & (z <= 13)
+    trab_xyz = (radius <= 16) & (z >= 2) & (z <= 13)
+    trab_xyz &= ~((x > cx + 7) & (y > cy - 6) & (y < cy + 6))
+
+    full = numpy_xyz_bool_to_sitk(full_xyz)
+    trab = numpy_xyz_bool_to_sitk(trab_xyz)
+    full.SetSpacing((0.082, 0.082, 0.082))
+    trab.SetSpacing((0.082, 0.082, 0.082))
+
+    metrics = cortical_thickness_qc(full, trab, n_angles=64)
+
+    assert metrics["slice_count"] == 12
+    assert metrics["max_thickness_mm"] > metrics["p95_thickness_mm"]
+    assert metrics["max_bulge_fraction"] > 0
 
 
 def test_generate_masks_from_image_with_downsampled_morphology() -> None:

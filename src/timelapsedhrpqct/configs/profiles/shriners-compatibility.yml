@@ -1,0 +1,30 @@
+profile: shriners
+description: Shriners analysis profile using seg_gauss segmentation and grayscale-delta-only remodelling.
+
+multistack_correction:
+  enabled: false
+
+masks:
+  segmentation:
+    method: laplace_hamming
+
+analysis:
+  space: pairwise_fixed_t0
+  change_detection: grayscale_delta
+  change_region:
+    source: common_mask
+    dilation_voxels: 0
+    erosion_voxels: 0
+  binary_reclassification:
+    enabled: false
+  pair_mode: adjacent
+  thresholds: [220]
+  cluster_sizes: [0]
+  gaussian_filter: true
+  gaussian_sigma: 1.2
+  image_interpolator: ipl_cubic
+
+visualization:
+  enabled: true
+  threshold: 220
+  cluster_size: 0

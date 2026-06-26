@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import copy
 from contextlib import nullcontext
 from dataclasses import dataclass
 from pathlib import Path
@@ -20,6 +21,8 @@ from timelapsedhrpqct.dataset.models import StackSliceRange
 from timelapsedhrpqct.io.aim import density_to_native_int16, read_aim
 from timelapsedhrpqct.processing.contour_generation import (
     ContourGenerationParams,
+    GeneratedContours,
+    cortical_thickness_qc,
     generate_masks_from_image,
     generate_seg_from_existing_masks,
 )
@@ -430,6 +433,197 @@ def _apply_site_defaults(
     return params
 
 
+def _adaptive_inner_contour_score(
+    metrics: dict[str, object],
+    options: object,
+) -> float:
+    """Return a compact lower-is-better score for endosteal bulge QC."""
+    if not int(metrics.get("slice_count") or 0):
+        return float("inf")
+
+    def _term(key: str, limit_key: str, fallback: float) -> float:
+        value = metrics.get(key)
+        if value is None:
+            return 0.0
+        limit = getattr(options, limit_key, None)
+        scale = float(limit) if limit is not None and float(limit) > 0 else fallback
+        return max(0.0, float(value)) / max(scale, 1e-6)
+
+    thin_fraction = metrics.get("max_thin_fraction_lt_1voxel")
+    thin_score = 0.0
+    if thin_fraction is not None:
+        thin_limit = getattr(options, "max_thin_fraction", None)
+        thin_scale = float(thin_limit) if thin_limit is not None and float(thin_limit) > 0 else 0.02
+        thin_score = max(0.0, float(thin_fraction)) / max(thin_scale, 1e-6)
+
+    min_thickness = metrics.get("min_thickness_mm")
+    min_score = 0.0
+    min_thickness_voxels = getattr(options, "min_thickness_voxels", None)
+    voxel_size = float(metrics.get("voxel_size_mm") or 1.0)
+    if min_thickness is not None and min_thickness_voxels is not None:
+        target = float(min_thickness_voxels) * voxel_size
+        min_score = max(0.0, target - float(min_thickness)) / max(target, 1e-6)
+
+    return float(
+        min_score
+        + thin_score
+        + _term("p95_thickness_mm", "max_p95_thickness_mm", 2.0)
+        + _term("max_thickness_mm", "max_thickness_mm", 4.0)
+        + _term("median_cv", "max_median_cv", 0.35)
+        + _term("max_bulge_fraction", "max_bulge_fraction", 0.12)
+    )
+
+
+def _adaptive_inner_contour_passes(
+    metrics: dict[str, object],
+    options: object,
+) -> bool:
+    """Return True if all configured QC limits pass."""
+    if not int(metrics.get("slice_count") or 0):
+        return False
+    checks = (
+        ("max_thin_fraction_lt_1voxel", "max_thin_fraction"),
+        ("p95_thickness_mm", "max_p95_thickness_mm"),
+        ("max_thickness_mm", "max_thickness_mm"),
+        ("median_cv", "max_median_cv"),
+        ("max_bulge_fraction", "max_bulge_fraction"),
+    )
+    for metric_key, limit_key in checks:
+        limit = getattr(options, limit_key, None)
+        value = metrics.get(metric_key)
+        if limit is not None and value is not None and float(value) > float(limit):
+            return False
+    min_thickness_voxels = getattr(options, "min_thickness_voxels", None)
+    min_thickness = metrics.get("min_thickness_mm")
+    if min_thickness_voxels is not None and min_thickness is not None:
+        voxel_size = float(metrics.get("voxel_size_mm") or 1.0)
+        if float(min_thickness) < float(min_thickness_voxels) * voxel_size:
+            return False
+    return True
+
+
+def _base_site(site_name: str) -> str:
+    """Collapse sided site labels to their base anatomical site."""
+    site_key = str(site_name).lower()
+    if site_key.startswith("radius_"):
+        return "radius"
+    if site_key.startswith("tibia_"):
+        return "tibia"
+    if site_key.startswith("knee_"):
+        return "knee"
+    return site_key
+
+
+def _candidate_applies_to_site(candidate: dict[str, object], site: str) -> bool:
+    """Return True if candidate has no site filter or matches this site."""
+    filters = candidate.get("sites") or candidate.get("site") or candidate.get("base_sites")
+    if filters is None:
+        return True
+    if isinstance(filters, str):
+        filters = [filters]
+    allowed = {str(value).lower() for value in filters}
+    site_key = str(site).lower()
+    return site_key in allowed or _base_site(site_key) in allowed
+
+
+def _apply_inner_candidate(
+    params: ContourGenerationParams,
+    candidate: dict[str, object],
+) -> ContourGenerationParams:
+    """Return a copy of params with candidate inner-contour overrides applied."""
+    next_params = copy.deepcopy(params)
+    for field_name, value in candidate.items():
+        if field_name in {"site", "sites", "base_sites"}:
+            continue
+        if hasattr(next_params.inner, field_name):
+            setattr(next_params.inner, field_name, value)
+    return next_params
+
+
+def _generate_masks_with_adaptive_inner_contour(
+    *,
+    image: sitk.Image,
+    params: ContourGenerationParams,
+    config: AppConfig,
+    segmentation_image: sitk.Image | None,
+    verbose: bool,
+) -> GeneratedContours:
+    """Generate masks, optionally retrying finite inner-contour candidates."""
+    options = config.masks.adaptive_inner_contour
+    if not bool(getattr(options, "enabled", False)):
+        return generate_masks_from_image(
+            image=image,
+            params=params,
+            segmentation_image=segmentation_image,
+            verbose=verbose,
+        )
+
+    raw_candidates = [
+        candidate
+        for candidate in list(getattr(options, "candidates", []) or [])
+        if isinstance(candidate, dict) and _candidate_applies_to_site(candidate, params.inner.site)
+    ]
+    max_attempts = max(1, int(getattr(options, "max_attempts", 1) or 1))
+    candidates = [None, *raw_candidates[: max(0, max_attempts - 1)]]
+    attempts: list[dict[str, object]] = []
+    best_result: GeneratedContours | None = None
+    best_score = float("inf")
+    best_index = 0
+    min_improvement = max(0.0, float(getattr(options, "min_score_improvement", 0.0) or 0.0))
+
+    for index, candidate in enumerate(candidates):
+        attempt_params = params if candidate is None else _apply_inner_candidate(params, candidate)
+        result = generate_masks_from_image(
+            image=image,
+            params=attempt_params,
+            segmentation_image=segmentation_image,
+            verbose=verbose,
+        )
+        metrics = cortical_thickness_qc(
+            result.full,
+            result.trab,
+            n_angles=int(getattr(options, "n_angles", 96) or 96),
+        )
+        score = _adaptive_inner_contour_score(metrics, options)
+        passed = _adaptive_inner_contour_passes(metrics, options)
+        attempts.append(
+            {
+                "attempt_index": index,
+                "label": "initial" if candidate is None else f"candidate_{index}",
+                "candidate": {} if candidate is None else dict(candidate),
+                "inner_params": result.metadata.get("inner_params", {}),
+                "metrics": metrics,
+                "score": score,
+                "passed": passed,
+            }
+        )
+
+        improvement = (best_score - score) / max(abs(best_score), 1e-6)
+        if best_result is None or (score < best_score and improvement >= min_improvement):
+            best_result = result
+            best_score = score
+            best_index = index
+
+        if passed:
+            best_result = result
+            best_score = score
+            best_index = index
+            break
+
+    if best_result is None:
+        raise RuntimeError("Adaptive inner-contour generation did not produce any result.")
+
+    best_result.metadata["adaptive_inner_contour"] = {
+        "enabled": True,
+        "selected_attempt_index": best_index,
+        "selected_score": best_score,
+        "max_attempts": max_attempts,
+        "attempt_count": len(attempts),
+        "attempts": attempts,
+    }
+    return best_result
+
+
 def _configured_mask_roles(config: AppConfig) -> list[str]:
     """Helper for configured mask roles."""
     masks_cfg = getattr(config, "masks", None)
@@ -590,9 +784,10 @@ def run_mask_generation(
                 params=params,
             )
             print("[timelapse]   running contour generation")
-            result = generate_masks_from_image(
+            result = _generate_masks_with_adaptive_inner_contour(
                 image=image,
                 params=params,
+                config=config,
                 segmentation_image=segmentation_image,
                 verbose=verbose_masks,
             )

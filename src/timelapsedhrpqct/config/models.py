@@ -121,6 +121,21 @@ class MaskSegmentationConfig:
 
 
 @dataclass(slots=True)
+class AdaptiveInnerContourConfig:
+    enabled: bool = True
+    max_attempts: int = 3
+    n_angles: int = 96
+    min_thickness_voxels: float | None = 1.0
+    max_thin_fraction: float | None = 0.02
+    max_p95_thickness_mm: float | None = None
+    max_thickness_mm: float | None = None
+    max_median_cv: float | None = None
+    max_bulge_fraction: float | None = None
+    min_score_improvement: float = 0.05
+    candidates: list[dict[str, object]] = field(default_factory=list)
+
+
+@dataclass(slots=True)
 class MasksConfig:
     generate: bool = True
     overwrite: bool = False
@@ -197,6 +212,9 @@ class MasksConfig:
     outer: OuterContourConfig = field(default_factory=OuterContourConfig)
     inner: InnerContourConfig = field(default_factory=InnerContourConfig)
     segmentation: MaskSegmentationConfig = field(default_factory=MaskSegmentationConfig)
+    adaptive_inner_contour: AdaptiveInnerContourConfig = field(
+        default_factory=AdaptiveInnerContourConfig
+    )
 
 
 @dataclass(slots=True)
