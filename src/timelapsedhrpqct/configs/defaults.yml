@@ -283,6 +283,11 @@ masks:
     # Segmentation method for generating binary/label images from masks/image.
     # Options: adaptive | seg_gauss | laplace_hamming.
     method: adaptive
+    # Let contour-support binarization follow the selected segmentation method.
+    # Keep false for stable full/trab/cort ROIs; enable only when you explicitly
+    # want contour support to track segmentation-specific thresholding.
+    # Options: true | false.
+    use_segmentation_aligned_contour_support: false
     # Gaussian smoothing sigma before seg_gauss thresholding; range: 0-3 voxels.
     gaussian_sigma: 0.8
     # Trabecular threshold for seg_gauss segmentation; range: 100-600 mgHA/cm3.

@@ -66,6 +66,7 @@ class InnerContourParams:
 class SegmentationParams:
     enabled: bool = True
     method: str = "seg_gauss"  # "adaptive" | "seg_gauss" | "laplace_hamming"
+    use_segmentation_aligned_contour_support: bool = False
     gaussian_sigma: float = 0.8
     trab_threshold: float = 320.0
     cort_threshold: float = 450.0
@@ -219,6 +220,9 @@ def cortical_thickness_qc(
 def segmentation_aligned_contour_params(params: ContourGenerationParams) -> ContourGenerationParams:
     """Return contour params whose support thresholds follow the segmentation method."""
     aligned = copy.deepcopy(params)
+    if not bool(aligned.segmentation.use_segmentation_aligned_contour_support):
+        return aligned
+
     method = "seg_gauss" if aligned.segmentation.method == "global" else aligned.segmentation.method
 
     if method == "seg_gauss":
@@ -1521,7 +1525,11 @@ def generate_masks_from_image(
     trab_xyz = _ensure_bool(trab_xyz) & full_xyz
     cort_xyz = full_xyz & ~trab_xyz if inner_method == "standard" else _ensure_bool(cort_xyz)
 
-    if params.segmentation.method in {"adaptive", "laplace_hamming"} and inner_support_xyz is not None:
+    if (
+        params.segmentation.use_segmentation_aligned_contour_support
+        and params.segmentation.method in {"adaptive", "laplace_hamming"}
+        and inner_support_xyz is not None
+    ):
         seg_xyz = _ensure_bool(inner_support_xyz)
     else:
         seg_xyz = _segment_bone_xyz(

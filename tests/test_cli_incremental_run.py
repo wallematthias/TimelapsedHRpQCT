@@ -147,6 +147,27 @@ def test_parser_accepts_scanco_transform_commands() -> None:
     assert aim_args.log == "converted"
 
 
+def test_parser_accepts_crop_aims_command() -> None:
+    parser = _build_parser()
+    args = parser.parse_args(
+        [
+            "crop-aims",
+            "/tmp/dataset",
+            "--output-root",
+            "/tmp/cropped",
+            "--keep-empty-trab",
+            "--padding-voxels",
+            "2",
+        ]
+    )
+
+    assert args.command == "crop-aims"
+    assert args.input_root == Path("/tmp/dataset")
+    assert args.output_root == Path("/tmp/cropped")
+    assert args.keep_empty_trab is True
+    assert args.padding_voxels == 2
+
+
 def test_parser_accepts_professional_cli_commands() -> None:
     parser = _build_parser()
 

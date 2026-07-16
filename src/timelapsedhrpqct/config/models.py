@@ -97,6 +97,7 @@ class InnerContourConfig:
 @dataclass(slots=True)
 class MaskSegmentationConfig:
     method: str = "adaptive"  # "adaptive" | "seg_gauss" | "laplace_hamming"
+    use_segmentation_aligned_contour_support: bool = False
     gaussian_sigma: float = 0.8
     trab_threshold: float = 320.0
     cort_threshold: float = 450.0

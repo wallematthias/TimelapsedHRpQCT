@@ -73,6 +73,8 @@ def classify_role_from_name(path: Path, cfg: DiscoveryConfig) -> str:
         return generic_mask_match.group(1).lower()
     if "_SEG" in stem_upper or stem_upper.endswith("SEG"):
         return "seg"
+    if "_EVENTS" in stem_upper or stem_upper.endswith("EVENTS"):
+        return "events"
     return "image"
 
 
@@ -95,6 +97,11 @@ def infer_site_from_name(path: Path, cfg: DiscoveryConfig) -> str:
         for alias in aliases:
             if re.search(rf"(?<![A-Z0-9]){re.escape(alias.upper())}(?![A-Z0-9])", stem_upper):
                 return canonical_site.lower()
+    for canonical_site, aliases in cfg.site_aliases.items():
+        for alias in aliases:
+            alias_upper = alias.upper()
+            if len(alias_upper) >= 5 and alias_upper in stem_upper:
+                return canonical_site.lower()
     return cfg.default_site.lower()
 
 
@@ -107,6 +114,9 @@ def normalize_session_id(session_text: str, cfg: DiscoveryConfig) -> str:
     if followup_match:
         idx = int(followup_match.group(1))
         return f"T{idx + 1}"
+    synthetic_match = re.fullmatch(r"S(\d+)", token_upper)
+    if synthetic_match:
+        return f"T{int(synthetic_match.group(1))}"
     if re.fullmatch(r"(?:BL|BASELINE)(?:1+)?", token_upper):
         return "T1"
 
@@ -131,6 +141,8 @@ def _looks_like_session_token(token: str, cfg: DiscoveryConfig) -> bool:
     token_upper = token.upper()
     if re.search(r"\d", token_upper):
         return True
+    if re.fullmatch(r"S\d+", token_upper):
+        return True
     if token_upper in {"BASELINE", "FOLLOWUP", "BL", "FL", "FU"}:
         return True
     for canonical_session, aliases in cfg.session_aliases.items():
@@ -149,6 +161,7 @@ def decode_filename(path: Path, cfg: DiscoveryConfig) -> DecodedFilename:
     stem = re.sub(r"(?i)_CORT_MASK$", "", stem)
     stem = re.sub(r"(?i)_FULL_MASK$", "", stem)
     stem = re.sub(r"(?i)_SEG$", "", stem)
+    stem = re.sub(r"(?i)_EVENTS$", "", stem)
     stem = re.sub(r"(?i)_TRAB$", "", stem)
     stem = re.sub(r"(?i)_CORT$", "", stem)
     stem = re.sub(r"(?i)_FULL$", "", stem)

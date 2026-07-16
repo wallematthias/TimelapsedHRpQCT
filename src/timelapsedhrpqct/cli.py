@@ -235,6 +235,41 @@ def _build_parser() -> argparse.ArgumentParser:
     )
 
     # ------------------------------------------------------------------
+    # crop-aims
+    # ------------------------------------------------------------------
+    crop_parser = subparsers.add_parser(
+        "crop-aims",
+        help="Crop raw AIM datasets to the tightest bone bounding box per stack.",
+    )
+    crop_parser.add_argument(
+        "input_root",
+        type=Path,
+        help="Input dataset root containing raw AIM files.",
+    )
+    crop_parser.add_argument(
+        "--output-root",
+        type=Path,
+        default=None,
+        help=(
+            "Output root for the cropped dataset. Defaults to "
+            "<input_root>/cropped_aims."
+        ),
+    )
+    _add_config_argument(crop_parser)
+    _add_profile_argument(crop_parser)
+    crop_parser.add_argument(
+        "--keep-empty-trab",
+        action="store_true",
+        help="Keep stacks even when the trabecular mask is empty.",
+    )
+    crop_parser.add_argument(
+        "--padding-voxels",
+        type=int,
+        default=0,
+        help="Optional voxel padding added around the tight crop box.",
+    )
+
+    # ------------------------------------------------------------------
     # import
     # ------------------------------------------------------------------
     import_parser = subparsers.add_parser(
@@ -727,6 +762,41 @@ def _cmd_inspect(args: argparse.Namespace) -> int:
     except Exception:
         pass
 
+    return 0
+
+
+def _cmd_crop_aims(args: argparse.Namespace) -> int:
+    """Crop a raw AIM dataset to the smallest bone bounding boxes."""
+    from timelapsedhrpqct.tools.crop_aims import CropAimsOptions, crop_aims
+
+    input_root = args.input_root.resolve()
+    output_root = (
+        args.output_root.resolve()
+        if args.output_root is not None
+        else input_root / "cropped_aims"
+    )
+    result = crop_aims(
+        CropAimsOptions(
+            input_root=input_root,
+            output_root=output_root,
+            config_path=args.config,
+            profile=args.profile,
+            drop_empty_trab=not bool(args.keep_empty_trab),
+            padding_voxels=int(args.padding_voxels),
+        )
+    )
+    print(f"[timelapse] cropped input root: {result.input_root}")
+    print(f"[timelapse] output root: {result.output_root}")
+    print(f"[timelapse] processed sessions: {result.processed_sessions}")
+    print(f"[timelapse] skipped sessions: {result.skipped_sessions}")
+    print(f"[timelapse] dropped sessions: {result.dropped_sessions}")
+    print(f"[timelapse] written files: {result.written_files}")
+    print(f"[timelapse] cropped voxels (sum over sessions): {result.cropped_voxels}")
+    if result.tight_bbox is not None:
+        print(
+            "[timelapse] tight bbox xyz: "
+            f"{result.tight_bbox[0]} -> {result.tight_bbox[1]}"
+        )
     return 0
 
 
@@ -1901,6 +1971,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         return _cmd_doctor(args)
     if args.command == "inspect":
         return _cmd_inspect(args)
+    if args.command == "crop-aims":
+        return _cmd_crop_aims(args)
     if args.command == "migrate-legacy":
         return _cmd_migrate_legacy(args)
     if args.command == "config":

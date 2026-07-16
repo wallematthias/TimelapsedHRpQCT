@@ -330,11 +330,14 @@ def _segmentation_input_for_mask_generation(
 
     The normal imported stack is calibrated BMD/density and is also the
     contour image, so callers can pass None and let the processing layer use
-    the main image. Laplace-Hamming is the one exception: its threshold is
-    calibrated to native Scanco attenuation values, so the support image must
-    be reconstructed on that scale once and reused for support plus SEG.
+    the main image. Laplace-Hamming is only needed here when contour support
+    explicitly follows the segmentation method, because its threshold is
+    calibrated to native Scanco attenuation values.
     """
-    if params.segmentation.method != "laplace_hamming":
+    if (
+        params.segmentation.method != "laplace_hamming"
+        or not params.segmentation.use_segmentation_aligned_contour_support
+    ):
         return None, {
             "segmentation_input_unit": "bmd",
             "segmentation_input_path": str(item.image_path),

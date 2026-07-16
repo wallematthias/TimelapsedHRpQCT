@@ -14,7 +14,7 @@ from timelapsedhrpqct.io.metadata import parse_processing_log
 from timelapsedhrpqct.utils.session_ids import session_sort_key
 
 
-VALID_ROLES = {"image", "cort", "trab", "full", "seg", "regmask"}
+VALID_ROLES = {"image", "cort", "trab", "full", "seg", "regmask", "events"}
 _AIM_WITH_OPTIONAL_VERSION_RE = re.compile(r"(?i)\.aim(?:;\d+)?$")
 _HEADER_SITE_CODE_MAP = {
     "20": "radius_left",
@@ -116,6 +116,8 @@ def _classify_role_from_name(path: Path, cfg: DiscoveryConfig) -> str:
         return generic_mask_match.group(1).lower()
     if "_SEG" in stem_upper or stem_upper.endswith("SEG"):
         return "seg"
+    if "_EVENTS" in stem_upper or stem_upper.endswith("EVENTS"):
+        return "events"
 
     return "image"
 
@@ -138,6 +140,11 @@ def _infer_site_from_name(path: Path, cfg: DiscoveryConfig) -> str:
     for canonical_site, aliases in cfg.site_aliases.items():
         for alias in aliases:
             if re.search(rf"(?<![A-Z0-9]){re.escape(alias.upper())}(?![A-Z0-9])", stem_upper):
+                return canonical_site.lower()
+    for canonical_site, aliases in cfg.site_aliases.items():
+        for alias in aliases:
+            alias_upper = alias.upper()
+            if len(alias_upper) >= 5 and alias_upper in stem_upper:
                 return canonical_site.lower()
     return cfg.default_site.lower()
 
@@ -163,6 +170,10 @@ def _normalize_session_id(session_text: str, cfg: DiscoveryConfig) -> str:
     if followup_match:
         idx = int(followup_match.group(1))
         return f"T{idx + 1}"
+
+    synthetic_match = re.fullmatch(r"S(\d+)", token_upper)
+    if synthetic_match:
+        return f"T{int(synthetic_match.group(1))}"
 
     # BL / BASELINE / BL1 style shorthands -> T1
     if re.fullmatch(r"(?:BL|BASELINE)(?:1+)?", token_upper):
@@ -555,6 +566,10 @@ def discover_raw_sessions(
         seg_path: Path | None = None
 
         for path, role, _site in sorted(entries, key=lambda x: str(x[0])):
+            stem_upper = _strip_aim_suffix(path.name).upper()
+            if "_EVENTS" in stem_upper:
+                role = "events"
+
             if (
                 role not in VALID_ROLES
                 and not role.startswith("mask")
@@ -582,8 +597,12 @@ def discover_raw_sessions(
                         f"{seg_path} and {path}"
                     )
                 seg_path = path
+            elif role == "events":
+                continue
 
         if len(image_candidates) == 0:
+            if all(role == "events" for _path, role, _site in entries):
+                continue
             raise ValueError(
                 f"No raw image AIM found for {subject_id}/{session_id}/{site_value}"
             )

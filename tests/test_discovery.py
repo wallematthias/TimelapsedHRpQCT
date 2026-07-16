@@ -69,6 +69,21 @@ def test_discover_raw_sessions_extracts_site_and_stack_from_filename(tmp_path: P
     assert sessions[0].raw_mask_paths["trab"] == trab
 
 
+def test_discover_raw_sessions_infers_site_from_embedded_long_site_name(tmp_path: Path) -> None:
+    root = tmp_path / "data"
+    radius_image = root / "MiniSampleRadius_001_T0.AIM"
+    tibia_image = root / "MiniSampleTibia_001_T0.AIM"
+
+    _touch(radius_image)
+    _touch(tibia_image)
+
+    sessions = discover_raw_sessions(root, DiscoveryConfig())
+
+    by_subject = {session.subject_id: session for session in sessions}
+    assert by_subject["MiniSampleRadius_001"].site == "radius"
+    assert by_subject["MiniSampleTibia_001"].site == "tibia"
+
+
 def test_discover_raw_sessions_accepts_aim_version_suffix(tmp_path: Path) -> None:
     root = tmp_path / "data"
     image = root / "SAMPLE337_DT_STACK1_T1.AIM;1"
@@ -84,6 +99,23 @@ def test_discover_raw_sessions_accepts_aim_version_suffix(tmp_path: Path) -> Non
     assert sessions[0].session_id == "T1"
     assert sessions[0].site == "tibia"
     assert sessions[0].stack_index == 1
+    assert sessions[0].raw_image_path == image
+    assert sessions[0].raw_mask_paths["trab"] == trab
+
+
+def test_discover_raw_sessions_ignores_event_labelmaps(tmp_path: Path) -> None:
+    root = tmp_path / "data"
+    image = root / "SUBJECT_001_DT_T1.AIM"
+    trab = root / "SUBJECT_001_DT_T1_TRAB_MASK.AIM"
+    events = root / "SUBJECT_001_DT_T1_EVENTS.AIM"
+
+    _touch(image)
+    _touch(trab)
+    _touch(events)
+
+    sessions = discover_raw_sessions(root, DiscoveryConfig())
+
+    assert len(sessions) == 1
     assert sessions[0].raw_image_path == image
     assert sessions[0].raw_mask_paths["trab"] == trab
 

@@ -104,7 +104,7 @@ trabecular, and cortical contours.
 
 `seg_gauss` is the former `global` method: Gaussian smoothing followed by trabecular/cortical thresholds. Old configs that say `global` are still accepted as a compatibility alias.
 
-For `laplace_hamming`, the contour support and segmentation both use the original AIM re-read as Scanco-style signed-short HU values because the reference threshold is calibrated on that scale. The grayscale imported BMD image is still used as the geometric/intensity image for the contour morphology.
+For `laplace_hamming`, the binary segmentation itself still uses native Scanco attenuation values because the reference threshold is calibrated on that scale. By default, contour support for full/trab/cort stays on the stable imported grayscale image; only when `use_segmentation_aligned_contour_support: true` is enabled do the contour-support masks also switch to the Laplace-Hamming native-input path.
 
 ## `timelapsed_registration`
 
