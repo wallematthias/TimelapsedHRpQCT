@@ -321,7 +321,7 @@ def test_laplace_hamming_mask_generation_defaults_to_density_contour_support(
     assert captured["segmentation_image_is_none"] is True
 
 
-def test_laplace_hamming_mask_generation_can_opt_in_to_native_contour_support(
+def test_laplace_hamming_mask_generation_keeps_native_input_for_seg_only(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -375,13 +375,17 @@ def test_laplace_hamming_mask_generation_can_opt_in_to_native_contour_support(
     captured = {}
 
     def fake_generate_masks_from_image(image, params, segmentation_image=None, verbose=False):
-        captured["segmentation_input_value"] = int(
-            sitk.GetArrayFromImage(segmentation_image)[0, 0, 0]
-        )
+        captured["mask_segmentation_image_is_none"] = segmentation_image is None
         return _Result(sitk.Cast(image == 0, sitk.sitkUInt8))
 
-    def fail_generate_segmentation_image(**kwargs):
-        raise AssertionError("LH segmentation should be reused from contour generation when support is aligned")
+    def fake_generate_segmentation_image(**kwargs):
+        captured["segmentation_reference_value"] = int(
+            sitk.GetArrayFromImage(kwargs["reference_image"])[0, 0, 0]
+        )
+        return sitk.Cast(kwargs["reference_image"] > -1, sitk.sitkUInt8), {
+            "segmentation_input_unit": "scanco_native_int16",
+            "segmentation_input_reader": "imported_density_to_native_int16",
+        }
 
     monkeypatch.setattr(
         "timelapsedhrpqct.workflows.generate_masks.generate_masks_from_image",
@@ -389,7 +393,7 @@ def test_laplace_hamming_mask_generation_can_opt_in_to_native_contour_support(
     )
     monkeypatch.setattr(
         "timelapsedhrpqct.workflows.generate_masks._generate_segmentation_image",
-        fail_generate_segmentation_image,
+        fake_generate_segmentation_image,
     )
 
     config = AppConfig()
@@ -400,7 +404,8 @@ def test_laplace_hamming_mask_generation_can_opt_in_to_native_contour_support(
 
     run_mask_generation(dataset_root, config)
 
-    assert captured["segmentation_input_value"] == _expected_native_from_density(2000.0)
+    assert captured["mask_segmentation_image_is_none"] is True
+    assert captured["segmentation_reference_value"] == 2000
     meta = metadata_path.read_text(encoding="utf-8")
     assert '"segmentation_input_unit": "scanco_native_int16"' in meta
     assert '"segmentation_input_reader": "imported_density_to_native_int16"' in meta

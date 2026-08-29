@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import copy
 import sys
 import types
 
@@ -476,7 +475,7 @@ def test_generate_masks_from_image_supports_laplace_hamming_segmentation() -> No
     assert np.all(seg <= (sitk_to_numpy_xyz(result.full) > 0))
 
 
-def test_generate_masks_from_image_only_uses_lh_support_when_opted_in(monkeypatch) -> None:
+def test_laplace_hamming_uses_seg_gauss_contour_support_with_separate_segmentation_image() -> None:
     shape = (48, 48, 16)
     x, y, z = np.indices(shape)
     cx, cy = shape[0] // 2, shape[1] // 2
@@ -489,45 +488,31 @@ def test_generate_masks_from_image_only_uses_lh_support_when_opted_in(monkeypatc
     image_xyz[cortex] = 1000.0
     image_xyz[trab] = 700.0
     image = sitk.GetImageFromArray(np.transpose(image_xyz, (2, 1, 0)))
+    empty_lh_image = sitk.GetImageFromArray(
+        np.zeros((shape[2], shape[1], shape[0]), dtype=np.float32)
+    )
+    empty_lh_image.CopyInformation(image)
 
     base = ContourGenerationParams()
-    base.outer.use_adaptive_threshold = False
-    base.outer.periosteal_threshold = 300.0
-    base.inner.use_adaptive_threshold = False
-    base.inner.endosteal_threshold = 500.0
     base.inner.site = "radius"
     base.segmentation.method = "laplace_hamming"
+    base.segmentation.use_segmentation_aligned_contour_support = True
+    base.segmentation.gaussian_sigma = 0.8
+    base.segmentation.trab_threshold = 320.0
+    base.segmentation.cort_threshold = 450.0
     base.segmentation.laplace_hamming_threshold = 1500.0
     base.segmentation.laplace_hamming_low_pass_cutoff = 0.5
     base.segmentation.laplace_hamming_min_size_voxels = 5
 
-    original_segment_bone_xyz = (
-        __import__("timelapsedhrpqct.processing.contour_generation", fromlist=["_segment_bone_xyz"])._segment_bone_xyz
-    )
-    calls = {"count": 0}
+    result = generate_masks_from_image(image, base, segmentation_image=empty_lh_image)
+    full = sitk_to_numpy_xyz(result.full) > 0
+    trab_mask = sitk_to_numpy_xyz(result.trab) > 0
+    cort_mask = sitk_to_numpy_xyz(result.cort) > 0
+    seg = sitk_to_numpy_xyz(result.seg) > 0
 
-    def wrapped_segment_bone_xyz(*args, **kwargs):
-        calls["count"] += 1
-        return original_segment_bone_xyz(*args, **kwargs)
-
-    monkeypatch.setattr(
-        "timelapsedhrpqct.processing.contour_generation._segment_bone_xyz",
-        wrapped_segment_bone_xyz,
-    )
-
-    stable = generate_masks_from_image(image, base)
-    assert calls["count"] == 1
-
-    aligned_params = copy.deepcopy(base)
-    aligned_params.segmentation.use_segmentation_aligned_contour_support = True
-    calls["count"] = 0
-    aligned = generate_masks_from_image(image, aligned_params)
-    assert calls["count"] == 0
-
-    stable_full = sitk_to_numpy_xyz(stable.full) > 0
-    stable_seg = sitk_to_numpy_xyz(stable.seg) > 0
-    aligned_seg = sitk_to_numpy_xyz(aligned.seg) > 0
-
-    np.testing.assert_array_equal(stable_full, sitk_to_numpy_xyz(aligned.full) > 0)
-    assert np.all(stable_seg <= stable_full)
-    assert np.all(aligned_seg <= stable_full)
+    assert result.metadata["segmentation_method"] == "laplace_hamming"
+    assert result.metadata["contour_support"]["method"] == "seg_gauss"
+    assert full[cx, cy, shape[2] // 2]
+    assert trab_mask.any()
+    assert cort_mask.any()
+    assert not seg.any()

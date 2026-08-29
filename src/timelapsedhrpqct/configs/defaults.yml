@@ -283,9 +283,9 @@ masks:
     # Segmentation method for generating binary/label images from masks/image.
     # Options: adaptive | seg_gauss | laplace_hamming.
     method: adaptive
-    # Let contour-support binarization follow the selected segmentation method.
-    # Keep false for stable full/trab/cort ROIs; enable only when you explicitly
-    # want contour support to track segmentation-specific thresholding.
+    # Let contour-support binarization follow adaptive/seg_gauss segmentation thresholds.
+    # Laplace-Hamming still uses seg_gauss contour support so full/trab/cort ROIs
+    # stay on the calibrated BMD image while LH is reserved for SEG generation.
     # Options: true | false.
     use_segmentation_aligned_contour_support: false
     # Gaussian smoothing sigma before seg_gauss thresholding; range: 0-3 voxels.

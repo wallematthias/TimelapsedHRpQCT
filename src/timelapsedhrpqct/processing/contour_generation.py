@@ -220,12 +220,12 @@ def cortical_thickness_qc(
 def segmentation_aligned_contour_params(params: ContourGenerationParams) -> ContourGenerationParams:
     """Return contour params whose support thresholds follow the segmentation method."""
     aligned = copy.deepcopy(params)
-    if not bool(aligned.segmentation.use_segmentation_aligned_contour_support):
+    method = "seg_gauss" if aligned.segmentation.method == "global" else aligned.segmentation.method
+    if not bool(aligned.segmentation.use_segmentation_aligned_contour_support) and method != "laplace_hamming":
         return aligned
 
-    method = "seg_gauss" if aligned.segmentation.method == "global" else aligned.segmentation.method
-
-    if method == "seg_gauss":
+    if method in {"seg_gauss", "laplace_hamming"}:
+        aligned.segmentation.method = "seg_gauss"
         aligned.outer.use_adaptive_threshold = False
         aligned.outer.periosteal_threshold = float(aligned.segmentation.trab_threshold)
         aligned.outer.gaussian_sigma = float(aligned.segmentation.gaussian_sigma)
@@ -1462,6 +1462,7 @@ def generate_masks_from_image(
     image_xyz = sitk_to_numpy_xyz(image)
     segmentation_source = segmentation_image if segmentation_image is not None else image
     segmentation_image_xyz = sitk_to_numpy_xyz(segmentation_source)
+    contour_support_image_xyz = image_xyz
     spacing_xyz = tuple(float(v) for v in image.GetSpacing())
     if segmentation_image_xyz.shape != image_xyz.shape:
         raise ValueError(
@@ -1479,8 +1480,8 @@ def generate_masks_from_image(
         )
     elif outer_method == "standard":
         outer_support_xyz = _contour_support_binarization_xyz(
-            segmentation_image_xyz,
-            params=params.segmentation,
+            contour_support_image_xyz,
+            params=contour_params.segmentation,
             spacing_xyz=spacing_xyz,
             role="outer",
         )
@@ -1502,8 +1503,8 @@ def generate_masks_from_image(
         cort_xyz = np.zeros_like(full_xyz, dtype=bool)
     elif inner_method == "standard":
         inner_support_xyz = _contour_support_binarization_xyz(
-            segmentation_image_xyz,
-            params=params.segmentation,
+            contour_support_image_xyz,
+            params=contour_params.segmentation,
             spacing_xyz=spacing_xyz,
             full_mask_xyz=full_xyz,
             role="inner",
@@ -1527,7 +1528,7 @@ def generate_masks_from_image(
 
     if (
         params.segmentation.use_segmentation_aligned_contour_support
-        and params.segmentation.method in {"adaptive", "laplace_hamming"}
+        and params.segmentation.method == "adaptive"
         and inner_support_xyz is not None
     ):
         seg_xyz = _ensure_bool(inner_support_xyz)

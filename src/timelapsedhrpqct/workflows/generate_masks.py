@@ -326,28 +326,17 @@ def _segmentation_input_for_mask_generation(
     params: ContourGenerationParams,
 ) -> tuple[sitk.Image | None, dict[str, object]]:
     """
-    Return the image scale used by segmentation-aligned contour support.
+    Return the image scale used by mask contour support.
 
     The normal imported stack is calibrated BMD/density and is also the
-    contour image, so callers can pass None and let the processing layer use
-    the main image. Laplace-Hamming is only needed here when contour support
-    explicitly follows the segmentation method, because its threshold is
-    calibrated to native Scanco attenuation values.
+    contour image, so callers can pass None and let the processing layer use the
+    main image. Laplace-Hamming native input is reserved for SEG generation so
+    full/trab/cort masks stay on seg_gauss contour support.
     """
-    if (
-        params.segmentation.method != "laplace_hamming"
-        or not params.segmentation.use_segmentation_aligned_contour_support
-    ):
-        return None, {
-            "segmentation_input_unit": "bmd",
-            "segmentation_input_path": str(item.image_path),
-        }
-
-    return _laplace_hamming_stack_image(
-        item=item,
-        metadata=metadata,
-        reference_image=reference_image,
-    )
+    return None, {
+        "segmentation_input_unit": "bmd",
+        "segmentation_input_path": str(item.image_path),
+    }
 
 
 def _derive_params(config: AppConfig) -> ContourGenerationParams:
@@ -795,6 +784,7 @@ def run_mask_generation(
                 verbose=verbose_masks,
             )
             print("[timelapse]   contour generation complete")
+            seg_to_write = result.seg
 
             if "full" in configured_roles and (overwrite or not has_full):
                 print("[timelapse]   writing full mask")
@@ -812,8 +802,23 @@ def run_mask_generation(
                 wrote.append("cort")
 
             if need_generate_seg:
+                if seg_method == "laplace_hamming":
+                    print("[timelapse]   generating Laplace-Hamming segmentation")
+                    seg_to_write, segmentation_source_meta = _generate_segmentation_image(
+                        item=item,
+                        metadata=meta,
+                        reference_image=image,
+                        full_mask=result.full,
+                        trab_mask=result.trab,
+                        cort_mask=result.cort,
+                        params=params,
+                        verbose=verbose_masks,
+                    )
+                    result.metadata.setdefault("voxel_counts", {})["seg"] = int(
+                        sitk.GetArrayFromImage(sitk.Cast(seg_to_write > 0, sitk.sitkUInt8)).sum()
+                    )
                 print("[timelapse]   writing segmentation")
-                sitk.WriteImage(result.seg, str(paths["seg"]))
+                sitk.WriteImage(seg_to_write, str(paths["seg"]))
                 wrote.append("seg")
 
             meta["resolved_masks"] = sorted(configured_roles)
