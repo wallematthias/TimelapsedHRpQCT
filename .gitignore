@@ -32,3 +32,4 @@ site/
 # Coverage artifacts
 .coverage
 coverage.xml
+.worktrees/
