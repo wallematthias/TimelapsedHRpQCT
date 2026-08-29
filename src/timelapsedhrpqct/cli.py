@@ -874,12 +874,12 @@ def _cmd_common_region(args: argparse.Namespace) -> int:
     from timelapsedhrpqct.common_region import run_common_region_batch
 
     transforms = {
-        record.session_id: sitk.ReadTransform(str(record.path))
+        (record.stack_index, record.session_id): sitk.ReadTransform(str(record.path))
         for record in find_records(
             discover_manifests(root), derivative="Registration", role="transform_to_reference",
             subject_id=args.subject, site=args.site,
         )
-        if record.session_id is not None
+        if record.session_id is not None and record.stack_index is not None
     }
     output = run_common_region_batch(root, subject_id=args.subject, site=args.site, transforms_to_reference=transforms)
     _emit_derivative_progress("CommonRegion", args.subject, args.site, "common-region", "complete", str(output))

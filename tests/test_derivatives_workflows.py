@@ -4,6 +4,7 @@ import importlib
 from pathlib import Path
 
 import SimpleITK as sitk
+from bone_imaging_derivatives import parse_progress_event, read_manifest
 
 from timelapsedhrpqct.dataset.artifacts import ImportedStackRecord, upsert_imported_stack_records
 from timelapsedhrpqct.cli import main
@@ -15,17 +16,25 @@ def _image(value: int = 1) -> sitk.Image:
     return sitk.Image([4, 4, 4], sitk.sitkUInt8) + value
 
 
-def _indexed_stack(dataset_root: Path, session_id: str, image: sitk.Image) -> None:
-    path = dataset_root / "inputs" / f"{session_id}.nii.gz"
+def _indexed_stack(
+    dataset_root: Path,
+    session_id: str,
+    image: sitk.Image,
+    *,
+    subject_id: str = "001",
+    site: str = "tibia",
+    stack_index: int = 1,
+) -> None:
+    path = dataset_root / "inputs" / f"sub-{subject_id}_site-{site}_stack-{stack_index}_{session_id}.nii.gz"
     write_image(image, path)
     upsert_imported_stack_records(
         dataset_root,
         [
             ImportedStackRecord(
-                subject_id="001",
-                site="tibia",
+                subject_id=subject_id,
+                site=site,
                 session_id=session_id,
-                stack_index=1,
+                stack_index=stack_index,
                 image_path=path,
                 mask_paths={},
                 seg_path=None,
@@ -47,7 +56,7 @@ def test_registration_batch_writes_registration_manifest_from_existing_transform
         tmp_path,
         subject_id="001",
         site="tibia",
-        transform_paths={"T1": transform_path},
+        transform_paths={(1, "T1"): transform_path},
     )
 
     assert manifest_path == tmp_path / "derivatives" / "Registration" / "manifest.json"
@@ -100,14 +109,85 @@ def test_common_region_batch_writes_manifest_for_indexed_stack_records(tmp_path:
         subject_id="001",
         site="tibia",
         transforms_to_reference={
-            "T1": sitk.Transform(3, sitk.sitkIdentity),
-            "T2": sitk.Transform(3, sitk.sitkIdentity),
+            (1, "T1"): sitk.Transform(3, sitk.sitkIdentity),
+            (1, "T2"): sitk.Transform(3, sitk.sitkIdentity),
         },
     )
 
     assert manifest_path == tmp_path / "derivatives" / "CommonRegion" / "manifest.json"
     assert manifest_path.is_file()
     assert '"scan_region_native_common"' in manifest_path.read_text(encoding="utf-8")
+
+
+def test_common_region_batch_uses_distinct_transforms_for_each_stack(tmp_path: Path) -> None:
+    """Keying transforms only by session would make both stacks use stack 2's shift."""
+    common_region = importlib.import_module("timelapsedhrpqct.common_region")
+    for stack_index in (1, 2):
+        _indexed_stack(tmp_path, "T1", _image(), stack_index=stack_index)
+        _indexed_stack(tmp_path, "T2", _image(), stack_index=stack_index)
+    shifted = sitk.TranslationTransform(3, (1.0, 0.0, 0.0))
+
+    manifest_path = common_region.run_common_region_batch(
+        tmp_path,
+        subject_id="001",
+        site="tibia",
+        transforms_to_reference={
+            (1, "T1"): sitk.Transform(3, sitk.sitkIdentity),
+            (1, "T2"): sitk.Transform(3, sitk.sitkIdentity),
+            (2, "T1"): sitk.Transform(3, sitk.sitkIdentity),
+            (2, "T2"): shifted,
+        },
+    )
+
+    manifest = read_manifest(manifest_path)
+    reference_records = [record for record in manifest.records if record.role == "scan_region_common_reference"]
+    volumes = {
+        record.stack_index: int(sitk.GetArrayFromImage(sitk.ReadImage(str(record.path))).sum())
+        for record in reference_records
+    }
+    assert volumes == {1: 64, 2: 48}
+
+
+def test_common_region_batch_writes_all_scan_support_roles(tmp_path: Path) -> None:
+    """Omitting per-session supports would make the common region's provenance opaque."""
+    common_region = importlib.import_module("timelapsedhrpqct.common_region")
+    _indexed_stack(tmp_path, "T1", _image())
+    _indexed_stack(tmp_path, "T2", _image())
+
+    manifest_path = common_region.run_common_region_batch(
+        tmp_path, subject_id="001", site="tibia",
+        transforms_to_reference={(1, "T1"): sitk.Transform(3, sitk.sitkIdentity), (1, "T2"): sitk.Transform(3, sitk.sitkIdentity)},
+    )
+
+    roles = {record.role for record in read_manifest(manifest_path).records}
+    assert {"scan_region_native", "scan_region_reference", "scan_region_common_reference", "scan_region_native_common"} <= roles
+
+
+def test_registration_batch_merges_filtered_subject_records(tmp_path: Path) -> None:
+    """Replacing a family manifest with a filtered run would hide the prior subject."""
+    registration = importlib.import_module("timelapsedhrpqct.registration")
+    for subject_id in ("001", "002"):
+        transform_path = tmp_path / f"{subject_id}.tfm"
+        sitk.WriteTransform(sitk.Transform(3, sitk.sitkIdentity), str(transform_path))
+        manifest_path = registration.run_registration_batch(
+            tmp_path, subject_id=subject_id, site="tibia", transform_paths={(1, "T1"): transform_path}
+        )
+
+    assert {record.subject_id for record in read_manifest(manifest_path).records} == {"001", "002"}
+
+
+def test_common_region_batch_merges_filtered_site_records(tmp_path: Path) -> None:
+    """Replacing a family manifest with one site would hide previously generated sites."""
+    common_region = importlib.import_module("timelapsedhrpqct.common_region")
+    for site in ("tibia", "radius"):
+        _indexed_stack(tmp_path, "T1", _image(), site=site)
+        _indexed_stack(tmp_path, "T2", _image(), site=site)
+        manifest_path = common_region.run_common_region_batch(
+            tmp_path, subject_id="001", site=site,
+            transforms_to_reference={(1, "T1"): sitk.Transform(3, sitk.sitkIdentity), (1, "T2"): sitk.Transform(3, sitk.sitkIdentity)},
+        )
+
+    assert {record.site for record in read_manifest(manifest_path).records} == {"tibia", "radius"}
 
 
 def test_derivative_cli_dry_runs_emit_parseable_progress(tmp_path: Path, capsys) -> None:
@@ -121,6 +201,25 @@ def test_derivative_cli_dry_runs_emit_parseable_progress(tmp_path: Path, capsys)
 
     output = capsys.readouterr().out
     assert output.count("BONE_DERIVATIVES_PROGRESS ") >= 3
+
+
+def test_registration_cli_non_dry_run_reports_completed_manifest(tmp_path: Path, capsys, monkeypatch) -> None:
+    """Dropping non-dry-run completion events would leave batch callers unable to detect success."""
+    registration = importlib.import_module("timelapsedhrpqct.registration")
+    expected_manifest = tmp_path / "derivatives" / "Registration" / "manifest.json"
+
+    def fake_workflow(dataset_root, config, *, subject_id, site):
+        assert dataset_root == tmp_path.resolve()
+        assert subject_id == "001"
+        assert site == "tibia"
+        return expected_manifest
+
+    monkeypatch.setattr(registration, "run_registration_workflow", fake_workflow)
+
+    assert main(["registration", "run", str(tmp_path), "--subject", "001", "--site", "tibia"]) == 0
+
+    events = [parse_progress_event(line) for line in capsys.readouterr().out.splitlines()]
+    assert any(event is not None and event.status == "complete" and event.path is None for event in events)
 
 
 def test_derivatives_inspect_includes_legacy_compatibility_records(tmp_path: Path, capsys) -> None:

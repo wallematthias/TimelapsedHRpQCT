@@ -5,8 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Mapping
 
-from bone_imaging_derivatives import DerivativeManifest, DerivativeRecord, write_manifest
-from bone_imaging_derivatives.layout import manifest_path
+from bone_imaging_derivatives import DerivativeRecord
 
 from timelapsedhrpqct import __version__
 from timelapsedhrpqct.config.models import AppConfig
@@ -18,6 +17,7 @@ from timelapsedhrpqct.dataset.derivative_paths import (
     existing_derivative_path,
     timelapse_baseline_transform_path,
 )
+from timelapsedhrpqct.derivatives import merge_family_manifest
 from timelapsedhrpqct.workflows.timelapse_registration import run_timelapse_registration
 from timelapsedhrpqct.utils.session_ids import session_sort_key
 
@@ -44,7 +44,7 @@ def run_registration_batch(
     *,
     subject_id: str | None = None,
     site: str | None = None,
-    transform_paths: Mapping[str, Path] | None = None,
+    transform_paths: Mapping[tuple[int, str], Path] | None = None,
 ) -> Path:
     """Write a Registration manifest for existing baseline-space transforms."""
     root = Path(dataset_root)
@@ -61,9 +61,9 @@ def run_registration_batch(
         records.extend(
             DerivativeRecord(
                 "Registration", "transform_to_reference", subject_id, site, session_id,
-                None, "reference", path, "generated", content_type="transform",
+                stack_index, "reference", path, "generated", content_type="transform",
             )
-            for session_id, path in sorted(transform_paths.items())
+            for (stack_index, session_id), path in sorted(transform_paths.items())
         )
     else:
         for (record_subject, record_site), stacks in group_imported_stacks_by_subject_site_and_stack(selected).items():
@@ -85,12 +85,9 @@ def run_registration_batch(
                                 coordinate_reference={"session_id": reference_session},
                             )
                         )
-    manifest = DerivativeManifest.create(
-        "Registration", root, {"name": "timelapsed-hrpqct", "version": __version__}, tuple(records)
+    return merge_family_manifest(
+        root, "Registration", {"name": "timelapsed-hrpqct", "version": __version__}, records
     )
-    output = manifest_path(root, "Registration")
-    write_manifest(manifest, output)
-    return output
 
 
 __all__ = ["run_registration_batch", "run_registration_workflow"]
