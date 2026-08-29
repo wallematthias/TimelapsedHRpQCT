@@ -190,6 +190,32 @@ def test_common_region_batch_merges_filtered_site_records(tmp_path: Path) -> Non
     assert {record.site for record in read_manifest(manifest_path).records} == {"tibia", "radius"}
 
 
+def test_common_region_rerun_replaces_common_reference_when_reference_session_changes(tmp_path: Path) -> None:
+    """Including reference session in the upsert key would duplicate one stack-level common mask."""
+    common_region = importlib.import_module("timelapsedhrpqct.common_region")
+    _indexed_stack(tmp_path, "T1", _image())
+    common_region.run_common_region_batch(
+        tmp_path, subject_id="001", site="tibia",
+        transforms_to_reference={(1, "T1"): sitk.Transform(3, sitk.sitkIdentity)},
+    )
+    _indexed_stack(tmp_path, "T0", _image())
+
+    manifest_path = common_region.run_common_region_batch(
+        tmp_path, subject_id="001", site="tibia",
+        transforms_to_reference={
+            (1, "T0"): sitk.Transform(3, sitk.sitkIdentity),
+            (1, "T1"): sitk.Transform(3, sitk.sitkIdentity),
+        },
+    )
+
+    common_records = [
+        record for record in read_manifest(manifest_path).records
+        if record.role == "scan_region_common_reference" and record.stack_index == 1
+    ]
+    assert len(common_records) == 1
+    assert common_records[0].session_id == "T0"
+
+
 def test_derivative_cli_dry_runs_emit_parseable_progress(tmp_path: Path, capsys) -> None:
     """Removing nested derivative commands would prevent background callers from planning work."""
     _indexed_stack(tmp_path, "T1", _image())
@@ -220,6 +246,36 @@ def test_registration_cli_non_dry_run_reports_completed_manifest(tmp_path: Path,
 
     events = [parse_progress_event(line) for line in capsys.readouterr().out.splitlines()]
     assert any(event is not None and event.status == "complete" and event.path is None for event in events)
+
+
+def test_common_region_cli_loads_manifest_transforms_by_stack_and_session(tmp_path: Path, capsys, monkeypatch) -> None:
+    """Collapsing manifest transforms by session would lose one of the two stack transforms."""
+    registration = importlib.import_module("timelapsedhrpqct.registration")
+    common_region = importlib.import_module("timelapsedhrpqct.common_region")
+    paths = {}
+    for stack_index in (1, 2):
+        for session_id in ("T1", "T2"):
+            path = tmp_path / f"stack-{stack_index}_{session_id}.tfm"
+            sitk.WriteTransform(sitk.Transform(3, sitk.sitkIdentity), str(path))
+            paths[(stack_index, session_id)] = path
+    registration.run_registration_batch(
+        tmp_path, subject_id="001", site="tibia", transform_paths=paths
+    )
+    captured = {}
+
+    def fake_batch(dataset_root, *, subject_id, site, transforms_to_reference):
+        captured["keys"] = set(transforms_to_reference)
+        return tmp_path / "derivatives" / "CommonRegion" / "manifest.json"
+
+    monkeypatch.setattr(common_region, "run_common_region_batch", fake_batch)
+
+    assert main(["common-region", "run", str(tmp_path), "--subject", "001", "--site", "tibia"]) == 0
+
+    assert captured["keys"] == set(paths)
+    assert any(
+        event is not None and event.family == "CommonRegion" and event.status == "complete"
+        for event in (parse_progress_event(line) for line in capsys.readouterr().out.splitlines())
+    )
 
 
 def test_derivatives_inspect_includes_legacy_compatibility_records(tmp_path: Path, capsys) -> None:

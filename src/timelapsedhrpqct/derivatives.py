@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Iterable, Mapping
+from typing import Callable, Iterable, Mapping
 
 from bone_imaging_derivatives import DerivativeManifest, DerivativeRecord, read_manifest, write_manifest
 from bone_imaging_derivatives.layout import manifest_path
@@ -28,12 +28,13 @@ def merge_family_manifest(
     family: str,
     software: Mapping[str, str],
     regenerated_records: Iterable[DerivativeRecord],
+    identity: Callable[[DerivativeRecord], tuple[object, ...]] = _record_identity,
 ) -> Path:
     """Upsert regenerated records while preserving unrelated family outputs."""
     output = manifest_path(dataset_root, family)
     current = read_manifest(output).records if output.exists() else ()
-    replacements = {_record_identity(record): record for record in regenerated_records}
-    merged = [record for record in current if _record_identity(record) not in replacements]
+    replacements = {identity(record): record for record in regenerated_records}
+    merged = [record for record in current if identity(record) not in replacements]
     merged.extend(replacements.values())
     manifest = DerivativeManifest.create(family, dataset_root, software, tuple(merged))
     write_manifest(manifest, output)

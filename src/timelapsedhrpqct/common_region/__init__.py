@@ -16,6 +16,19 @@ from timelapsedhrpqct.utils.session_ids import session_sort_key
 from timelapsedhrpqct.utils.sitk_helpers import load_image, write_image
 
 
+def _common_region_manifest_identity(record: DerivativeRecord) -> tuple[object, ...]:
+    """Use stack scope for the one common-reference output per stack."""
+    if record.role == "scan_region_common_reference":
+        return (
+            record.derivative, record.role, record.subject_id, record.site,
+            record.stack_index, record.space,
+        )
+    return (
+        record.derivative, record.role, record.subject_id, record.site,
+        record.session_id, record.stack_index, record.space, str(record.path),
+    )
+
+
 def _fov_support(image: sitk.Image) -> sitk.Image:
     support = sitk.Image(image.GetSize(), sitk.sitkUInt8)
     support.CopyInformation(image)
@@ -133,7 +146,8 @@ def run_common_region_batch(
                 stack_index, "native", path, "generated", inputs=(str(common_path),), content_type="mask",
             ))
     return merge_family_manifest(
-        root, "CommonRegion", {"name": "timelapsed-hrpqct", "version": __version__}, records
+        root, "CommonRegion", {"name": "timelapsed-hrpqct", "version": __version__}, records,
+        identity=_common_region_manifest_identity,
     )
 
 
