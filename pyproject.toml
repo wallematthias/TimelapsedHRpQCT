@@ -21,6 +21,7 @@ dependencies = [
   "scipy",
   "SimpleITK",
   "tifffile<2026",
+  "bone-imaging-derivatives @ file:///Users/matthias.walle/Documents/14_GitHub/active/bone-imaging-derivatives",
 ]
 
 [project.optional-dependencies]

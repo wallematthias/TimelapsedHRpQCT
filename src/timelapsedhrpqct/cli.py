@@ -145,6 +145,62 @@ def _build_parser() -> argparse.ArgumentParser:
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     # ------------------------------------------------------------------
+    # derivative-contract workflows
+    # ------------------------------------------------------------------
+    derivatives_parser = subparsers.add_parser(
+        "derivatives", help="Inspect derivative manifests and legacy compatibility records."
+    )
+    derivatives_subparsers = derivatives_parser.add_subparsers(
+        dest="derivatives_command", required=True
+    )
+    derivatives_inspect = derivatives_subparsers.add_parser(
+        "inspect", help="Summarize derivative manifests and compatible legacy artifacts."
+    )
+    derivatives_inspect.add_argument("dataset_root", type=Path)
+
+    registration_parser = subparsers.add_parser(
+        "registration", help="Run derivative-contract registration workflows."
+    )
+    registration_subparsers = registration_parser.add_subparsers(
+        dest="registration_command", required=True
+    )
+    registration_run = registration_subparsers.add_parser(
+        "run", help="Run registration and write a Registration manifest."
+    )
+    registration_run.add_argument("dataset_root", type=Path)
+    _add_config_argument(registration_run)
+    _add_profile_argument(registration_run)
+    _add_subject_site_arguments(registration_run)
+    registration_run.add_argument("--dry-run", action="store_true")
+
+    common_region_parser = subparsers.add_parser(
+        "common-region", help="Run scan/FOV common-region workflows."
+    )
+    common_region_subparsers = common_region_parser.add_subparsers(
+        dest="common_region_command", required=True
+    )
+    common_region_run = common_region_subparsers.add_parser(
+        "run", help="Write CommonRegion masks and a manifest."
+    )
+    common_region_run.add_argument("dataset_root", type=Path)
+    _add_subject_site_arguments(common_region_run)
+    common_region_run.add_argument("--dry-run", action="store_true")
+
+    prerequisites_parser = subparsers.add_parser(
+        "prerequisites", help="Inspect derivative workflow prerequisites."
+    )
+    prerequisites_subparsers = prerequisites_parser.add_subparsers(
+        dest="prerequisites_command", required=True
+    )
+    prerequisites_ensure = prerequisites_subparsers.add_parser(
+        "ensure", help="Report required derivative inputs for a workflow."
+    )
+    prerequisites_ensure.add_argument("dataset_root", type=Path)
+    prerequisites_ensure.add_argument("--workflow", required=True)
+    _add_subject_site_arguments(prerequisites_ensure)
+    prerequisites_ensure.add_argument("--generate-missing", action="store_true")
+
+    # ------------------------------------------------------------------
     # doctor
     # ------------------------------------------------------------------
     doctor_parser = subparsers.add_parser(
@@ -763,6 +819,93 @@ def _cmd_inspect(args: argparse.Namespace) -> int:
         pass
 
     return 0
+
+
+def _emit_derivative_progress(
+    family: str, subject_id: str | None, site: str | None, step: str, status: str, message: str
+) -> None:
+    """Emit one contract progress event for a CLI derivative workflow."""
+    from bone_imaging_derivatives import DerivativeProgressEvent, format_progress_event
+
+    print(format_progress_event(DerivativeProgressEvent(
+        family, subject_id, site, None, step, status, message
+    )))
+
+
+def _cmd_derivatives_inspect(args: argparse.Namespace) -> int:
+    """Inspect current manifests together with readable legacy Timelapsed records."""
+    from bone_imaging_derivatives import discover_legacy_timelapsed_records, discover_manifests
+
+    root = args.dataset_root.resolve()
+    manifests = discover_manifests(root)
+    legacy = discover_legacy_timelapsed_records(root)
+    print(f"[timelapse] Derivative manifests: {len(manifests)}")
+    for manifest in manifests:
+        print(f"[timelapse] {manifest.derivative_family}: {len(manifest.records)} record(s)")
+    print(f"[timelapse] Legacy compatibility records: {len(legacy)}")
+    return 0
+
+
+def _cmd_derivative_registration(args: argparse.Namespace) -> int:
+    """Run or plan registration via the derivative-contract public API."""
+    root = args.dataset_root.resolve()
+    if args.dry_run:
+        _emit_derivative_progress("Registration", args.subject, args.site, "registration", "planned", "dry run")
+        return 0
+    from timelapsedhrpqct.registration import run_registration_workflow
+
+    output = run_registration_workflow(
+        root, _load_config_for_args(args), subject_id=args.subject, site=args.site
+    )
+    _emit_derivative_progress("Registration", args.subject, args.site, "registration", "complete", str(output))
+    return 0
+
+
+def _cmd_common_region(args: argparse.Namespace) -> int:
+    """Run or plan scan/FOV-only common-region generation."""
+    root = args.dataset_root.resolve()
+    if args.dry_run:
+        _emit_derivative_progress("CommonRegion", args.subject, args.site, "common-region", "planned", "dry run")
+        return 0
+    if not args.subject or not args.site:
+        raise ValueError("--subject and --site are required to generate a common region")
+    import SimpleITK as sitk
+    from bone_imaging_derivatives import discover_manifests, find_records
+    from timelapsedhrpqct.common_region import run_common_region_batch
+
+    transforms = {
+        record.session_id: sitk.ReadTransform(str(record.path))
+        for record in find_records(
+            discover_manifests(root), derivative="Registration", role="transform_to_reference",
+            subject_id=args.subject, site=args.site,
+        )
+        if record.session_id is not None
+    }
+    output = run_common_region_batch(root, subject_id=args.subject, site=args.site, transforms_to_reference=transforms)
+    _emit_derivative_progress("CommonRegion", args.subject, args.site, "common-region", "complete", str(output))
+    return 0
+
+
+def _cmd_prerequisites_ensure(args: argparse.Namespace) -> int:
+    """Report derivative prerequisites without silently running long jobs."""
+    from bone_imaging_derivatives import discover_manifests, resolve_workflow_plan
+
+    root = args.dataset_root.resolve()
+    if not args.subject or not args.site:
+        raise ValueError("--subject and --site are required")
+    sessions = sorted(
+        {record.session_id for record in iter_imported_stack_records(root)
+         if record.subject_id == args.subject and record.site == args.site}
+    )
+    plan = resolve_workflow_plan(
+        args.workflow, manifests=discover_manifests(root), subject_id=args.subject,
+        site=args.site, sessions=sessions, generate_missing=bool(args.generate_missing),
+    )
+    for step in plan.steps:
+        print(f"[timelapse] {step}")
+    _emit_derivative_progress(args.workflow, args.subject, args.site, "prerequisites",
+                              "blocked" if plan.blocked else "ready", "; ".join(plan.steps))
+    return 1 if plan.blocked else 0
 
 
 def _cmd_crop_aims(args: argparse.Namespace) -> int:
@@ -1969,6 +2112,14 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     if args.command == "doctor":
         return _cmd_doctor(args)
+    if args.command == "derivatives":
+        return _cmd_derivatives_inspect(args)
+    if args.command == "registration":
+        return _cmd_derivative_registration(args)
+    if args.command == "common-region":
+        return _cmd_common_region(args)
+    if args.command == "prerequisites":
+        return _cmd_prerequisites_ensure(args)
     if args.command == "inspect":
         return _cmd_inspect(args)
     if args.command == "crop-aims":
