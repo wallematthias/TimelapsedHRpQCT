@@ -119,6 +119,25 @@ def test_common_region_batch_writes_manifest_for_indexed_stack_records(tmp_path:
     assert '"scan_region_native_common"' in manifest_path.read_text(encoding="utf-8")
 
 
+def test_common_region_batch_rejects_missing_imported_stack_records(tmp_path: Path) -> None:
+    """An empty selected set must not be reported as a successful common-region run."""
+    common_region = importlib.import_module("timelapsedhrpqct.common_region")
+
+    try:
+        common_region.run_common_region_batch(
+            tmp_path,
+            subject_id="001",
+            site="tibia",
+            transforms_to_reference={(1, "T1"): sitk.Transform(3, sitk.sitkIdentity)},
+        )
+    except ValueError as exc:
+        assert "Missing imported stack records" in str(exc)
+    else:
+        raise AssertionError("Expected missing imported records to fail")
+
+    assert not (tmp_path / "derivatives" / "CommonRegion" / "manifest.json").exists()
+
+
 def test_common_region_batch_uses_distinct_transforms_for_each_stack(tmp_path: Path) -> None:
     """Keying transforms only by session would make both stacks use stack 2's shift."""
     common_region = importlib.import_module("timelapsedhrpqct.common_region")

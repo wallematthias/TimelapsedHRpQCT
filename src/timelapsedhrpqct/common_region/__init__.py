@@ -93,6 +93,8 @@ def run_common_region_batch(
         if record.subject_id == subject_id and record.site == site
     ]
     grouped = group_imported_stacks_by_subject_site_and_stack(selected).get((subject_id, site), {})
+    if not grouped:
+        raise ValueError(f"Missing imported stack records for sub-{subject_id} site-{site}")
     records: list[DerivativeRecord] = []
     for stack_index, artifacts in sorted(grouped.items()):
         images = {artifact.session_id: load_image(artifact.image_path) for artifact in artifacts}
