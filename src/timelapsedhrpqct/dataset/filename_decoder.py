@@ -8,6 +8,7 @@ from timelapsedhrpqct.config.models import DiscoveryConfig
 
 
 _AIM_WITH_OPTIONAL_VERSION_RE = re.compile(r"(?i)\.aim(?:;\d+)?$")
+_SCENE_IMAGE_SUFFIX_RE = re.compile(r"(?i)(?:\.nii(?:\.gz)?|\.mha|\.mhd|\.nrrd|\.nhdr)$")
 
 
 @dataclass(frozen=True, slots=True)
@@ -21,19 +22,20 @@ class DecodedFilename:
 
 def strip_aim_suffix(name: str) -> str:
     """Helper for strip aim suffix."""
-    return _AIM_WITH_OPTIONAL_VERSION_RE.sub("", name)
+    stripped = _AIM_WITH_OPTIONAL_VERSION_RE.sub("", name)
+    return _SCENE_IMAGE_SUFFIX_RE.sub("", stripped)
 
 
 def normalize_role(role: str) -> str:
     """Helper for normalize role."""
-    role_lower = role.strip().lower()
-    if role_lower in {"cort", "cortical", "cort_mask"}:
+    role_lower = role.strip().lower().replace("-", "_")
+    if role_lower in {"cort", "cortical", "cort_mask", "mask_cort"}:
         return "cort"
-    if role_lower in {"trab", "trabecular", "trab_mask"}:
+    if role_lower in {"trab", "trabecular", "trab_mask", "mask_trab"}:
         return "trab"
-    if role_lower in {"full", "full_mask"}:
+    if role_lower in {"full", "full_mask", "mask_full"}:
         return "full"
-    if role_lower == "seg":
+    if role_lower in {"seg", "mask_seg"}:
         return "seg"
     if role_lower == "image":
         return "image"
@@ -57,13 +59,14 @@ def classify_role_from_name(path: Path, cfg: DiscoveryConfig) -> str:
         for alias in aliases:
             if alias.upper() in stem_upper:
                 return normalize_role(canonical_role)
-    if "TRAB_MASK" in stem_upper or stem_upper.endswith("_TRAB"):
+    normalized = stem_upper.replace("-", "_")
+    if "TRAB_MASK" in normalized or normalized.endswith("_TRAB") or normalized.endswith("_MASK_TRAB"):
         return "trab"
-    if "CORT_MASK" in stem_upper or stem_upper.endswith("_CORT"):
+    if "CORT_MASK" in normalized or normalized.endswith("_CORT") or normalized.endswith("_MASK_CORT"):
         return "cort"
-    if "FULL_MASK" in stem_upper or stem_upper.endswith("_FULL"):
+    if "FULL_MASK" in normalized or normalized.endswith("_FULL") or normalized.endswith("_MASK_FULL"):
         return "full"
-    if "REGMASK" in stem_upper or stem_upper.endswith("_REG"):
+    if "REGMASK" in normalized or normalized.endswith("_REG"):
         return "regmask"
     generic_roi_match = re.search(r"(?i)_(ROI[0-9A-Z]+)$", stem_upper)
     if generic_roi_match:
@@ -71,7 +74,7 @@ def classify_role_from_name(path: Path, cfg: DiscoveryConfig) -> str:
     generic_mask_match = re.search(r"(?i)_(MASK[0-9A-Z]+)$", stem_upper)
     if generic_mask_match:
         return generic_mask_match.group(1).lower()
-    if "_SEG" in stem_upper or stem_upper.endswith("SEG"):
+    if "_SEG" in normalized or normalized.endswith("SEG") or normalized.endswith("_MASK_SEG"):
         return "seg"
     if "_EVENTS" in stem_upper or stem_upper.endswith("EVENTS"):
         return "events"
@@ -157,16 +160,21 @@ def decode_filename(path: Path, cfg: DiscoveryConfig) -> DecodedFilename:
     stem = strip_aim_suffix(path.name)
     role = classify_role_from_name(path, cfg)
 
-    stem = re.sub(r"(?i)_TRAB_MASK$", "", stem)
-    stem = re.sub(r"(?i)_CORT_MASK$", "", stem)
-    stem = re.sub(r"(?i)_FULL_MASK$", "", stem)
-    stem = re.sub(r"(?i)_SEG$", "", stem)
-    stem = re.sub(r"(?i)_EVENTS$", "", stem)
-    stem = re.sub(r"(?i)_TRAB$", "", stem)
-    stem = re.sub(r"(?i)_CORT$", "", stem)
-    stem = re.sub(r"(?i)_FULL$", "", stem)
-    stem = re.sub(r"(?i)_REGMASK$", "", stem)
-    stem = re.sub(r"(?i)_REG$", "", stem)
+    stem = re.sub(r"(?i)[_-]TRAB[_-]MASK$", "", stem)
+    stem = re.sub(r"(?i)[_-]CORT[_-]MASK$", "", stem)
+    stem = re.sub(r"(?i)[_-]FULL[_-]MASK$", "", stem)
+    stem = re.sub(r"(?i)[_-]MASK[_-]TRAB$", "", stem)
+    stem = re.sub(r"(?i)[_-]MASK[_-]CORT$", "", stem)
+    stem = re.sub(r"(?i)[_-]MASK[_-]FULL$", "", stem)
+    stem = re.sub(r"(?i)[_-]MASK[_-]SEG$", "", stem)
+    stem = re.sub(r"(?i)[_-]SEG$", "", stem)
+    stem = re.sub(r"(?i)[_-]EVENTS$", "", stem)
+    stem = re.sub(r"(?i)[_-]IMAGE$", "", stem)
+    stem = re.sub(r"(?i)[_-]TRAB$", "", stem)
+    stem = re.sub(r"(?i)[_-]CORT$", "", stem)
+    stem = re.sub(r"(?i)[_-]FULL$", "", stem)
+    stem = re.sub(r"(?i)[_-]REGMASK$", "", stem)
+    stem = re.sub(r"(?i)[_-]REG$", "", stem)
     stem = re.sub(r"(?i)_ROI[0-9A-Z]+$", "", stem)
     stem = re.sub(r"(?i)_MASK[0-9A-Z]+$", "", stem)
 

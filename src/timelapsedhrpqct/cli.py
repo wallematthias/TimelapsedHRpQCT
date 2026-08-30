@@ -321,6 +321,11 @@ def _build_parser() -> argparse.ArgumentParser:
             "(Index Patient / Index Measurement / Site) instead of filename parsing."
         ),
     )
+    import_parser.add_argument(
+        "--allow-scene-images",
+        action="store_true",
+        help="Allow Slicer scene image exports such as NIfTI/MHA as import inputs.",
+    )
 
     # ------------------------------------------------------------------
     # generate-masks
@@ -528,6 +533,11 @@ def _build_parser() -> argparse.ArgumentParser:
             "Force raw session discovery from AIM header metadata "
             "(Index Patient / Index Measurement / Site) instead of filename parsing."
         ),
+    )
+    run_parser.add_argument(
+        "--allow-scene-images",
+        action="store_true",
+        help="Allow Slicer scene image exports such as NIfTI/MHA as run inputs.",
     )
     run_parser.add_argument(
         "--skip-mask-generation",
@@ -1321,9 +1331,12 @@ def _cmd_import(args: argparse.Namespace) -> int:
         discovery_config=config.discovery,
         force_header_discovery=bool(getattr(args, "force_header_discovery", False)),
         canonicalize_sessions=bool(getattr(args, "force_header_discovery", False)),
+        allow_scene_images=bool(getattr(args, "allow_scene_images", False)),
     )
 
     if not sessions:
+        if bool(getattr(args, "allow_scene_images", False)):
+            raise ValueError(f"No AIM or scene image sessions found under: {input_root}")
         print(f"[timelapse] No raw sessions found under: {input_root}")
         return 0
 
@@ -1806,8 +1819,11 @@ def _cmd_run(args: argparse.Namespace) -> int:
         discovery_config=config.discovery,
         force_header_discovery=bool(getattr(args, "force_header_discovery", False)),
         canonicalize_sessions=bool(getattr(args, "force_header_discovery", False)),
+        allow_scene_images=bool(getattr(args, "allow_scene_images", False)),
     )
     if not discovered_sessions:
+        if bool(getattr(args, "allow_scene_images", False)):
+            raise ValueError(f"No AIM or scene image sessions found under: {input_root}")
         print(f"[timelapse] No raw sessions found under: {input_root}")
         return 0
 
@@ -1820,6 +1836,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
         copy_raw_inputs=bool(getattr(args, "copy_raw_inputs", False)),
         restructure_raw=bool(getattr(args, "restructure_raw", False)),
         force_header_discovery=bool(getattr(args, "force_header_discovery", False)),
+        allow_scene_images=bool(getattr(args, "allow_scene_images", False)),
     )
     with benchmark.section("stage.import", dataset_root=str(output_root)):
         rc = _cmd_import(import_args)

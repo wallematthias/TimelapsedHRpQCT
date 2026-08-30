@@ -9,6 +9,8 @@ import json
 import numpy as np
 import SimpleITK as sitk
 
+_SCENE_IMAGE_SUFFIXES = (".nii", ".nii.gz", ".mha", ".mhd", ".nrrd", ".nhdr")
+
 
 def _load_py_aimio():
     """Load py aimio."""
@@ -214,8 +216,32 @@ def read_aim(
         - 'hu'
         - 'bmd' / 'density'
     """
-    py_aimio = _load_py_aimio()
+    path = Path(path)
     scaling = _normalize_scaling(scaling)
+    if _is_scene_image_path(path):
+        image = sitk.ReadImage(str(path))
+        if scaling in {"none", "native"}:
+            unit = "native"
+        else:
+            unit = scaling
+        image.SetMetaData("processing_log", "")
+        image.SetMetaData("unit", unit)
+        spacing = tuple(float(v) for v in image.GetSpacing())
+        origin = tuple(float(v) for v in image.GetOrigin())
+        metadata: dict[str, Any] = {
+            "origin": origin,
+            "spacing": spacing,
+            "element_size": spacing,
+            "position": (0, 0, 0),
+            "offset": (0, 0, 0),
+            "dimensions": tuple(int(v) for v in image.GetSize()),
+            "processing_log": "",
+            "unit": unit,
+            "source_format": "scene_image",
+        }
+        return image, metadata
+
+    py_aimio = _load_py_aimio()
     np_arr, meta = _read_with_py_aimio(py_aimio, path, scaling)
 
     dims_xyz_raw = meta.get("dimensions")
@@ -258,6 +284,11 @@ def read_aim(
     }
 
     return sitk_img, metadata
+
+
+def _is_scene_image_path(path: Path) -> bool:
+    lower = str(path).lower()
+    return lower.endswith(_SCENE_IMAGE_SUFFIXES)
 
 
 def write_aim(

@@ -11,6 +11,26 @@ def _touch(path: Path) -> None:
     path.write_text("", encoding="utf-8")
 
 
+def test_discover_raw_sessions_accepts_scene_nifti_only_when_opted_in(tmp_path: Path) -> None:
+    root = tmp_path / "scene"
+    image = root / "sub-SAMPLE001_ses-T1_site-tibia_image.nii.gz"
+    full = root / "sub-SAMPLE001_ses-T1_site-tibia_mask-full.nii.gz"
+    _touch(image)
+    _touch(full)
+
+    assert discover_raw_sessions(root, DiscoveryConfig()) == []
+
+    sessions = discover_raw_sessions(
+        root,
+        DiscoveryConfig(),
+        allow_scene_images=True,
+    )
+
+    assert len(sessions) == 1
+    assert sessions[0].raw_image_path == image
+    assert sessions[0].raw_mask_paths["full"] == full
+
+
 def test_discover_raw_sessions_ignores_pipeline_managed_copies(tmp_path: Path) -> None:
     root = tmp_path / "data"
 

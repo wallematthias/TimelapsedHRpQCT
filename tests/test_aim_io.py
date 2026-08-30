@@ -10,6 +10,21 @@ import SimpleITK as sitk
 from timelapsedhrpqct.io import aim as aim_io
 
 
+def test_read_aim_supports_simpleitk_scene_images(tmp_path: Path) -> None:
+    path = tmp_path / "scene_image.nii.gz"
+    image = sitk.GetImageFromArray(np.arange(24, dtype=np.int16).reshape(2, 3, 4))
+    image.SetSpacing((0.061, 0.061, 0.061))
+    image.SetOrigin((1.0, 2.0, 3.0))
+    sitk.WriteImage(image, str(path))
+
+    loaded, metadata = aim_io.read_aim(path, scaling="bmd")
+
+    assert tuple(loaded.GetSize()) == tuple(image.GetSize())
+    np.testing.assert_allclose(loaded.GetSpacing(), image.GetSpacing())
+    assert metadata["unit"] == "bmd"
+    assert metadata["source_format"] == "scene_image"
+
+
 @pytest.mark.parametrize(
     ("scaling", "expected_unit"),
     [
