@@ -416,6 +416,7 @@ def _build_elastix_parameter_object(
 
     parameter_map["NumberOfSpatialSamples"] = (str(spatial_samples),)
     parameter_map["NewSamplesEveryIteration"] = ("true",)
+    parameter_map["RandomSeed"] = ("121212",)
 
     if use_masks:
         parameter_map["ImageSampler"] = ("RandomSparseMask",)

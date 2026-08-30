@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import numpy as np
 import SimpleITK as sitk
 
 from timelapsedhrpqct.dataset.models import StackSliceRange
@@ -54,6 +55,23 @@ def _offset_origin_for_stack_index(image: sitk.Image, stack_index: int, stack_de
     origin = list(out.GetOrigin())
     origin[2] += float(max(0, int(stack_index) - 1) * int(stack_depth)) * float(out.GetSpacing()[2])
     out.SetOrigin(tuple(origin))
+    return out
+
+
+def _apply_materialized_stack_geometry(image: sitk.Image, payload: dict) -> sitk.Image:
+    geometry = payload.get("stack_geometry")
+    if not isinstance(geometry, dict):
+        return image
+    out = sitk.Image(image)
+    spacing = geometry.get("spacing")
+    origin = geometry.get("origin")
+    direction = geometry.get("direction")
+    if isinstance(spacing, list) and len(spacing) == 3:
+        out.SetSpacing(tuple(float(value) for value in spacing))
+    if isinstance(origin, list) and len(origin) == 3:
+        out.SetOrigin(tuple(float(np.float32(value)) for value in origin))
+    if isinstance(direction, list) and len(direction) == 9:
+        out.SetDirection(tuple(float(value) for value in direction))
     return out
 
 
@@ -115,7 +133,7 @@ def load_virtual_stack_image(path: Path) -> sitk.Image:
 
     start = int(virtual["slice_start"])
     stop = int(virtual["slice_stop"])
-    return _slice_image(image, start, stop)
+    return _apply_materialized_stack_geometry(_slice_image(image, start, stop), payload)
 
 
 def _reference_image_from_descriptor(virtual: dict, path: Path) -> sitk.Image:
