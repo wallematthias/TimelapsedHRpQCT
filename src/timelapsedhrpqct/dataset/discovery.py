@@ -258,6 +258,18 @@ def _extract_subject_session_default(path: Path) -> tuple[str, str, str, int | N
     stack_index = _extract_stack_index_default(path)
     stem = re.sub(r"(?i)_STACK[_-]?\d+", "", stem)
 
+    scene_match = re.search(
+        r"(?i)^sub-(?P<subject>.+?)_ses-(?P<session>[^_]+)_site-(?P<site>[^_]+)(?:_|$)",
+        stem,
+    )
+    if scene_match:
+        return (
+            scene_match.group("subject"),
+            scene_match.group("session"),
+            scene_match.group("site"),
+            stack_index,
+        )
+
     parts = [p for p in stem.split("_") if p]
     if len(parts) < 3:
         raise ValueError(
@@ -534,7 +546,18 @@ def discover_raw_sessions(
                 role = decoded.role
             except ValueError:
                 try:
-                    if discovery_config.session_regex:
+                    if allow_scene_images and not is_aim:
+                        (
+                            subject_id,
+                            session_id,
+                            site_token,
+                            stack_index,
+                        ) = _extract_subject_session_default(path)
+                        site = _normalize_site(site_token, discovery_config)
+                        if site is None:
+                            site = _infer_site_from_name(path, discovery_config)
+                        role = _classify_role_from_name(path, discovery_config)
+                    elif discovery_config.session_regex:
                         (
                             subject_id,
                             session_id,

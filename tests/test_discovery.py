@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from timelapsedhrpqct.config.loader import load_config
 from timelapsedhrpqct.config.models import DiscoveryConfig
 from timelapsedhrpqct.dataset.discovery import discover_raw_sessions
 
@@ -297,6 +298,45 @@ def test_discover_raw_sessions_supports_nested_bids_like_layout(tmp_path: Path) 
     assert sessions[0].site == "tibia"
     assert sessions[0].raw_image_path == image
     assert sessions[0].raw_mask_paths["trab"] == trab
+
+
+def test_discover_raw_sessions_supports_scene_exported_nifti_layout(tmp_path: Path) -> None:
+    root = tmp_path / "scene"
+    session_dir = root / "sub-STRAMBO_0001" / "site-RL" / "native_space" / "ses-04"
+    image = session_dir / "sub-STRAMBO_0001_ses-04_site-RL_image.nii.gz"
+    full = session_dir / "sub-STRAMBO_0001_ses-04_site-RL_mask-full.nii.gz"
+    cort = session_dir / "sub-STRAMBO_0001_ses-04_site-RL_mask-cort.nii.gz"
+    _touch(image)
+    _touch(full)
+    _touch(cort)
+
+    sessions = discover_raw_sessions(root, DiscoveryConfig(), allow_scene_images=True)
+
+    assert len(sessions) == 1
+    assert sessions[0].subject_id == "STRAMBO_0001"
+    assert sessions[0].session_id == "04"
+    assert sessions[0].site == "radius_left"
+    assert sessions[0].raw_image_path == image
+    assert sessions[0].raw_mask_paths["full"] == full
+    assert sessions[0].raw_mask_paths["cort"] == cort
+
+
+def test_discover_raw_sessions_supports_scene_nifti_with_loaded_default_config(tmp_path: Path) -> None:
+    root = tmp_path / "scene"
+    session_dir = root / "sub-STRAMBO_0001" / "site-RL" / "native_space" / "ses-04"
+    image = session_dir / "sub-STRAMBO_0001_ses-04_site-RL_image.nii.gz"
+    _touch(image)
+
+    sessions = discover_raw_sessions(
+        root,
+        load_config().discovery,
+        allow_scene_images=True,
+    )
+
+    assert len(sessions) == 1
+    assert sessions[0].subject_id == "STRAMBO_0001"
+    assert sessions[0].session_id == "04"
+    assert sessions[0].site == "radius_left"
 
 
 def test_discover_raw_sessions_supports_sided_site_aliases(tmp_path: Path) -> None:
