@@ -892,7 +892,9 @@ def _cmd_common_region(args: argparse.Namespace) -> int:
     import SimpleITK as sitk
     from bone_imaging_derivatives import discover_manifests, find_records
     from timelapsedhrpqct.common_region import run_common_region_batch
+    from timelapsedhrpqct.registration import run_registration_batch
 
+    run_registration_batch(root, subject_id=args.subject, site=args.site)
     transforms = {
         (record.stack_index, record.session_id): sitk.ReadTransform(str(record.path))
         for record in find_records(

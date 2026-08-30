@@ -394,6 +394,32 @@ def test_common_region_cli_loads_manifest_transforms_by_stack_and_session(tmp_pa
     )
 
 
+def test_common_region_cli_publishes_existing_timelapsed_transforms_before_loading(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """A regular Timelapsed run leaves baseline transforms that common-region should reuse."""
+    common_region = importlib.import_module("timelapsedhrpqct.common_region")
+    _indexed_stack(tmp_path, "1", _image())
+    _indexed_stack(tmp_path, "2", _image())
+    for session_id in ("1", "2"):
+        transform_path = timelapse_baseline_transform_path(
+            tmp_path, "001", "tibia", 1, session_id, "1"
+        )
+        transform_path.parent.mkdir(parents=True, exist_ok=True)
+        sitk.WriteTransform(sitk.Transform(3, sitk.sitkIdentity), str(transform_path))
+    captured = {}
+
+    def fake_batch(dataset_root, *, subject_id, site, transforms_to_reference):
+        captured["keys"] = set(transforms_to_reference)
+        return tmp_path / "derivatives" / "CommonRegion" / "manifest.json"
+
+    monkeypatch.setattr(common_region, "run_common_region_batch", fake_batch)
+
+    assert main(["common-region", "run", str(tmp_path), "--subject", "001", "--site", "tibia"]) == 0
+
+    assert captured["keys"] == {(1, "1"), (1, "2")}
+
+
 def test_derivatives_inspect_includes_legacy_compatibility_records(tmp_path: Path, capsys) -> None:
     """Skipping compatibility discovery would hide legacy Timelapsed outputs from the new CLI."""
     legacy = tmp_path / "derivatives" / "TimelapsedHRpQCT" / "sub-001" / "site-tibia"
