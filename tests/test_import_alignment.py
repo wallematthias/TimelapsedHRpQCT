@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -214,6 +215,57 @@ def test_import_does_not_copy_raw_inputs_by_default(monkeypatch, tmp_path: Path)
     )
 
     assert len(artifacts) == 1
+
+
+def test_import_can_keep_stack_images_virtual(monkeypatch, tmp_path: Path) -> None:
+    """Minimal storage import writes masks and metadata, not grayscale stack images."""
+    image = _make_image((10, 10, 6), (0.0, 0.0, 0.0), value=100, pixel_id=sitk.sitkFloat32)
+    full_mask = _make_image((10, 10, 6), (0.0, 0.0, 0.0), value=1, pixel_id=sitk.sitkUInt8)
+
+    raw_session = RawSession(
+        subject_id="001",
+        session_id="T1",
+        raw_image_path=tmp_path / "SUBJECT_001_DT_T1.AIM",
+        site="tibia",
+        raw_mask_paths={"full": tmp_path / "SUBJECT_001_DT_T1_FULL_MASK.AIM"},
+    )
+    images_by_name = {
+        "SUBJECT_001_DT_T1.AIM": image,
+        "SUBJECT_001_DT_T1_FULL_MASK.AIM": full_mask,
+    }
+
+    def fake_read_aim(path: Path, scaling: str = "native"):
+        return sitk.Image(images_by_name[path.name]), {"scaling": scaling}
+
+    monkeypatch.setattr("timelapsedhrpqct.workflows.import_aim.read_aim", fake_read_aim)
+    config = SimpleNamespace(
+        import_=SimpleNamespace(
+            stack_depth=3,
+            on_incomplete_stack="error",
+            crop_to_subject_box=False,
+            crop_threshold_bmd=450.0,
+            crop_padding_voxels=0,
+            crop_num_largest_components=1,
+        ),
+        masks=SimpleNamespace(roles=["full"]),
+    )
+
+    artifacts = import_raw_session(
+        raw_session=raw_session,
+        output_root=tmp_path / "dataset",
+        config=config,
+        subject_crop_spec=None,
+        materialize_images=False,
+    )
+
+    assert len(artifacts) == 2
+    assert all(artifact.image_path == artifact.metadata_path for artifact in artifacts)
+    assert not list((tmp_path / "dataset").rglob("*_image.nii.gz"))
+    assert all(artifact.mask_paths["full"].exists() for artifact in artifacts)
+    metadata = json.loads(artifacts[0].metadata_path.read_text())
+    assert metadata["virtual_image"]["source_image"] == str(raw_session.raw_image_path)
+    assert metadata["virtual_image"]["slice_start"] == 0
+    assert metadata["virtual_image"]["slice_stop"] == 3
 
 
 def test_import_restructures_raw_inputs_when_enabled(monkeypatch, tmp_path: Path) -> None:

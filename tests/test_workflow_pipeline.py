@@ -264,6 +264,32 @@ def test_pipeline_runs_end_to_end_with_deterministic_registration_backend(
         assert metadata["baseline_session"] == "baseline"
 
 
+def test_apply_transforms_can_keep_fused_images_virtual(tmp_path: Path) -> None:
+    """Minimal storage should avoid writing registered grayscale image copies."""
+    dataset_root = build_imported_dataset(tmp_path / "dataset", stack_indices=(1,))
+    config = make_test_config()
+    for session_id in ("baseline", "followup1", "followup2"):
+        transform_path = _final_transform_path(
+            dataset_root=dataset_root,
+            subject_id="001",
+            stack_index=1,
+            moving_session=session_id,
+            baseline_session="baseline",
+        )
+        transform_path.parent.mkdir(parents=True, exist_ok=True)
+        sitk.WriteTransform(sitk.Transform(3, sitk.sitkIdentity), str(transform_path))
+
+    run_apply_transforms(dataset_root=dataset_root, config=config, materialize_images=False)
+
+    image_path = _fused_image_path(dataset_root, "001", "baseline")
+    meta_path = _fused_metadata_path(dataset_root, "001", "baseline")
+    assert not image_path.exists()
+    assert meta_path.exists()
+    metadata = _load_json(meta_path)
+    assert metadata["virtual_image"]["view_type"] == "fused_session"
+    assert metadata["image"] == str(meta_path)
+
+
 def test_stack_correction_supports_boundary_2d_method(
     tmp_path: Path,
     monkeypatch,

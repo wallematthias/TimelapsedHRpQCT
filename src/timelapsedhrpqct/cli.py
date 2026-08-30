@@ -370,6 +370,16 @@ def _build_parser() -> argparse.ArgumentParser:
         ),
     )
     import_parser.add_argument(
+        "--storage-mode",
+        choices=("minimal", "full"),
+        default="minimal",
+        help=(
+            "Derivative storage mode. 'minimal' keeps imported grayscale stack images as "
+            "lazy AIM-backed views while derived analysis products stay cached; "
+            "'full' also writes split stack image files."
+        ),
+    )
+    import_parser.add_argument(
         "--force-header-discovery",
         action="store_true",
         help=(
@@ -575,6 +585,16 @@ def _build_parser() -> argparse.ArgumentParser:
         help=(
             "Move raw AIM files into dataset_root/sub-*/site-*/ses-* during import. "
             "By default raw files remain in place."
+        ),
+    )
+    run_parser.add_argument(
+        "--storage-mode",
+        choices=("minimal", "full"),
+        default="minimal",
+        help=(
+            "Derivative storage mode. 'minimal' keeps imported grayscale stack images as "
+            "lazy AIM-backed views while derived analysis products stay cached; "
+            "'full' also writes split stack image files."
         ),
     )
     run_parser.add_argument(
@@ -1006,6 +1026,7 @@ def _print_session_preview(
     config: AppConfig,
     copy_raw_inputs: bool = False,
     restructure_raw: bool = False,
+    storage_mode: str = "minimal",
 ) -> None:
     """Helper for print session preview."""
     from timelapsedhrpqct.io.aim import read_aim
@@ -1051,6 +1072,7 @@ def _print_session_preview(
         print(f"    raw ingest : {restructured_dir} (move)")
     else:
         print("    raw ingest : <disabled>")
+    print(f"    storage    : {storage_mode}")
     print(f"    derivatives: {derivatives_dir}")
     print()
 
@@ -1478,6 +1500,8 @@ def _cmd_import(args: argparse.Namespace) -> int:
 
     copy_raw_inputs = bool(getattr(args, "copy_raw_inputs", False))
     restructure_raw = bool(getattr(args, "restructure_raw", False))
+    storage_mode = str(getattr(args, "storage_mode", "minimal") or "minimal")
+    materialize_images = storage_mode == "full"
     if copy_raw_inputs and restructure_raw:
         raise ValueError("--copy-raw-inputs and --restructure-raw are mutually exclusive.")
 
@@ -1495,6 +1519,7 @@ def _cmd_import(args: argparse.Namespace) -> int:
                 config=config,
                 copy_raw_inputs=copy_raw_inputs,
                 restructure_raw=restructure_raw,
+                storage_mode=storage_mode,
             )
 
         print(f"[timelapse] {len(sessions)} session(s) would be imported.")
@@ -1536,6 +1561,7 @@ def _cmd_import(args: argparse.Namespace) -> int:
             config=config,
             copy_raw_inputs=copy_raw_inputs,
             restructure_raw=restructure_raw,
+            materialize_images=materialize_images,
         )
         total_stacks += len(subject_artifacts)
 
@@ -1975,6 +2001,7 @@ def _cmd_run(args: argparse.Namespace) -> int:
         dry_run=args.dry_run,
         copy_raw_inputs=bool(getattr(args, "copy_raw_inputs", False)),
         restructure_raw=bool(getattr(args, "restructure_raw", False)),
+        storage_mode=str(getattr(args, "storage_mode", "minimal") or "minimal"),
         force_header_discovery=bool(getattr(args, "force_header_discovery", False)),
     )
     with benchmark.section("stage.import", dataset_root=str(output_root)):

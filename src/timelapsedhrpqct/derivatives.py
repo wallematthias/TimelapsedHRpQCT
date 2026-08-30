@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Callable, Iterable, Mapping
 
@@ -71,20 +72,7 @@ def publish_imported_stack_segmentation_manifest(
             continue
         if site is not None and stack.site != site:
             continue
-        records.append(
-            DerivativeRecord(
-                derivative="Segmentation",
-                role="transformed_image",
-                subject_id=stack.subject_id,
-                site=stack.site,
-                session_id=stack.session_id,
-                stack_index=stack.stack_index,
-                space="native",
-                path=stack.image_path,
-                source="generated",
-                content_type="image",
-            )
-        )
+        records.append(_stack_image_record(stack))
         if stack.seg_path is not None and stack.seg_path.exists():
             records.append(
                 DerivativeRecord(
@@ -123,3 +111,56 @@ def publish_imported_stack_segmentation_manifest(
     return merge_family_manifest(
         root, "Segmentation", {"name": "timelapsed-hrpqct", "version": __version__}, records
     )
+
+
+def _stack_image_record(stack) -> DerivativeRecord:
+    metadata = _virtual_image_metadata(stack)
+    if metadata is not None:
+        source_image = Path(str(metadata["source_image"]))
+        return DerivativeRecord(
+            derivative="Segmentation",
+            role="source_image_view",
+            subject_id=stack.subject_id,
+            site=stack.site,
+            session_id=stack.session_id,
+            stack_index=stack.stack_index,
+            space="native",
+            path=source_image,
+            source="virtual",
+            inputs=(str(source_image),),
+            metadata=metadata,
+            content_type="image",
+        )
+    return DerivativeRecord(
+        derivative="Segmentation",
+        role="transformed_image",
+        subject_id=stack.subject_id,
+        site=stack.site,
+        session_id=stack.session_id,
+        stack_index=stack.stack_index,
+        space="native",
+        path=stack.image_path,
+        source="generated",
+        content_type="image",
+    )
+
+
+def _virtual_image_metadata(stack) -> dict | None:
+    metadata_path = getattr(stack, "metadata_path", None)
+    if metadata_path is None or not Path(metadata_path).exists():
+        return None
+    try:
+        payload = json.loads(Path(metadata_path).read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    virtual = payload.get("virtual_image")
+    if not isinstance(virtual, dict):
+        return None
+    required = ("format", "view_type", "slice_axis", "source_image", "slice_start", "slice_stop")
+    if any(key not in virtual for key in required):
+        return None
+    metadata = dict(virtual)
+    for key in ("crop", "source_stack_index"):
+        if key in payload:
+            metadata[key] = payload[key]
+    return metadata

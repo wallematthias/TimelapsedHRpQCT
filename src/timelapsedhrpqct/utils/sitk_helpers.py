@@ -6,9 +6,13 @@ from pathlib import Path
 import numpy as np
 import SimpleITK as sitk
 
+from timelapsedhrpqct.io.virtual_image import is_virtual_stack_descriptor, load_virtual_stack_image
+
 
 def load_image(path: Path) -> sitk.Image:
     """Load image."""
+    if is_virtual_stack_descriptor(path):
+        return load_virtual_stack_image(path)
     return sitk.ReadImage(str(path))
 
 

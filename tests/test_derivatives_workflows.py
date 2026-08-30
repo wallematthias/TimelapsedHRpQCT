@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib
+import json
 from pathlib import Path
 
 import SimpleITK as sitk
@@ -184,6 +185,54 @@ def test_timelapsed_publishes_native_stack_segmentation_manifest(tmp_path: Path)
         "cortical_mask",
     }
     assert {record.space for record in manifest.records} == {"native"}
+
+
+def test_timelapsed_publishes_virtual_source_image_records(tmp_path: Path) -> None:
+    """A virtual imported image must remain virtual when exposed to downstream tools."""
+    derivatives = importlib.import_module("timelapsedhrpqct.derivatives")
+    metadata_path = tmp_path / "derivatives" / "TimelapsedHRpQCT" / "sub-001" / "ses-T1" / "stacks" / "stack-01.json"
+    metadata_path.parent.mkdir(parents=True, exist_ok=True)
+    source_path = tmp_path / "raw" / "scan.AIM"
+    metadata_path.write_text(
+        json.dumps(
+            {
+                "virtual_image": {
+                    "format": "AIM",
+                    "view_type": "stack_slices",
+                    "slice_axis": "z",
+                    "source_image": str(source_path),
+                    "slice_start": 0,
+                    "slice_stop": 10,
+                    "scaling": "bmd",
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    record = ImportedStackRecord(
+        subject_id="001",
+        site="tibia",
+        session_id="T1",
+        stack_index=1,
+        image_path=metadata_path,
+        mask_paths={},
+        seg_path=None,
+        metadata_path=metadata_path,
+    )
+    assert derivatives._virtual_image_metadata(record)["source_image"] == str(source_path)
+    upsert_imported_stack_records(
+        tmp_path,
+        [record],
+    )
+
+    manifest_path = derivatives.publish_imported_stack_segmentation_manifest(
+        tmp_path, subject_id="001", site="tibia"
+    )
+
+    image_record = next(record for record in read_manifest(manifest_path).records if record.role == "source_image_view")
+    assert image_record.source == "virtual"
+    assert image_record.path == source_path
+    assert image_record.metadata["slice_stop"] == 10
 
 
 def test_common_region_batch_uses_distinct_transforms_for_each_stack(tmp_path: Path) -> None:
