@@ -44,6 +44,33 @@ def _indexed_stack(
     )
 
 
+def _indexed_stack_with_masks(dataset_root: Path, session_id: str) -> None:
+    stack_dir = dataset_root / "inputs" / session_id
+    stack_dir.mkdir(parents=True, exist_ok=True)
+    image_path = stack_dir / f"image_{session_id}.nii.gz"
+    full_path = stack_dir / f"full_{session_id}.nii.gz"
+    trab_path = stack_dir / f"trab_{session_id}.nii.gz"
+    cort_path = stack_dir / f"cort_{session_id}.nii.gz"
+    seg_path = stack_dir / f"seg_{session_id}.nii.gz"
+    for path in (image_path, full_path, trab_path, cort_path, seg_path):
+        write_image(_image(), path)
+    upsert_imported_stack_records(
+        dataset_root,
+        [
+            ImportedStackRecord(
+                subject_id="001",
+                site="tibia",
+                session_id=session_id,
+                stack_index=1,
+                image_path=image_path,
+                mask_paths={"full": full_path, "trab": trab_path, "cort": cort_path},
+                seg_path=seg_path,
+                metadata_path=None,
+            )
+        ],
+    )
+
+
 def test_registration_batch_writes_registration_manifest_from_existing_transforms(
     tmp_path: Path,
 ) -> None:
@@ -136,6 +163,27 @@ def test_common_region_batch_rejects_missing_imported_stack_records(tmp_path: Pa
         raise AssertionError("Expected missing imported records to fail")
 
     assert not (tmp_path / "derivatives" / "CommonRegion" / "manifest.json").exists()
+
+
+def test_timelapsed_publishes_native_stack_segmentation_manifest(tmp_path: Path) -> None:
+    """Downstream batch tools need Timelapsed masks exposed through shared roles."""
+    derivatives = importlib.import_module("timelapsedhrpqct.derivatives")
+    _indexed_stack_with_masks(tmp_path, "T1")
+
+    manifest_path = derivatives.publish_imported_stack_segmentation_manifest(
+        tmp_path, subject_id="001", site="tibia"
+    )
+
+    manifest = read_manifest(manifest_path)
+    roles = {record.role for record in manifest.records}
+    assert roles == {
+        "transformed_image",
+        "bone_segmentation",
+        "periosteal_mask",
+        "trabecular_mask",
+        "cortical_mask",
+    }
+    assert {record.space for record in manifest.records} == {"native"}
 
 
 def test_common_region_batch_uses_distinct_transforms_for_each_stack(tmp_path: Path) -> None:

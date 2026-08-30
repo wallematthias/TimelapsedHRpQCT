@@ -1465,6 +1465,12 @@ def _cmd_import(args: argparse.Namespace) -> int:
         force_header_discovery=bool(getattr(args, "force_header_discovery", False)),
         canonicalize_sessions=bool(getattr(args, "force_header_discovery", False)),
     )
+    subject_filter = getattr(args, "subject", None)
+    site_filter = getattr(args, "site", None)
+    if subject_filter is not None:
+        sessions = [session for session in sessions if session.subject_id == subject_filter]
+    if site_filter is not None:
+        sessions = [session for session in sessions if session.site == site_filter]
 
     if not sessions:
         print(f"[timelapse] No raw sessions found under: {input_root}")
@@ -1545,6 +1551,7 @@ def _cmd_import(args: argparse.Namespace) -> int:
 
 def _cmd_generate_masks(args: argparse.Namespace) -> int:
     """Helper for cmd generate masks."""
+    from timelapsedhrpqct.derivatives import publish_imported_stack_segmentation_manifest
     from timelapsedhrpqct.workflows.generate_masks import run_mask_generation
 
     config = _load_config_for_args(args)
@@ -1563,6 +1570,12 @@ def _cmd_generate_masks(args: argparse.Namespace) -> int:
                 subject_id_filter=getattr(args, "subject", None),
                 site_filter=getattr(args, "site", None),
             )
+            manifest_path = publish_imported_stack_segmentation_manifest(
+                dataset_root,
+                subject_id=getattr(args, "subject", None),
+                site=getattr(args, "site", None),
+            )
+            print(f"[timelapse] wrote segmentation manifest: {manifest_path}")
     finally:
         benchmark.write()
     return 0
