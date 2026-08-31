@@ -60,6 +60,40 @@ def _strip_aim_suffix(name: str) -> str:
     return _SCENE_IMAGE_SUFFIX_RE.sub("", stripped)
 
 
+def _aim_version(path: Path) -> int:
+    """Return the optional SCANCO AIM file version suffix."""
+    match = _AIM_WITH_OPTIONAL_VERSION_RE.search(path.name)
+    if match is None:
+        return 0
+    version_match = re.search(r";(\d+)$", path.name)
+    if version_match is None:
+        return 0
+    return int(version_match.group(1))
+
+
+def _aim_alias_key(path: Path) -> tuple[Path, str]:
+    """Return a stable key where .AIM and .AIM;N are the same artifact."""
+    name = re.sub(r"(?i)(\.aim)(?:;\d+)?$", r"\1", path.name).lower()
+    return path.parent, name
+
+
+def _prefer_aim_alias(current: Path, candidate: Path) -> Path:
+    """Prefer the highest SCANCO AIM version for duplicate aliases."""
+    return candidate if _aim_version(candidate) > _aim_version(current) else current
+
+
+def _deduplicate_aim_aliases(paths: list[Path]) -> list[Path]:
+    """Collapse .AIM/.AIM;N aliases while keeping unrelated paths distinct."""
+    deduplicated: dict[tuple[Path, str], Path] = {}
+    for path in paths:
+        key = _aim_alias_key(path)
+        if key in deduplicated:
+            deduplicated[key] = _prefer_aim_alias(deduplicated[key], path)
+        else:
+            deduplicated[key] = path
+    return sorted(deduplicated.values(), key=lambda item: str(item))
+
+
 def _normalize_role(role: str) -> str:
     """Helper for normalize role."""
     role_lower = role.strip().lower().replace("-", "_")
@@ -625,18 +659,25 @@ def discover_raw_sessions(
                 or role.startswith("roi")
             ):
                 if role in mask_paths:
-                    raise ValueError(
-                        f"Duplicate {role} mask for {subject_id}/{session_id}/{site_value}: "
-                        f"{mask_paths[role]} and {path}"
-                    )
-                mask_paths[role] = path
+                    existing = mask_paths[role]
+                    if _aim_alias_key(existing) != _aim_alias_key(path):
+                        raise ValueError(
+                            f"Duplicate {role} mask for {subject_id}/{session_id}/{site_value}: "
+                            f"{existing} and {path}"
+                        )
+                    mask_paths[role] = _prefer_aim_alias(existing, path)
+                else:
+                    mask_paths[role] = path
             elif role == "seg":
                 if seg_path is not None:
-                    raise ValueError(
-                        f"Duplicate segmentation for {subject_id}/{session_id}/{site_value}: "
-                        f"{seg_path} and {path}"
-                    )
-                seg_path = path
+                    if _aim_alias_key(seg_path) != _aim_alias_key(path):
+                        raise ValueError(
+                            f"Duplicate segmentation for {subject_id}/{session_id}/{site_value}: "
+                            f"{seg_path} and {path}"
+                        )
+                    seg_path = _prefer_aim_alias(seg_path, path)
+                else:
+                    seg_path = path
             elif role == "events":
                 continue
 
@@ -647,6 +688,7 @@ def discover_raw_sessions(
                 f"No raw image AIM found for {subject_id}/{session_id}/{site_value}"
             )
 
+        image_candidates = _deduplicate_aim_aliases(image_candidates)
         if len(image_candidates) > 1:
             raise ValueError(
                 f"Multiple ambiguous raw image AIMs found for "

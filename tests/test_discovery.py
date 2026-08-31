@@ -124,6 +124,23 @@ def test_discover_raw_sessions_accepts_aim_version_suffix(tmp_path: Path) -> Non
     assert sessions[0].raw_mask_paths["trab"] == trab
 
 
+def test_discover_raw_sessions_deduplicates_aim_version_aliases(tmp_path: Path) -> None:
+    root = tmp_path / "data"
+    unversioned = root / "STRAMBO_0003_TR_Y04.AIM"
+    versioned = root / "STRAMBO_0003_TR_Y04.AIM;1"
+
+    _touch(unversioned)
+    _touch(versioned)
+
+    sessions = discover_raw_sessions(root, DiscoveryConfig())
+
+    assert len(sessions) == 1
+    assert sessions[0].subject_id == "STRAMBO_0003"
+    assert sessions[0].session_id == "Y04"
+    assert sessions[0].site == "tibia_right"
+    assert sessions[0].raw_image_path == versioned
+
+
 def test_discover_raw_sessions_ignores_event_labelmaps(tmp_path: Path) -> None:
     root = tmp_path / "data"
     image = root / "SUBJECT_001_DT_T1.AIM"
