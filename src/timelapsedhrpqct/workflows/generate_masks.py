@@ -26,6 +26,7 @@ from timelapsedhrpqct.processing.contour_generation import (
     generate_masks_from_image,
     generate_seg_from_existing_masks,
 )
+from timelapsedhrpqct.utils.sitk_helpers import load_image
 
 
 @dataclass(slots=True)
@@ -805,7 +806,7 @@ def run_mask_generation(
 
         print(f"[timelapse] processing {item.stem}")
         print("[timelapse]   reading stack image")
-        image = sitk.ReadImage(str(item.image_path))
+        image = load_image(item.image_path)
         print("[timelapse]   stack image loaded")
         meta = _load_metadata(paths["metadata"])
         site = _infer_scan_site(item, config, meta)

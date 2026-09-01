@@ -359,6 +359,7 @@ def run_apply_transforms(
     config: AppConfig,
     subject_id_filter: str | None = None,
     site_filter: str | None = None,
+    materialize_images: bool = True,
 ) -> None:
     """Run apply transforms."""
     dataset_root = Path(dataset_root)
@@ -525,7 +526,15 @@ def run_apply_transforms(
                 site=site,
                 session_id=session_id,
             )
-            write_image(fused_image, fused_image_path)
+            metadata_path = _fused_metadata_path(
+                dataset_root=dataset_root,
+                subject_id=subject_id,
+                site=site,
+                session_id=session_id,
+            )
+            output_image_path = fused_image_path if materialize_images else metadata_path
+            if materialize_images:
+                write_image(fused_image, fused_image_path)
 
             fused_seg_out: Path | None = None
             if seg_union is not None:
@@ -562,12 +571,6 @@ def run_apply_transforms(
                 del fused_mask
                 _free_memory()
 
-            metadata_path = _fused_metadata_path(
-                dataset_root=dataset_root,
-                subject_id=subject_id,
-                site=site,
-                session_id=session_id,
-            )
             write_json(
                 build_fused_session_metadata(
                     subject_id=subject_id,
@@ -576,8 +579,11 @@ def run_apply_transforms(
                     baseline_session=baseline_session,
                     reference_source=reference_source,
                     reference_size=list(reference_image.GetSize()),
+                    reference_spacing=list(reference_image.GetSpacing()),
+                    reference_origin=list(reference_image.GetOrigin()),
+                    reference_direction=list(reference_image.GetDirection()),
                     contributors=contributors,
-                    fused_image_path=fused_image_path,
+                    fused_image_path=output_image_path,
                     fused_seg_path=fused_seg_out,
                     fused_mask_paths=fused_masks,
                 ),
@@ -589,7 +595,7 @@ def run_apply_transforms(
                     subject_id=subject_id,
                     site=site,
                     session_id=session_id,
-                    image_path=fused_image_path,
+                    image_path=output_image_path,
                     mask_paths=fused_masks,
                     seg_path=fused_seg_out,
                     metadata_path=metadata_path,
@@ -599,7 +605,7 @@ def run_apply_transforms(
             n_mask = len(fused_masks)
             seg_msg = " + seg" if fused_seg_out is not None else ""
             print(
-                f"[apply]   ses-{session_id}: wrote fused image{seg_msg} + "
+                f"[apply]   ses-{session_id}: wrote {'fused image' if materialize_images else 'virtual fused image'}{seg_msg} + "
                 f"{n_mask} fused mask(s)"
             )
 

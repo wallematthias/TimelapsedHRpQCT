@@ -108,6 +108,7 @@ def build_stack_metadata(
     resolved_mask_roles: list[str],
     mask_provenance: dict,
     stack_geometry: dict,
+    virtual_image: dict | None = None,
 ) -> dict:
     """Build stack metadata."""
     return {
@@ -133,4 +134,5 @@ def build_stack_metadata(
         "resolved_masks": sorted(resolved_mask_roles),
         "mask_provenance": mask_provenance,
         "stack_geometry": stack_geometry,
+        "virtual_image": virtual_image,
     }

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -216,19 +217,18 @@ def test_import_does_not_copy_raw_inputs_by_default(monkeypatch, tmp_path: Path)
     assert len(artifacts) == 1
 
 
-def test_import_reuses_unsplit_full_session_image_without_stack_copy(monkeypatch, tmp_path: Path) -> None:
-    image = _make_image((10, 10, 4), (0.0, 0.0, 0.0), value=100, pixel_id=sitk.sitkFloat32)
-    full_mask = _make_image((10, 10, 4), (0.0, 0.0, 0.0), value=1, pixel_id=sitk.sitkUInt8)
+def test_import_can_keep_stack_images_virtual(monkeypatch, tmp_path: Path) -> None:
+    """Minimal storage import writes masks and metadata, not grayscale stack images."""
+    image = _make_image((10, 10, 6), (0.0, 0.0, 0.0), value=100, pixel_id=sitk.sitkFloat32)
+    full_mask = _make_image((10, 10, 6), (0.0, 0.0, 0.0), value=1, pixel_id=sitk.sitkUInt8)
 
-    raw_image_path = tmp_path / "SUBJECT_001_DT_T1.AIM"
     raw_session = RawSession(
         subject_id="001",
         session_id="T1",
-        raw_image_path=raw_image_path,
+        raw_image_path=tmp_path / "SUBJECT_001_DT_T1.AIM",
         site="tibia",
         raw_mask_paths={"full": tmp_path / "SUBJECT_001_DT_T1_FULL_MASK.AIM"},
     )
-
     images_by_name = {
         "SUBJECT_001_DT_T1.AIM": image,
         "SUBJECT_001_DT_T1_FULL_MASK.AIM": full_mask,
@@ -238,17 +238,16 @@ def test_import_reuses_unsplit_full_session_image_without_stack_copy(monkeypatch
         return sitk.Image(images_by_name[path.name]), {"scaling": scaling}
 
     monkeypatch.setattr("timelapsedhrpqct.workflows.import_aim.read_aim", fake_read_aim)
-
     config = SimpleNamespace(
         import_=SimpleNamespace(
-            stack_depth=4,
+            stack_depth=3,
             on_incomplete_stack="error",
             crop_to_subject_box=False,
             crop_threshold_bmd=450.0,
             crop_padding_voxels=0,
             crop_num_largest_components=1,
         ),
-        masks=SimpleNamespace(roles=["full", "trab", "cort"]),
+        masks=SimpleNamespace(roles=["full"]),
     )
 
     artifacts = import_raw_session(
@@ -256,19 +255,20 @@ def test_import_reuses_unsplit_full_session_image_without_stack_copy(monkeypatch
         output_root=tmp_path / "dataset",
         config=config,
         subject_crop_spec=None,
+        materialize_images=False,
     )
 
-    assert len(artifacts) == 1
-    assert artifacts[0].image_path == raw_image_path
-    assert artifacts[0].metadata_path is not None
-    assert artifacts[0].metadata_path.exists()
-    copied_stack_image = artifacts[0].metadata_path.with_name(
-        artifacts[0].metadata_path.name.replace(".json", "_image.nii.gz")
-    )
-    assert not copied_stack_image.exists()
+    assert len(artifacts) == 2
+    assert all(artifact.image_path == artifact.metadata_path for artifact in artifacts)
+    assert not list((tmp_path / "dataset").rglob("*_image.nii.gz"))
+    assert all(artifact.mask_paths["full"].exists() for artifact in artifacts)
+    metadata = json.loads(artifacts[0].metadata_path.read_text())
+    assert metadata["virtual_image"]["source_image"] == str(raw_session.raw_image_path)
+    assert metadata["virtual_image"]["slice_start"] == 0
+    assert metadata["virtual_image"]["slice_stop"] == 3
 
 
-def test_import_writes_stack_images_when_full_volume_is_split(monkeypatch, tmp_path: Path) -> None:
+def test_import_writes_stack_images_when_materialized(monkeypatch, tmp_path: Path) -> None:
     image = _make_image((10, 10, 8), (0.0, 0.0, 0.0), value=100, pixel_id=sitk.sitkFloat32)
     full_mask = _make_image((10, 10, 8), (0.0, 0.0, 0.0), value=1, pixel_id=sitk.sitkUInt8)
 
@@ -279,7 +279,6 @@ def test_import_writes_stack_images_when_full_volume_is_split(monkeypatch, tmp_p
         site="tibia",
         raw_mask_paths={"full": tmp_path / "SUBJECT_001_DT_T1_FULL_MASK.AIM"},
     )
-
     images_by_name = {
         "SUBJECT_001_DT_T1.AIM": image,
         "SUBJECT_001_DT_T1_FULL_MASK.AIM": full_mask,
@@ -289,7 +288,6 @@ def test_import_writes_stack_images_when_full_volume_is_split(monkeypatch, tmp_p
         return sitk.Image(images_by_name[path.name]), {"scaling": scaling}
 
     monkeypatch.setattr("timelapsedhrpqct.workflows.import_aim.read_aim", fake_read_aim)
-
     config = SimpleNamespace(
         import_=SimpleNamespace(
             stack_depth=4,
@@ -299,7 +297,7 @@ def test_import_writes_stack_images_when_full_volume_is_split(monkeypatch, tmp_p
             crop_padding_voxels=0,
             crop_num_largest_components=1,
         ),
-        masks=SimpleNamespace(roles=["full", "trab", "cort"]),
+        masks=SimpleNamespace(roles=["full"]),
     )
 
     artifacts = import_raw_session(
@@ -307,11 +305,13 @@ def test_import_writes_stack_images_when_full_volume_is_split(monkeypatch, tmp_p
         output_root=tmp_path / "dataset",
         config=config,
         subject_crop_spec=None,
+        materialize_images=True,
     )
 
     assert len(artifacts) == 2
-    assert all(artifact.image_path != raw_session.raw_image_path for artifact in artifacts)
+    assert all(artifact.image_path != artifact.metadata_path for artifact in artifacts)
     assert all(artifact.image_path.exists() for artifact in artifacts)
+    assert len(list((tmp_path / "dataset").rglob("*_image.nii.gz"))) == 2
 
 
 def test_import_restructures_raw_inputs_when_enabled(monkeypatch, tmp_path: Path) -> None:

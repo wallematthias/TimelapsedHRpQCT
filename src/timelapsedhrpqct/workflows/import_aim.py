@@ -20,6 +20,7 @@ from timelapsedhrpqct.dataset.models import (
     StackSliceRange,
 )
 from timelapsedhrpqct.io.aim import read_aim
+from timelapsedhrpqct.io.virtual_image import virtual_image_metadata
 from timelapsedhrpqct.processing.import_outputs import (
     CropDetection,
     SubjectCropSpec,
@@ -427,6 +428,7 @@ def import_raw_session(
     subject_crop_spec: SubjectCropSpec | None = None,
     copy_raw_inputs: bool = False,
     restructure_raw: bool = False,
+    materialize_images: bool = True,
 ) -> list[StackArtifact]:
     """
     Import one raw session and persist per-stack working artifacts.
@@ -438,7 +440,8 @@ def import_raw_session(
     - optionally crops to a subject-wise common crop box
     - resets cropped full-image origin to zero
     - resolves masks from available combinations
-    - splits to per-stack .mha artifacts
+    - splits to per-stack mask artifacts
+    - optionally writes per-stack image artifacts, or keeps a lazy AIM-backed image view
     - writes metadata JSON
     - appends session info to TimelapsedHRpQCT/index.csv
     """
@@ -593,15 +596,6 @@ def import_raw_session(
         )
 
         stack_image = _slice_image(image, stack_range)
-        reuse_source_image = (
-            subject_crop_spec is None
-            and raw_session.stack_index is None
-            and len(stack_ranges) == 1
-            and _is_full_volume_stack(image, stack_range)
-        )
-        image_path = raw_session.raw_image_path if reuse_source_image else output_paths["image"]
-        if not reuse_source_image:
-            _write_image(stack_image, image_path)
 
         stack_mask_paths: dict[str, Path] = {}
         for role, mask in resolved_masks.items():
@@ -618,6 +612,9 @@ def import_raw_session(
 
         metadata_path = output_paths["metadata"]
         _ensure_parent(metadata_path)
+        image_path = output_paths["image"] if materialize_images else metadata_path
+        if materialize_images:
+            _write_image(stack_image, image_path)
 
         metadata = build_stack_metadata(
             raw_session=raw_session,
@@ -630,6 +627,12 @@ def import_raw_session(
             resolved_mask_roles=list(stack_mask_paths.keys()),
             mask_provenance=mask_provenance,
             stack_geometry=_image_geometry_dict(stack_image),
+            virtual_image=virtual_image_metadata(
+                source_image=raw_session.raw_image_path,
+                stack_range=stack_range,
+                scaling="bmd",
+                import_stack_depth=int(config.import_.stack_depth),
+            ),
         )
 
         with metadata_path.open("w", encoding="utf-8") as f:
@@ -660,6 +663,7 @@ def import_subject_sessions(
     config: AppConfig,
     copy_raw_inputs: bool = False,
     restructure_raw: bool = False,
+    materialize_images: bool = True,
 ) -> list[StackArtifact]:
     """Import all sessions for one subject, grouped by site, with shared crop spec."""
     if not raw_sessions:
@@ -690,6 +694,7 @@ def import_subject_sessions(
                     subject_crop_spec=subject_crop_spec,
                     copy_raw_inputs=copy_raw_inputs,
                     restructure_raw=restructure_raw,
+                    materialize_images=materialize_images,
                 )
             )
 

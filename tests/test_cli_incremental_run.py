@@ -140,6 +140,8 @@ def test_parser_uses_repo_default_config_for_commands() -> None:
     assert run_args.restructure_raw is False
     assert import_args.force_header_discovery is False
     assert run_args.force_header_discovery is False
+    assert import_args.storage_mode == "minimal"
+    assert run_args.storage_mode == "minimal"
     assert run_args.mode == "auto"
     assert not hasattr(run_args, "generate_masks")
 
@@ -172,6 +174,16 @@ def test_parser_accepts_force_header_discovery_for_import_and_run() -> None:
 
     assert import_args.force_header_discovery is True
     assert run_args.force_header_discovery is True
+
+
+def test_parser_accepts_full_storage_mode_for_import_and_run() -> None:
+    parser = _build_parser()
+
+    import_args = parser.parse_args(["import", "/tmp/raw", "--storage-mode", "full"])
+    run_args = parser.parse_args(["run", "/tmp/raw", "--storage-mode", "full"])
+
+    assert import_args.storage_mode == "full"
+    assert run_args.storage_mode == "full"
 
 
 def test_parser_accepts_undo_restructure_command() -> None:

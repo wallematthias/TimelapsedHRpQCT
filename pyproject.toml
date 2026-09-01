@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "timelapsed-hrpqct"
-version = "2.0.39"
+version = "2.0.42"
 description = "Longitudinal HR-pQCT timelapse analysis workflow with multistack support"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -21,6 +21,7 @@ dependencies = [
   "scipy",
   "SimpleITK",
   "tifffile<2026",
+  "bone-imaging-derivatives>=0.1.1",
 ]
 
 [project.optional-dependencies]
