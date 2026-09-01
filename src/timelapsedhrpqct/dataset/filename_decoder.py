@@ -4,6 +4,12 @@ from dataclasses import dataclass
 from pathlib import Path
 import re
 
+from bone_imaging_derivatives import (
+    normalize_role as normalize_artifact_role,
+    normalize_session_id as normalize_artifact_session_id,
+    normalize_site as normalize_artifact_site,
+)
+
 from timelapsedhrpqct.config.models import DiscoveryConfig
 
 
@@ -29,6 +35,11 @@ def strip_aim_suffix(name: str) -> str:
 def normalize_role(role: str) -> str:
     """Helper for normalize role."""
     role_lower = role.strip().lower().replace("-", "_")
+    shared = normalize_artifact_role(role_lower)
+    if shared == "segmentation":
+        return "seg"
+    if shared in {"full", "trab", "cort", "endo", "registration"}:
+        return "regmask" if shared == "registration" else shared
     if role_lower in {"cort", "cortical", "cort_mask", "mask_cort"}:
         return "cort"
     if role_lower in {"trab", "trabecular", "trab_mask", "mask_trab"}:
@@ -62,9 +73,20 @@ def classify_role_from_name(path: Path, cfg: DiscoveryConfig) -> str:
     normalized = stem_upper.replace("-", "_")
     if "TRAB_MASK" in normalized or normalized.endswith("_TRAB") or normalized.endswith("_MASK_TRAB"):
         return "trab"
-    if "CORT_MASK" in normalized or normalized.endswith("_CORT") or normalized.endswith("_MASK_CORT"):
+    if (
+        "CORT_MASK" in normalized
+        or "CRTX_MASK" in normalized
+        or normalized.endswith("_CORT")
+        or normalized.endswith("_MASK_CORT")
+    ):
         return "cort"
-    if "FULL_MASK" in normalized or normalized.endswith("_FULL") or normalized.endswith("_MASK_FULL"):
+    if (
+        "FULL_MASK" in normalized
+        or "BLCK_MASK" in normalized
+        or "BLOCK_MASK" in normalized
+        or normalized.endswith("_FULL")
+        or normalized.endswith("_MASK_FULL")
+    ):
         return "full"
     if "REGMASK" in normalized or normalized.endswith("_REG"):
         return "regmask"
@@ -90,6 +112,9 @@ def normalize_site(site_text: str | None, cfg: DiscoveryConfig) -> str | None:
     """Helper for normalize site."""
     if not site_text:
         return None
+    shared = normalize_artifact_site(site_text)
+    if shared in {"radius_left", "radius_right", "tibia_left", "tibia_right", "knee_left", "knee_right"}:
+        return shared
     token = site_text.strip().upper()
     for canonical_site, aliases in cfg.site_aliases.items():
         alias_set = {canonical_site.upper(), *(alias.upper() for alias in aliases)}
@@ -136,7 +161,7 @@ def normalize_session_id(session_text: str, cfg: DiscoveryConfig) -> str:
         alias_set = {canonical_session.upper(), *(alias.upper() for alias in aliases)}
         if token_upper in alias_set:
             return canonical_session
-    return token
+    return normalize_artifact_session_id(token) or token
 
 
 def extract_stack_index(path: Path) -> int | None:
@@ -171,7 +196,10 @@ def decode_filename(path: Path, cfg: DiscoveryConfig) -> DecodedFilename:
 
     stem = re.sub(r"(?i)[_-]TRAB[_-]MASK$", "", stem)
     stem = re.sub(r"(?i)[_-]CORT[_-]MASK$", "", stem)
+    stem = re.sub(r"(?i)[_-]CRTX[_-]MASK$", "", stem)
     stem = re.sub(r"(?i)[_-]FULL[_-]MASK$", "", stem)
+    stem = re.sub(r"(?i)[_-]BLCK[_-]MASK$", "", stem)
+    stem = re.sub(r"(?i)[_-]BLOCK[_-]MASK$", "", stem)
     stem = re.sub(r"(?i)[_-]MASK[_-]TRAB$", "", stem)
     stem = re.sub(r"(?i)[_-]MASK[_-]CORT$", "", stem)
     stem = re.sub(r"(?i)[_-]MASK[_-]FULL$", "", stem)

@@ -50,7 +50,7 @@ class DiscoveryConfig:
         default_factory=lambda: {
             "cort": ["CORT_MASK", "_CORT", "CORTICAL"],
             "trab": ["TRAB_MASK", "_TRAB", "TRABECULAR"],
-            "full": ["FULL_MASK", "_FULL"],
+            "full": ["FULL_MASK", "_FULL", "BLCK_MASK", "BLOCK_MASK"],
             "regmask": ["REGMASK", "_REGMASK", "_REG"],
             "seg": ["_SEG", "SEG"],
         }

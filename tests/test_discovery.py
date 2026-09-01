@@ -32,6 +32,66 @@ def test_discover_raw_sessions_accepts_scene_nifti_only_when_opted_in(tmp_path: 
     assert sessions[0].raw_mask_paths["full"] == full
 
 
+def test_discover_raw_sessions_ignores_unparseable_scene_outputs(tmp_path: Path) -> None:
+    root = tmp_path / "scene"
+    image = root / "sub-SAMPLE001_ses-T1_site-tibia_image.nii.gz"
+    unrelated = root / "derivatives" / "Microarchitecture" / "TbSp.nii.gz"
+    _touch(image)
+    _touch(unrelated)
+
+    sessions = discover_raw_sessions(root, DiscoveryConfig(), allow_scene_images=True)
+
+    assert len(sessions) == 1
+    assert sessions[0].raw_image_path == image
+
+
+def test_discover_raw_sessions_ignores_parseable_derivative_maps(tmp_path: Path) -> None:
+    root = tmp_path / "scene"
+    image = root / "sub-SAMPLE001_ses-T1_site-tibia_image.nii.gz"
+    derived_map = (
+        root
+        / "derivatives"
+        / "Microarchitecture"
+        / "sub-SAMPLE001"
+        / "site-tibia"
+        / "native_space"
+        / "ses-T1"
+        / "maps"
+        / "sub-SAMPLE001_ses-T1_site-tibia_map-tb-th.nii.gz"
+    )
+    _touch(image)
+    _touch(derived_map)
+
+    sessions = discover_raw_sessions(root, DiscoveryConfig(), allow_scene_images=True)
+
+    assert len(sessions) == 1
+    assert sessions[0].raw_image_path == image
+
+
+def test_discover_raw_sessions_ignores_non_segmentation_derivative_masks(tmp_path: Path) -> None:
+    root = tmp_path / "scene"
+    image = root / "sub-SAMPLE001_ses-T1_site-tibia_image.nii.gz"
+    common_region = (
+        root
+        / "derivatives"
+        / "CommonRegion"
+        / "sub-SAMPLE001"
+        / "site-tibia"
+        / "native_space"
+        / "ses-T1"
+        / "masks"
+        / "sub-SAMPLE001_ses-T1_site-tibia_mask-scan-region_native_common.nii.gz"
+    )
+    _touch(image)
+    _touch(common_region)
+
+    sessions = discover_raw_sessions(root, DiscoveryConfig(), allow_scene_images=True)
+
+    assert len(sessions) == 1
+    assert sessions[0].raw_image_path == image
+    assert sessions[0].raw_mask_paths == {}
+
+
 def test_discover_raw_sessions_accepts_bone_contouring_mask_names(tmp_path: Path) -> None:
     root = tmp_path / "BoneContours"
     session_dir = root / "sub-STRAMBO_0001" / "site-radius_left" / "ses-04" / "masks"
@@ -414,6 +474,93 @@ def test_discover_raw_sessions_detects_regmask_and_roi_roles(tmp_path: Path) -> 
     assert sessions[0].raw_mask_paths["regmask"] == regmask
     assert sessions[0].raw_mask_paths["roi1"] == roi1
     assert sessions[0].raw_mask_paths["roi2"] == roi2
+
+
+def test_discover_raw_sessions_supports_documented_site_and_mask_conventions(tmp_path: Path) -> None:
+    root = tmp_path / "data"
+    names = (
+        "SUBJ001_DR_T1.AIM",
+        "SUBJ001_DR_T1_TRAB_MASK.AIM",
+        "SUBJ001_DR_T1_CORT_MASK.AIM",
+        "SUBJ001_DR_T2.AIM",
+        "SUBJ001_DR_T2_TRAB_MASK.AIM",
+        "SUBJ001_DR_T2_CORT_MASK.AIM",
+        "SUBJ002_DT_T1.AIM",
+        "SUBJ002_DT_T1_TRAB_MASK.AIM",
+        "SUBJ002_DT_T1_CORT_MASK.AIM",
+        "SUBJ003_KN_T1.AIM",
+        "SUBJ003_KN_T1_TRAB_MASK.AIM",
+        "SUBJ003_KN_T1_CORT_MASK.AIM",
+    )
+    for name in names:
+        _touch(root / name)
+
+    sessions = discover_raw_sessions(root, DiscoveryConfig())
+
+    assert [(s.subject_id, s.site, s.session_id) for s in sessions] == [
+        ("SUBJ001", "radius", "T1"),
+        ("SUBJ001", "radius", "T2"),
+        ("SUBJ002", "tibia", "T1"),
+        ("SUBJ003", "knee", "T1"),
+    ]
+    assert all({"trab", "cort"} <= set(s.raw_mask_paths) for s in sessions)
+
+
+def test_discover_raw_sessions_supports_calgary_blck_and_crtx_masks(tmp_path: Path) -> None:
+    root = tmp_path / "data"
+    image = root / "SAMPLE433_T1.AIM"
+    blck = root / "SAMPLE433_T1_BLCK_MASK.AIM"
+    crtx = root / "SAMPLE433_T1_CRTX_MASK.AIM"
+    _touch(image)
+    _touch(blck)
+    _touch(crtx)
+
+    sessions = discover_raw_sessions(root, DiscoveryConfig(default_site="radius"))
+
+    assert len(sessions) == 1
+    assert sessions[0].subject_id == "SAMPLE433"
+    assert sessions[0].session_id == "T1"
+    assert sessions[0].site == "radius"
+    assert sessions[0].raw_mask_paths["full"] == blck
+    assert sessions[0].raw_mask_paths["cort"] == crtx
+
+
+def test_discover_raw_sessions_keeps_left_and_right_radius_separate(tmp_path: Path) -> None:
+    root = tmp_path / "data"
+    for name in ("SUBJ001_RL_T1.AIM", "SUBJ001_RR_T1.AIM"):
+        _touch(root / name)
+
+    sessions = discover_raw_sessions(root, DiscoveryConfig())
+
+    assert [(s.site, s.raw_image_path.name) for s in sessions] == [
+        ("radius_left", "SUBJ001_RL_T1.AIM"),
+        ("radius_right", "SUBJ001_RR_T1.AIM"),
+    ]
+
+
+def test_discover_raw_sessions_supports_already_split_multistack_names(tmp_path: Path) -> None:
+    root = tmp_path / "data"
+    names = (
+        "SUBJ001_DT_STACK01_T1.AIM",
+        "SUBJ001_DT_STACK01_T1_TRAB_MASK.AIM",
+        "SUBJ001_DT_STACK01_T1_CORT_MASK.AIM",
+        "SUBJ001_DT_STACK_02_T1.AIM",
+        "SUBJ001_DT_STACK_02_T1_TRAB_MASK.AIM",
+        "SUBJ001_DT_STACK_02_T1_CORT_MASK.AIM",
+        "SUBJ001_DT_STACK-03_T1.AIM",
+    )
+    for name in names:
+        _touch(root / name)
+
+    sessions = discover_raw_sessions(root, DiscoveryConfig())
+
+    assert [(s.stack_index, s.raw_image_path.name) for s in sessions] == [
+        (1, "SUBJ001_DT_STACK01_T1.AIM"),
+        (2, "SUBJ001_DT_STACK_02_T1.AIM"),
+        (3, "SUBJ001_DT_STACK-03_T1.AIM"),
+    ]
+    assert sessions[0].raw_mask_paths["trab"].name == "SUBJ001_DT_STACK01_T1_TRAB_MASK.AIM"
+    assert sessions[1].raw_mask_paths["cort"].name == "SUBJ001_DT_STACK_02_T1_CORT_MASK.AIM"
 
 
 def test_discover_raw_sessions_supports_nested_bids_like_layout(tmp_path: Path) -> None:

@@ -6,6 +6,12 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
+from bone_imaging_derivatives import (
+    normalize_role as normalize_artifact_role,
+    normalize_session_id as normalize_artifact_session_id,
+    normalize_site as normalize_artifact_site,
+)
+
 from timelapsedhrpqct.config.models import DiscoveryConfig
 from timelapsedhrpqct.dataset.filename_decoder import decode_filename
 from timelapsedhrpqct.dataset.layout import PIPELINE_NAME
@@ -32,6 +38,9 @@ def _is_aim_file(path: Path) -> bool:
 
 def _is_scene_image_file(path: Path) -> bool:
     """Return whether path is an opt-in Slicer scene image export."""
+    lowered = path.name.lower()
+    if any(token in lowered for token in ("_map-", "_remodelling", "_remodeling", "measurements")):
+        return False
     return path.is_file() and _SCENE_IMAGE_SUFFIX_RE.search(path.name) is not None
 
 
@@ -54,6 +63,22 @@ def _is_pipeline_managed_copy(path: Path, root: Path) -> bool:
         ):
             return True
     return False
+
+
+def _is_discoverable_raw_or_segmentation_derivative(path: Path, root: Path) -> bool:
+    """Return whether discovery should consider this path as a raw/session input."""
+    try:
+        rel_parts = path.relative_to(root).parts
+    except ValueError:
+        return True
+    lowered = [part.lower().replace("-", "_") for part in rel_parts]
+    if "derivatives" not in lowered:
+        return True
+    idx = lowered.index("derivatives")
+    if idx + 1 >= len(lowered):
+        return False
+    family = lowered[idx + 1]
+    return family in {"segmentation", "bonecontours", "bone_contours", "bonecontouring", "bone_contouring"}
 
 
 def _strip_aim_suffix(name: str) -> str:
@@ -167,6 +192,11 @@ def _prefer_mask_source(existing: Path, candidate: Path, image_candidates: list[
 def _normalize_role(role: str) -> str:
     """Helper for normalize role."""
     role_lower = role.strip().lower().replace("-", "_")
+    shared = normalize_artifact_role(role_lower)
+    if shared == "segmentation":
+        return "seg"
+    if shared in {"full", "trab", "cort", "endo", "registration"}:
+        return "regmask" if shared == "registration" else shared
     if role_lower in {"cort", "cortical", "cort_mask", "mask_cort"}:
         return "cort"
     if role_lower in {"trab", "trabecular", "trab_mask", "mask_trab"}:
@@ -186,8 +216,10 @@ def _classify_role_from_text(role_text: str, cfg: DiscoveryConfig) -> str:
 
     Examples:
     - CORT_MASK -> cort
+    - CRTX_MASK -> cort
     - TRAB_MASK -> trab
     - FULL_MASK -> full
+    - BLCK_MASK -> full
     - SEG -> seg
     """
     role_upper = role_text.strip().upper()
@@ -214,9 +246,20 @@ def _classify_role_from_name(path: Path, cfg: DiscoveryConfig) -> str:
     normalized = stem_upper.replace("-", "_")
     if "TRAB_MASK" in normalized or normalized.endswith("_TRAB") or normalized.endswith("_MASK_TRAB"):
         return "trab"
-    if "CORT_MASK" in normalized or normalized.endswith("_CORT") or normalized.endswith("_MASK_CORT"):
+    if (
+        "CORT_MASK" in normalized
+        or "CRTX_MASK" in normalized
+        or normalized.endswith("_CORT")
+        or normalized.endswith("_MASK_CORT")
+    ):
         return "cort"
-    if "FULL_MASK" in normalized or normalized.endswith("_FULL") or normalized.endswith("_MASK_FULL"):
+    if (
+        "FULL_MASK" in normalized
+        or "BLCK_MASK" in normalized
+        or "BLOCK_MASK" in normalized
+        or normalized.endswith("_FULL")
+        or normalized.endswith("_MASK_FULL")
+    ):
         return "full"
     if "REGMASK" in normalized or normalized.endswith("_REG"):
         return "regmask"
@@ -243,12 +286,24 @@ def _normalize_site(site_text: str | None, cfg: DiscoveryConfig) -> str | None:
     """Helper for normalize site."""
     if not site_text:
         return None
+    shared = normalize_artifact_site(site_text)
+    if shared in {"radius_left", "radius_right", "tibia_left", "tibia_right", "knee_left", "knee_right"}:
+        return shared
     token = site_text.strip().upper()
     for canonical_site, aliases in cfg.site_aliases.items():
         alias_set = {canonical_site.upper(), *(alias.upper() for alias in aliases)}
         if token in alias_set:
             return canonical_site.lower()
     return site_text.strip().lower()
+
+
+def _filename_has_site_token(path: Path, cfg: DiscoveryConfig) -> bool:
+    stem_upper = _strip_aim_suffix(path.name).upper()
+    for aliases in cfg.site_aliases.values():
+        for alias in aliases:
+            if re.search(rf"(?<![A-Z0-9]){re.escape(alias.upper())}(?![A-Z0-9])", stem_upper):
+                return True
+    return False
 
 
 def _infer_site_from_name(path: Path, cfg: DiscoveryConfig) -> str:
@@ -304,7 +359,7 @@ def _normalize_session_id(session_text: str, cfg: DiscoveryConfig) -> str:
         alias_set = {canonical_session.upper(), *(alias.upper() for alias in aliases)}
         if token_upper in alias_set:
             return canonical_session
-    return token
+    return normalize_artifact_session_id(token) or token
 
 
 def _extract_stack_index_default(path: Path) -> int | None:
@@ -644,6 +699,8 @@ def discover_raw_sessions(
             continue
         if _is_pipeline_managed_copy(path, root):
             continue
+        if not _is_discoverable_raw_or_segmentation_derivative(path, root):
+            continue
 
         if force_header_discovery and is_aim:
             subject_id, session_id, role, site, stack_index = _extract_subject_session_from_header(
@@ -658,6 +715,12 @@ def discover_raw_sessions(
                 site = decoded.site
                 stack_index = decoded.stack_index
                 role = decoded.role
+                if is_aim and site == discovery_config.default_site.lower() and not _filename_has_site_token(path, discovery_config):
+                    try:
+                        header_site = _site_from_header(_as_log_dict(_read_aim_header(path)).get("Site"), discovery_config)
+                    except ValueError:
+                        header_site = None
+                    site = header_site
             except ValueError:
                 try:
                     if allow_scene_images and not is_aim:
@@ -703,7 +766,7 @@ def discover_raw_sessions(
                         session_id = _normalize_session_id(session_id, discovery_config)
                 except ValueError:
                     if not is_aim:
-                        raise
+                        continue
                     subject_id, session_id, role, site, stack_index = _extract_subject_session_from_header(
                         path,
                         discovery_config,
