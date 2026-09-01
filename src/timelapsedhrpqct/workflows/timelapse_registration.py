@@ -42,9 +42,11 @@ from timelapsedhrpqct.utils.sitk_helpers import load_image, write_image, write_j
 
 
 def _load_union_generic_mask(mask_paths: dict[str, Path]) -> tuple[sitk.Image | None, str | None]:
-    """Union available generic `mask*` roles into one registration mask."""
+    """Union available generic ROI/mask roles into one registration mask."""
     generic_roles = sorted(
-        role for role, path in mask_paths.items() if role.startswith("mask") and path.exists()
+        role
+        for role, path in mask_paths.items()
+        if (role.startswith("roi") or role.startswith("mask")) and path.exists()
     )
     if not generic_roles:
         return None, None
@@ -113,6 +115,10 @@ def _load_registration_mask(record) -> tuple[sitk.Image | None, str | None]:
     if regmask_path is not None and regmask_path.exists():
         return load_image(regmask_path), str(regmask_path)
 
+    full_path = record.mask_paths.get("full")
+    if full_path is not None and full_path.exists():
+        return load_image(full_path), str(full_path)
+
     trab_cort_union, trab_cort_ref = _load_union_named_masks(
         record.mask_paths,
         roles=["trab", "cort"],
@@ -120,11 +126,22 @@ def _load_registration_mask(record) -> tuple[sitk.Image | None, str | None]:
     if trab_cort_union is not None:
         return trab_cort_union, trab_cort_ref
 
-    full_path = record.mask_paths.get("full")
-    if full_path is not None and full_path.exists():
-        return load_image(full_path), str(full_path)
-
     return _load_union_generic_mask(record.mask_paths)
+
+
+def _load_required_registration_mask(record) -> tuple[sitk.Image, str]:
+    """Load a registration mask or explain how to provide one."""
+    mask, reference = _load_registration_mask(record)
+    if mask is not None and reference is not None:
+        return mask, reference
+
+    raise ValueError(
+        "No usable registration mask for "
+        f"sub-{record.subject_id} site-{record.site} ses-{record.session_id} "
+        f"stack-{int(record.stack_index):02d}. Provide a regmask, full mask, or "
+        "generic ROI masks; generate missing masks with Bone Contouring, or set "
+        "timelapsed_registration.use_masks=false."
+    )
 
 
 def _write_transform(transform: sitk.Transform, path: Path) -> None:
@@ -582,15 +599,14 @@ def run_timelapse_registration(
                 fixed_image = load_image(prev_record.image_path)
                 moving_image = load_image(curr_record.image_path)
 
-                # Start without masks by default since your BRAINS tests worked better without them.
                 fixed_mask = None
                 moving_mask = None
                 fixed_mask_ref: str | None = None
                 moving_mask_ref: str | None = None
 
                 if cfg.use_masks:
-                    fixed_mask, fixed_mask_ref = _load_registration_mask(prev_record)
-                    moving_mask, moving_mask_ref = _load_registration_mask(curr_record)
+                    fixed_mask, fixed_mask_ref = _load_required_registration_mask(prev_record)
+                    moving_mask, moving_mask_ref = _load_required_registration_mask(curr_record)
 
                 print(f"[timelapse]     fixed image:  {prev_record.image_path}")
                 print(f"[timelapse]     moving image: {curr_record.image_path}")

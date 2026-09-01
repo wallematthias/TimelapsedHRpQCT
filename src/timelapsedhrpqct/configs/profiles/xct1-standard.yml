@@ -5,8 +5,15 @@ multistack_correction:
   enabled: false
 
 masks:
+  outer:
+    periosteal_kernelsize: 9
+    periosteal_open_radius: 1
+    fill_holes: true
   segmentation:
     method: laplace_hamming
+    trab_threshold: 300
+    cort_threshold: 450
+    use_segmentation_aligned_contour_support: false
 
 analysis:
   space: pairwise_fixed_t0

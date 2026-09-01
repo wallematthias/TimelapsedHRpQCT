@@ -45,6 +45,28 @@ visualization:
     assert config.visualization.enabled is True
 
 
+def test_xct1_outer_cleanup_survives_partial_slicer_override(tmp_path: Path) -> None:
+    user_config = tmp_path / "slicer_run.yml"
+    user_config.write_text(
+        """
+masks:
+  outer:
+    contour_method: standard
+    fill_holes: true
+    geodesic_bone_threshold: 250
+  segmentation:
+    method: laplace_hamming
+""",
+        encoding="utf-8",
+    )
+
+    config = load_config(user_config, profile="xct1-standard")
+
+    assert config.masks.outer.periosteal_kernelsize == 9
+    assert config.masks.outer.periosteal_open_radius == 1
+    assert config.masks.outer.fill_holes is True
+
+
 def test_filling_section_is_loaded_from_config(tmp_path: Path) -> None:
     user_config = tmp_path / "user.yml"
     user_config.write_text(
@@ -122,6 +144,9 @@ def test_study_profiles_define_expected_analysis_methods() -> None:
     assert standard.analysis.image_interpolator == "bspline"
 
     assert xct1.masks.segmentation.method == "laplace_hamming"
+    assert xct1.masks.segmentation.trab_threshold == 300
+    assert xct1.masks.segmentation.cort_threshold == 450
+    assert xct1.masks.segmentation.use_segmentation_aligned_contour_support is False
     assert xct1.analysis.method == "auto"
     assert xct1.analysis.change_region.source == "common_mask"
     assert xct1.analysis.binary_reclassification.enabled is False
@@ -135,6 +160,9 @@ def test_study_profiles_define_expected_analysis_methods() -> None:
     assert xct1.analysis.ring_artifact_suppression.radial_band_padding_voxels == 2
     assert xct1.analysis.ring_artifact_suppression.max_radius_bands == 2
     assert xct1.analysis.image_interpolator == "bspline"
+    assert xct1.masks.outer.fill_holes is True
+    assert xct1.masks.outer.periosteal_kernelsize >= 9
+    assert xct1.masks.outer.periosteal_open_radius <= 1
 
     for config in (eth_uofc, eth_uofc_compat):
         assert config.masks.segmentation.method == "seg_gauss"
@@ -151,6 +179,12 @@ def test_study_profiles_define_expected_analysis_methods() -> None:
 
     assert eth_uofc.analysis.image_interpolator == "bspline"
     assert eth_uofc_compat.analysis.image_interpolator == "ipl_cubic"
+
+
+def test_builtin_profiles_fill_full_mask_holes_by_default() -> None:
+    for profile in list_config_profiles():
+        config = load_config(profile=profile)
+        assert config.masks.outer.fill_holes is True, profile
 
 
 def test_private_shriners_profile_inherits_disabled_ring_suppression(monkeypatch) -> None:

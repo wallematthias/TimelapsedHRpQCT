@@ -43,6 +43,8 @@ def _is_pipeline_managed_copy(path: Path, root: Path) -> bool:
         return False
 
     rel_parts_lower = [part.lower() for part in rel_parts]
+    if PIPELINE_NAME.lower() in rel_parts_lower:
+        return True
     for i in range(len(rel_parts_lower) - 1):
         if rel_parts_lower[i] == "sourcedata" and rel_parts_lower[i + 1] == "hrpqct":
             return True
@@ -92,6 +94,74 @@ def _deduplicate_aim_aliases(paths: list[Path]) -> list[Path]:
         else:
             deduplicated[key] = path
     return sorted(deduplicated.values(), key=lambda item: str(item))
+
+
+def _aim_name_alias(path: Path) -> str:
+    """Return AIM basename without optional SCANCO version suffix."""
+    return re.sub(r"(?i)(\.aim)(?:;\d+)?$", r"\1", path.name).lower()
+
+
+def _prefer_shallow_image_candidate(current: Path, candidate: Path, root: Path) -> Path | None:
+    """Prefer the shallower copy when the same image AIM appears in nested folders."""
+    if _aim_name_alias(current) != _aim_name_alias(candidate):
+        return None
+    try:
+        current_depth = len(current.relative_to(root).parts)
+    except ValueError:
+        current_depth = len(current.parts)
+    try:
+        candidate_depth = len(candidate.relative_to(root).parts)
+    except ValueError:
+        candidate_depth = len(candidate.parts)
+    if candidate_depth < current_depth:
+        return candidate
+    if current_depth < candidate_depth:
+        return current
+    return _prefer_aim_alias(current, candidate)
+
+
+def _deduplicate_image_candidates(paths: list[Path], root: Path) -> list[Path]:
+    """Collapse duplicate image AIM copies with identical basenames."""
+    deduplicated: dict[str, Path] = {}
+    for path in _deduplicate_aim_aliases(paths):
+        key = _aim_name_alias(path)
+        if key in deduplicated:
+            preferred = _prefer_shallow_image_candidate(deduplicated[key], path, root)
+            if preferred is None:
+                deduplicated[f"{key}:{path}"] = path
+            else:
+                deduplicated[key] = preferred
+        else:
+            deduplicated[key] = path
+    return sorted(deduplicated.values(), key=lambda item: str(item))
+
+
+def _is_bone_contouring_output(path: Path) -> bool:
+    """Return whether a path appears to come from Bone Contouring derivatives."""
+    parts = {part.lower().replace("-", "_") for part in path.parts}
+    return bool(parts & {"bonecontours", "bone_contours", "bonecontouring", "bone_contouring"})
+
+
+def _mask_source_priority(path: Path, image_candidates: list[Path]) -> int:
+    """Rank discovered mask sources; lower values are preferred."""
+    if any(path.parent == image_path.parent for image_path in image_candidates):
+        return 0
+    if _is_bone_contouring_output(path):
+        return 2
+    return 1 if _is_aim_file(path) else 3
+
+
+def _prefer_mask_source(existing: Path, candidate: Path, image_candidates: list[Path]) -> Path | None:
+    """Choose the preferred duplicate mask source, or None if truly ambiguous."""
+    if _aim_alias_key(existing) == _aim_alias_key(candidate):
+        return _prefer_aim_alias(existing, candidate)
+    existing_priority = _mask_source_priority(existing, image_candidates)
+    candidate_priority = _mask_source_priority(candidate, image_candidates)
+    if candidate_priority < existing_priority:
+        return candidate
+    if existing_priority < candidate_priority:
+        return existing
+    return None
 
 
 def _normalize_role(role: str) -> str:
@@ -150,12 +220,17 @@ def _classify_role_from_name(path: Path, cfg: DiscoveryConfig) -> str:
         return "full"
     if "REGMASK" in normalized or normalized.endswith("_REG"):
         return "regmask"
-    generic_roi_match = re.search(r"(?i)_(ROI[0-9A-Z]+)$", stem_upper)
+    generic_roi_match = re.search(r"(?i)(?:_|-)ROI(?:[_-]?([0-9A-Z][0-9A-Z_]*))?$", stem_upper)
     if generic_roi_match:
-        return generic_roi_match.group(1).lower()
-    generic_mask_match = re.search(r"(?i)_(MASK[0-9A-Z]+)$", stem_upper)
+        suffix = str(generic_roi_match.group(1) or "").lower()
+        return f"roi{suffix}" if not suffix or suffix[0].isdigit() else f"roi_{suffix}"
+    scene_generic_roi_match = re.search(r"(?i)(?:_|-)MASK(?:_|-)ROI(?:[_-]?([0-9A-Z][0-9A-Z_]*))?$", stem_upper)
+    if scene_generic_roi_match:
+        suffix = str(scene_generic_roi_match.group(1) or "").lower()
+        return f"roi{suffix}" if not suffix or suffix[0].isdigit() else f"roi_{suffix}"
+    generic_mask_match = re.search(r"(?i)(?:_|-)MASK([0-9A-Z]+)$", stem_upper)
     if generic_mask_match:
-        return generic_mask_match.group(1).lower()
+        return f"mask{generic_mask_match.group(1).lower()}"
     if "_SEG" in normalized or normalized.endswith("SEG") or normalized.endswith("_MASK_SEG"):
         return "seg"
     if "_EVENTS" in stem_upper or stem_upper.endswith("EVENTS"):
@@ -206,6 +281,10 @@ def _normalize_session_id(session_text: str, cfg: DiscoveryConfig) -> str:
     """Helper for normalize session id."""
     token = session_text.strip()
     token_upper = token.upper()
+
+    strambo_year_match = re.fullmatch(r"Y(\d+)", token_upper)
+    if strambo_year_match:
+        return strambo_year_match.group(1)
 
     # Common longitudinal shorthand: FL1/FL2/... or FU1/FU2/... -> T2/T3/...
     followup_match = re.fullmatch(r"(?:FL|FU|FOLLOWUP)(\d+)", token_upper)
@@ -286,14 +365,15 @@ def _extract_subject_session_default(path: Path) -> tuple[str, str, str, int | N
     stem = re.sub(r"(?i)[_-]FULL$", "", stem)
     stem = re.sub(r"(?i)[_-]REGMASK$", "", stem)
     stem = re.sub(r"(?i)[_-]REG$", "", stem)
-    stem = re.sub(r"(?i)_ROI[0-9A-Z]+$", "", stem)
-    stem = re.sub(r"(?i)_MASK[0-9A-Z]+$", "", stem)
+    stem = re.sub(r"(?i)[_-]MASK[_-]ROI(?:[_-]?[0-9A-Z][0-9A-Z_]*)?$", "", stem)
+    stem = re.sub(r"(?i)[_-]ROI(?:[_-]?[0-9A-Z][0-9A-Z_]*)?$", "", stem)
+    stem = re.sub(r"(?i)[_-]MASK[0-9A-Z]+$", "", stem)
 
     stack_index = _extract_stack_index_default(path)
     stem = re.sub(r"(?i)_STACK[_-]?\d+", "", stem)
 
     scene_match = re.search(
-        r"(?i)^sub-(?P<subject>.+?)_ses-(?P<session>[^_]+)_site-(?P<site>[^_]+)(?:_|$)",
+        r"(?i)^sub-(?P<subject>.+?)_ses-(?P<session>[^_]+)_site-(?P<site>.+)$",
         stem,
     )
     if scene_match:
@@ -660,22 +740,24 @@ def discover_raw_sessions(
             ):
                 if role in mask_paths:
                     existing = mask_paths[role]
-                    if _aim_alias_key(existing) != _aim_alias_key(path):
+                    preferred = _prefer_mask_source(existing, path, image_candidates)
+                    if preferred is None:
                         raise ValueError(
                             f"Duplicate {role} mask for {subject_id}/{session_id}/{site_value}: "
                             f"{existing} and {path}"
                         )
-                    mask_paths[role] = _prefer_aim_alias(existing, path)
+                    mask_paths[role] = preferred
                 else:
                     mask_paths[role] = path
             elif role == "seg":
                 if seg_path is not None:
-                    if _aim_alias_key(seg_path) != _aim_alias_key(path):
+                    preferred = _prefer_mask_source(seg_path, path, image_candidates)
+                    if preferred is None:
                         raise ValueError(
                             f"Duplicate segmentation for {subject_id}/{session_id}/{site_value}: "
                             f"{seg_path} and {path}"
                         )
-                    seg_path = _prefer_aim_alias(seg_path, path)
+                    seg_path = preferred
                 else:
                     seg_path = path
             elif role == "events":
@@ -688,7 +770,7 @@ def discover_raw_sessions(
                 f"No raw image AIM found for {subject_id}/{session_id}/{site_value}"
             )
 
-        image_candidates = _deduplicate_aim_aliases(image_candidates)
+        image_candidates = _deduplicate_image_candidates(image_candidates, root)
         if len(image_candidates) > 1:
             raise ValueError(
                 f"Multiple ambiguous raw image AIMs found for "

@@ -200,6 +200,7 @@ def cortical_thickness_qc(
     p95s = np.asarray([r["p95_mm"] for r in rows], dtype=np.float32)
     maxs = np.asarray([r["max_mm"] for r in rows], dtype=np.float32)
     cvs = np.asarray([r["cv"] for r in rows], dtype=np.float32)
+    finite_cvs = cvs[np.isfinite(cvs)]
     thins = np.asarray([r["thin_fraction_lt_1voxel"] for r in rows], dtype=np.float32)
     bulges = np.asarray([r["bulge_fraction"] for r in rows], dtype=np.float32)
     worst = rows[int(np.nanargmax(bulges + thins + 0.1 * np.nan_to_num(cvs)))]
@@ -210,7 +211,7 @@ def cortical_thickness_qc(
         "median_thickness_mm": float(np.nanmedian(medians)),
         "p95_thickness_mm": float(np.nanmedian(p95s)),
         "max_thickness_mm": float(np.nanmax(maxs)),
-        "median_cv": float(np.nanmedian(cvs)),
+        "median_cv": float(np.median(finite_cvs)) if finite_cvs.size else None,
         "max_thin_fraction_lt_1voxel": float(np.nanmax(thins)),
         "max_bulge_fraction": float(np.nanmax(bulges)),
         "worst_z": int(worst["z"]),
@@ -251,6 +252,18 @@ def _contour_support_metadata(params: ContourGenerationParams) -> dict[str, Any]
         "outer_use_adaptive_threshold": bool(params.outer.use_adaptive_threshold),
         "inner_use_adaptive_threshold": bool(params.inner.use_adaptive_threshold),
     }
+
+
+def _nonempty_contour_support_or_none(
+    support_xyz: np.ndarray | None,
+) -> tuple[np.ndarray | None, bool]:
+    """Return contour support when it has foreground, otherwise request image-based contouring."""
+    if support_xyz is None:
+        return None, False
+    support = _ensure_bool(support_xyz)
+    if np.any(support):
+        return support, False
+    return None, True
 
 
 def _contour_support_binarization_xyz(
@@ -1485,6 +1498,7 @@ def generate_masks_from_image(
             spacing_xyz=spacing_xyz,
             role="outer",
         )
+        outer_support_xyz, outer_empty_fallback = _nonempty_contour_support_or_none(outer_support_xyz)
 
         full_xyz, outer_refine_meta = outer_contour(
             image_xyz,
@@ -1495,10 +1509,13 @@ def generate_masks_from_image(
         )
     else:
         raise ValueError(f"Unsupported periosteal contour method: {contour_params.outer.contour_method}")
+    if outer_method in {"geodesic", "geodesic_fracture"}:
+        outer_empty_fallback = False
     started = _log_step(verbose, "outer contour complete", started)
     inner_method = str(getattr(contour_params.inner, "contour_method", "standard") or "standard").lower()
     if inner_method == "none":
         inner_support_xyz = None
+        inner_empty_fallback = False
         trab_xyz = _ensure_bool(full_xyz)
         cort_xyz = np.zeros_like(full_xyz, dtype=bool)
     elif inner_method == "standard":
@@ -1509,6 +1526,7 @@ def generate_masks_from_image(
             full_mask_xyz=full_xyz,
             role="inner",
         )
+        inner_support_xyz, inner_empty_fallback = _nonempty_contour_support_or_none(inner_support_xyz)
         trab_xyz, cort_xyz = inner_contour(
             image_xyz,
             full_xyz,
@@ -1584,6 +1602,8 @@ def generate_masks_from_image(
         "contour_support": _contour_support_metadata(contour_params),
         "segmentation_params": asdict(params.segmentation),
     }
+    metadata["contour_support"]["outer_empty_fallback"] = bool(outer_empty_fallback)
+    metadata["contour_support"]["inner_empty_fallback"] = bool(inner_empty_fallback)
 
     return GeneratedContours(
         seg=seg_sitk,

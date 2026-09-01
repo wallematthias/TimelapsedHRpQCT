@@ -26,6 +26,7 @@ masks:
   roles: [full]
   outer:
     contour_method: geodesic_fracture
+    fill_holes: true
     geodesic_bone_threshold: 250
     geodesic_fill_holes: true
   inner:

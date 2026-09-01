@@ -6,6 +6,7 @@ from types import SimpleNamespace
 
 import numpy as np
 import pandas as pd
+import pytest
 import SimpleITK as sitk
 
 from timelapsedhrpqct.analysis.remodelling import (
@@ -14,6 +15,7 @@ from timelapsedhrpqct.analysis.remodelling import (
     build_series_common_masks,
     component_stats,
     compute_pair_remodelling_preview,
+    compute_pair_remodelling_preview_from_delta,
     compute_pair_trajectory_summary,
     dilate_mask_xy,
     maybe_smooth_density,
@@ -324,6 +326,42 @@ def _build_delta_smoothing_dataset(dataset_root: Path, subject_id: str = "001") 
     return dataset_root
 
 
+def test_run_analysis_explains_how_to_supply_missing_required_masks(tmp_path: Path) -> None:
+    dataset_root = tmp_path / "TimelapsedHRpQCT"
+    image = np.zeros((3, 3, 3), dtype=np.float32)
+    support = np.ones((3, 3, 3), dtype=np.uint8)
+    _write_analysis_session_with_custom_masks(
+        dataset_root,
+        "001",
+        "C1",
+        image,
+        None,
+        {"regmask": support},
+    )
+    _write_analysis_session_with_custom_masks(
+        dataset_root,
+        "001",
+        "C2",
+        image,
+        None,
+        {"full": support},
+    )
+
+    config = AppConfig()
+    config.analysis.space = "baseline_common"
+    config.analysis.method = "grayscale_delta_only"
+    config.analysis.compartments = ["cort"]
+
+    with pytest.raises(
+        ValueError,
+        match=(
+            "Missing required analysis mask.*sub-001.*site-radius.*ses-C1.*cort.*"
+            "Bone Contouring"
+        ),
+    ):
+        run_analysis(dataset_root, config)
+
+
 def test_compute_pair_remodelling_preview_matches_expected_labels():
     shape = (5, 5, 5)
     valid = np.zeros(shape, dtype=bool)
@@ -420,6 +458,49 @@ def test_compute_pair_remodelling_preview_respects_cluster_filter_and_smoothing(
     assert np.count_nonzero(filtered.formation) == 0
     assert np.max(smoothed.delta) < np.max(raw.delta)
     assert np.allclose(raw.delta, maybe_smooth_density(followup_img, gaussian_filter=False, gaussian_sigma=1.2))
+
+
+def test_compute_pair_remodelling_preview_from_delta_matches_image_pair_path():
+    shape = (6, 6, 6)
+    valid = np.zeros(shape, dtype=bool)
+    valid[1:5, 1:5, 1:5] = True
+    baseline_seg = np.zeros(shape, dtype=bool)
+    followup_seg = np.zeros(shape, dtype=bool)
+    baseline_seg[2:4, 2:4, 2:4] = True
+    followup_seg[2:4, 2:4, 2:4] = True
+    baseline_img = np.zeros(shape, dtype=np.float32)
+    followup_img = np.zeros(shape, dtype=np.float32)
+    baseline_img[valid] = 200.0
+    followup_img[valid] = 200.0
+    followup_img[2, 2, 2] = 500.0
+    baseline_img[3, 3, 3] = 500.0
+
+    image_preview = compute_pair_remodelling_preview(
+        image_arr_t0=baseline_img,
+        image_arr_t1=followup_img,
+        seg_arr_t0=baseline_seg,
+        seg_arr_t1=followup_seg,
+        valid_mask=valid,
+        threshold=150.0,
+        cluster_size=1,
+        method="grayscale_and_binary",
+        gaussian_filter=False,
+    )
+    delta_preview = compute_pair_remodelling_preview_from_delta(
+        delta=followup_img - baseline_img,
+        seg_arr_t0=baseline_seg,
+        seg_arr_t1=followup_seg,
+        valid_mask=valid,
+        threshold=150.0,
+        cluster_size=1,
+        method="grayscale_and_binary",
+    )
+
+    assert np.array_equal(delta_preview.label_image, image_preview.label_image)
+    assert np.array_equal(delta_preview.formation, image_preview.formation)
+    assert np.array_equal(delta_preview.resorption, image_preview.resorption)
+    assert delta_preview.formation_frac_bv0 == image_preview.formation_frac_bv0
+    assert delta_preview.resorption_frac_bv0 == image_preview.resorption_frac_bv0
 
 
 def test_compute_pair_remodelling_preview_can_suppress_opposite_ring_dipoles():
@@ -1862,6 +1943,15 @@ def test_run_analysis_pairwise_fixed_t0_measures_compartments_from_full_event_ma
     assert int(rows["trab"]["formation_vox"]) == 1
     assert int(rows["cort"]["formation_vox"]) == 1
 
+    union_vis = analysis_visualize_path(
+        dataset_root=dataset_root,
+        subject_id="001",
+        compartment="roi_union",
+        t0="C1",
+        t1="C2",
+        thr=225.0,
+        cluster_size=2,
+    )
     full_vis = analysis_visualize_path(
         dataset_root=dataset_root,
         subject_id="001",
@@ -1889,7 +1979,8 @@ def test_run_analysis_pairwise_fixed_t0_measures_compartments_from_full_event_ma
         thr=225.0,
         cluster_size=2,
     )
-    assert full_vis.exists()
+    assert union_vis.exists()
+    assert not full_vis.exists()
     assert not trab_vis.exists()
     assert not cort_vis.exists()
 

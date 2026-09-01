@@ -5,6 +5,7 @@ import faulthandler
 import json
 import os
 import shutil
+import sys
 from collections import defaultdict
 from dataclasses import asdict
 from pathlib import Path
@@ -37,6 +38,7 @@ from timelapsedhrpqct.dataset.derivative_paths import (
 )
 from timelapsedhrpqct.dataset.discovery import discover_raw_sessions
 from timelapsedhrpqct.dataset.layout import (
+    get_derivatives_root,
     get_derivative_session_dir,
     get_site_session_dir,
     get_sourcedata_session_dir,
@@ -131,7 +133,7 @@ def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="timelapse",
         description=(
-            "MultistackRegistration: longitudinal HR-pQCT import, mask/seg generation, "
+            "MultistackRegistration: longitudinal HR-pQCT import, mask/ROI consumption, "
             "registration, optional multistack correction, transform application, "
             "optional filling, and analysis."
         ),
@@ -286,8 +288,9 @@ def _build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=None,
         help=(
-            "Output dataset root. Defaults to <input_root>/TimelapsedHRpQCT "
-            "if not provided."
+            "Output dataset root. Defaults to <input_root>/derivatives/TimelapsedHRpQCT "
+            "if not provided. If a dataset root or derivatives folder is selected, "
+            "the TimelapsedHRpQCT family folder is used under it."
         ),
     )
     _add_config_argument(import_parser)
@@ -333,8 +336,7 @@ def _build_parser() -> argparse.ArgumentParser:
     gm_parser = subparsers.add_parser(
         "generate-masks",
         help=(
-            "Generate missing or full stack-level masks/segmentation after import. "
-            "This runs on imported stack images before registration/transforms."
+            "Deprecated compatibility command. Use Bone Contouring to prepare masks/ROIs."
         ),
     )
     gm_parser.add_argument(
@@ -487,8 +489,9 @@ def _build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=None,
         help=(
-            "Output dataset root. Defaults to <input_root>/TimelapsedHRpQCT "
-            "if not provided."
+            "Output dataset root. Defaults to <input_root>/derivatives/TimelapsedHRpQCT "
+            "if not provided. If a dataset root or derivatives folder is selected, "
+            "the TimelapsedHRpQCT family folder is used under it."
         ),
     )
     _add_config_argument(run_parser)
@@ -542,7 +545,10 @@ def _build_parser() -> argparse.ArgumentParser:
     run_parser.add_argument(
         "--skip-mask-generation",
         action="store_true",
-        help="Skip automatic mask/seg generation and continue with existing/provided masks only.",
+        help=(
+            "Compatibility flag. Timelapsed run uses existing/provided masks only; "
+            "prepare missing masks with Bone Contouring before running."
+        ),
     )
     run_parser.add_argument(
         "--thr",
@@ -670,7 +676,14 @@ def _build_parser() -> argparse.ArgumentParser:
 
 def _default_output_root(input_root: Path) -> Path:
     """Helper for default output root."""
-    return input_root / "TimelapsedHRpQCT"
+    return get_derivatives_root(input_root)
+
+
+def _normalize_output_root(input_root: Path, output_root: Path | None) -> Path:
+    """Return the Timelapsed derivative root for default or user-selected roots."""
+    if output_root is None:
+        return _default_output_root(input_root)
+    return get_derivatives_root(output_root)
 
 
 def _load_config_or_die(config_path: Path, profile: str | None = None) -> AppConfig:
@@ -938,9 +951,9 @@ def _expected_stack_count_for_session(session, config: AppConfig) -> int:
 
 def _sessions_needing_import(sessions, dataset_root: Path, config: AppConfig) -> list:
     """Helper for sessions needing import."""
-    existing = defaultdict(set)
+    existing = defaultdict(dict)
     for record in iter_imported_stack_records(dataset_root):
-        existing[(record.subject_id, record.site, record.session_id)].add(int(record.stack_index))
+        existing[(record.subject_id, record.site, record.session_id)][int(record.stack_index)] = record
 
     needed = []
     for session in sessions:
@@ -953,22 +966,69 @@ def _sessions_needing_import(sessions, dataset_root: Path, config: AppConfig) ->
             )
             or "radius"
         ).strip().lower()
-        imported_indices = existing.get((session.subject_id, session_site, session.session_id), set())
-        if len(imported_indices) < expected_count:
+        imported_records = existing.get((session.subject_id, session_site, session.session_id), {})
+        if len(imported_records) < expected_count:
+            needed.append(session)
+            continue
+        expected_indices = range(1, expected_count + 1)
+        if any(index not in imported_records for index in expected_indices):
+            needed.append(session)
+            continue
+        required_mask_roles = {
+            str(role).strip().lower()
+            for role, path in (getattr(session, "raw_mask_paths", {}) or {}).items()
+            if path is not None and str(role).strip()
+        }
+        if required_mask_roles and any(
+            not _record_has_existing_mask(imported_records[index], role)
+            for index in expected_indices
+            for role in required_mask_roles
+        ):
+            needed.append(session)
+            continue
+        raw_seg_path = getattr(session, "raw_seg_path", None)
+        if raw_seg_path is not None and any(
+            not _path_exists(getattr(imported_records[index], "seg_path", None))
+            for index in expected_indices
+        ):
             needed.append(session)
     return needed
 
 
-def _needs_mask_generation(dataset_root: Path) -> bool:
+def _record_has_existing_mask(record, role: str) -> bool:
+    """Return whether an imported stack record has a readable mask for role."""
+    mask_paths = getattr(record, "mask_paths", {}) or {}
+    return _path_exists(mask_paths.get(role))
+
+
+def _path_exists(path) -> bool:
+    """Return whether path points to an existing file."""
+    if path is None:
+        return False
+    return Path(path).exists()
+
+
+def _needs_mask_generation(dataset_root: Path, config: AppConfig | None = None) -> bool:
     """Helper for needs mask generation."""
+    masks_cfg = getattr(config, "masks", None) if config is not None else None
+    if masks_cfg is None:
+        requested_roles = ("full", "trab", "cort")
+        generate_segmentation = True
+    else:
+        if bool(getattr(masks_cfg, "overwrite", False)):
+            return True
+        requested_roles = tuple(
+            role
+            for role in list(getattr(masks_cfg, "roles", ["full", "trab", "cort"]))
+            if role in {"full", "trab", "cort"}
+        )
+        generate_segmentation = bool(getattr(masks_cfg, "generate_segmentation", True))
     for record in iter_imported_stack_records(dataset_root):
-        if not record.mask_paths.get("full", Path()).exists():
-            return True
-        if not record.mask_paths.get("trab", Path()).exists():
-            return True
-        if not record.mask_paths.get("cort", Path()).exists():
-            return True
-        if record.seg_path is None or not record.seg_path.exists():
+        for role in requested_roles:
+            mask_path = record.mask_paths.get(role)
+            if mask_path is None or not mask_path.exists():
+                return True
+        if generate_segmentation and (record.seg_path is None or not record.seg_path.exists()):
             return True
     return False
 
@@ -1321,7 +1381,7 @@ def _cmd_import(args: argparse.Namespace) -> int:
     config = _load_config_for_args(args)
 
     input_root: Path = args.input_root.resolve()
-    output_root: Path = (args.output_root or _default_output_root(input_root)).resolve()
+    output_root: Path = _normalize_output_root(input_root, args.output_root).resolve()
 
     if not input_root.exists():
         raise FileNotFoundError(f"Input root does not exist: {input_root}")
@@ -1414,28 +1474,15 @@ def _cmd_import(args: argparse.Namespace) -> int:
 
 
 def _cmd_generate_masks(args: argparse.Namespace) -> int:
-    """Helper for cmd generate masks."""
-    from timelapsedhrpqct.workflows.generate_masks import run_mask_generation
-
-    config = _load_config_for_args(args)
-    dataset_root: Path = args.dataset_root
-    benchmark = benchmark_from_args(args, command="generate-masks", dataset_root=dataset_root)
-
-    if not dataset_root.exists():
-        raise FileNotFoundError(f"Dataset root does not exist: {dataset_root}")
-
-    try:
-        with benchmark.section("command", dataset_root=str(dataset_root)):
-            run_mask_generation(
-                dataset_root=dataset_root,
-                config=config,
-                benchmark=benchmark,
-                subject_id_filter=getattr(args, "subject", None),
-                site_filter=getattr(args, "site", None),
-            )
-    finally:
-        benchmark.write()
-    return 0
+    """Report that Timelapsed no longer generates masks."""
+    _ = args
+    print(
+        "[timelapse] generate-masks is deprecated and no longer runs. "
+        "Prepare registration masks, analysis ROIs, and bone segmentations with Bone Contouring, "
+        "then run Timelapsed with those existing inputs.",
+        file=sys.stderr,
+    )
+    return 2
 
 
 def _cmd_timelapse_register(args: argparse.Namespace) -> int:
@@ -1805,7 +1852,7 @@ def _cmd_export_aim(args: argparse.Namespace) -> int:
 def _cmd_run(args: argparse.Namespace) -> int:
     """Helper for cmd run."""
     input_root: Path = args.input_root.resolve()
-    output_root: Path = (args.output_root or _default_output_root(input_root)).resolve()
+    output_root: Path = _normalize_output_root(input_root, args.output_root).resolve()
     config = _load_config_for_args(args)
     profile = _config_profile(args)
     run_mode = _run_mode_from_args(args, config)
@@ -1846,25 +1893,13 @@ def _cmd_run(args: argparse.Namespace) -> int:
 
     dataset_root = output_root
 
-    # 2. generate masks / seg where needed
-    if args.skip_mask_generation:
-        print("[timelapse] generate-masks: skipped via --skip-mask-generation")
-    elif _needs_mask_generation(dataset_root):
-        gm_args = argparse.Namespace(
-            dataset_root=dataset_root,
-            config=args.config,
-            profile=profile,
-            benchmark=bool(getattr(args, "benchmark", False)),
-            subject=getattr(args, "subject", None),
-            site=getattr(args, "site", None),
-        )
-        with benchmark.section("stage.generate_masks", dataset_root=str(dataset_root)):
-            rc = _cmd_generate_masks(gm_args)
-        if rc != 0:
-            benchmark.write()
-            return rc
-    else:
-        print("[timelapse] generate-masks: all imported stacks already complete -> skip")
+    # 2. Masks/ROIs are external inputs to remodelling.  They may be imported
+    # with the image data or prepared by the Bone Contouring workflow, but the
+    # Timelapsed run command does not generate them.
+    print(
+        "[timelapse] masks/ROIs: using imported or discovered inputs "
+        "(prepare missing masks with Bone Contouring before running Timelapsed)"
+    )
 
     # 3. register
     if _needs_timelapse_registration(dataset_root):

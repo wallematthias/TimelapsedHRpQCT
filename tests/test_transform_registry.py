@@ -46,7 +46,7 @@ def _record(
 
 def test_transform_registry_round_trips_relative_paths(tmp_path: Path) -> None:
     dataset_root = tmp_path / "dataset"
-    transform_path = dataset_root / "derivatives" / "TimelapsedHRpQCT" / "sub-SAMPLE341" / "tfm.tfm"
+    transform_path = dataset_root / "derivatives" / "Registration" / "sub-SAMPLE341" / "tfm.tfm"
     source_path = tmp_path / "raw" / "SAMPLE341_T2-to-T1.DAT"
     _write_transform(transform_path, (1.0, 2.0, 3.0))
 
@@ -64,13 +64,59 @@ def test_transform_registry_round_trips_relative_paths(tmp_path: Path) -> None:
         (
             dataset_root
             / "derivatives"
-            / "TimelapsedHRpQCT"
+            / "Registration"
             / "_artifacts"
             / "transform_registry.json"
         ).read_text(encoding="utf-8")
     )
     assert registry_payload["version"] == 1
     assert not Path(registry_payload["records"][0]["internal_path"]).is_absolute()
+
+
+def test_transform_registry_reads_legacy_timelapsed_registry(tmp_path: Path) -> None:
+    dataset_root = tmp_path / "dataset"
+    transform_path = dataset_root / "derivatives" / "TimelapsedHRpQCT" / "sub-SAMPLE341" / "tfm.tfm"
+    _write_transform(transform_path, (1.0, 2.0, 3.0))
+    registry_path = (
+        dataset_root
+        / "derivatives"
+        / "TimelapsedHRpQCT"
+        / "_artifacts"
+        / "transform_registry.json"
+    )
+    registry_path.parent.mkdir(parents=True)
+    registry_path.write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "records": [
+                    {
+                        "subject_id": "SAMPLE341",
+                        "site": "tibia",
+                        "stack_index": 1,
+                        "moving_session": "T2",
+                        "fixed_session": "T1",
+                        "transform_kind": "pairwise",
+                        "internal_path": "derivatives/TimelapsedHRpQCT/sub-SAMPLE341/tfm.tfm",
+                        "source_format": "dat",
+                        "source_path": "raw/SAMPLE341_T2-to-T1.DAT",
+                        "source_direction": "fixed_to_moving",
+                        "internal_direction": "moving_to_fixed",
+                        "coordinate_convention": "SimpleITK_LPS_physical",
+                        "provenance": "legacy-test",
+                        "import_timestamp": "2026-05-20T12:00:00+00:00",
+                    }
+                ],
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    records = iter_transform_registry_records(dataset_root)
+
+    assert len(records) == 1
+    assert records[0].internal_path == transform_path
+    assert records[0].provenance == "legacy-test"
 
 
 def test_find_external_pairwise_transform_requires_exactly_one_match(tmp_path: Path) -> None:

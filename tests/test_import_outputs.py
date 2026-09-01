@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import SimpleITK as sitk
+
 from timelapsedhrpqct.dataset.models import RawSession, StackSliceRange
 from timelapsedhrpqct.processing.import_outputs import (
     CropDetection,
@@ -10,6 +12,7 @@ from timelapsedhrpqct.processing.import_outputs import (
     build_stack_metadata,
     build_stack_output_paths,
 )
+from timelapsedhrpqct.utils.sitk_helpers import load_image
 
 
 def test_build_stack_output_paths_matches_existing_layout() -> None:
@@ -82,3 +85,20 @@ def test_build_crop_and_stack_metadata_preserve_contract() -> None:
     assert metadata["slice_range"]["depth"] == 20
     assert metadata["crop"]["applied"] is True
     assert metadata["resolved_masks"] == ["full"]
+
+
+def test_load_image_uses_aim_reader_for_original_aim_paths(monkeypatch, tmp_path: Path) -> None:
+    path = tmp_path / "source.AIM"
+    image = sitk.Image([3, 4, 5], sitk.sitkFloat32)
+    calls = []
+
+    def fake_read_aim(path_arg: Path, scaling: str = "native"):
+        calls.append((Path(path_arg), scaling))
+        return image, {"format": "AIM"}
+
+    monkeypatch.setattr("timelapsedhrpqct.utils.sitk_helpers.read_aim", fake_read_aim)
+
+    loaded = load_image(path)
+
+    assert loaded.GetSize() == (3, 4, 5)
+    assert calls == [(path, "bmd")]

@@ -1213,6 +1213,8 @@ def _baseline_common_outputs(
                 f"Missing required analysis mask(s) for sub-{subject_id} "
                 f"site-{site} ses-{s.session_id}: "
                 + ", ".join(sorted(missing_compartments))
+                + ". Provide the required ROI/mask or generate it with Bone Contouring "
+                "before running Timelapsed."
             )
         support_arr = _load_support_mask_array(
             mask_paths=s.mask_paths,
@@ -1394,6 +1396,8 @@ def _pairwise_fixed_t0_outputs(
                 f"Missing required analysis mask(s) for sub-{subject_id} "
                 f"site-{site} ses-{record.session_id}: "
                 + ", ".join(sorted(missing))
+                + ". Provide the required ROI/mask or generate it with Bone Contouring "
+                "before running Timelapsed."
             )
     target_from_baseline = {record.session_id: record.target_from_baseline for record in analysis_sessions}
     source_from_baseline = {record.session_id: record.source_from_baseline for record in analysis_sessions}
@@ -1724,8 +1728,18 @@ def _pairwise_fixed_t0_outputs(
             )
             del common_t0_img
 
-        classification_compartment = "full" if "full" in valid_by_compartment else effective_compartments[0]
-        classification_valid = valid_by_compartment[classification_compartment]
+        if len(effective_compartments) == 1:
+            classification_compartment = effective_compartments[0]
+            classification_valid = valid_by_compartment[classification_compartment]
+        else:
+            classification_compartment = "roi_union"
+            classification_valid = np.zeros_like(
+                next(iter(valid_by_compartment.values())),
+                dtype=bool,
+            )
+            for compartment_valid in valid_by_compartment.values():
+                classification_valid |= np.asarray(compartment_valid, dtype=bool)
+        visualization_trigger_compartment = effective_compartments[-1]
 
         for thr in params.remodeling_thresholds:
             thr = float(thr)
@@ -1734,7 +1748,7 @@ def _pairwise_fixed_t0_outputs(
 
                 print(
                     f"[analysis] sub-{subject_id} site-{site} {mode_desc}: "
-                    f"full-map thr-{thr:g} cluster-{cluster_size} "
+                    f"{classification_compartment}-map thr-{thr:g} cluster-{cluster_size} "
                     f"t0-{t0} -> t1-{t1} (space=pairwise_fixed_t0)"
                 )
 
@@ -1779,7 +1793,8 @@ def _pairwise_fixed_t0_outputs(
                     print(
                         f"[analysis] sub-{subject_id} site-{site} {mode_desc}: "
                         f"measuring comp-{compartment} thr-{thr:g} cluster-{cluster_size} "
-                        f"t0-{t0} -> t1-{t1} from full-map events (space=pairwise_fixed_t0)"
+                        f"t0-{t0} -> t1-{t1} from {classification_compartment}-map events "
+                        "(space=pairwise_fixed_t0)"
                     )
                     comp0, comp1 = comp_masks_by_compartment[compartment]
                     valid = valid_by_compartment[compartment]
@@ -1933,7 +1948,7 @@ def _pairwise_fixed_t0_outputs(
                         and params.visualize_cluster_size is not None
                         and math.isclose(thr, params.visualize_threshold)
                         and cluster_size == params.visualize_cluster_size
-                        and compartment == classification_compartment
+                        and compartment == visualization_trigger_compartment
                     ):
                         label_map = params.visualize_label_map
                         effective_label_map = label_map or {
@@ -1943,7 +1958,7 @@ def _pairwise_fixed_t0_outputs(
                             "formation": 4,
                             "mineralisation": 5,
                         }
-                        outputs.label_images[("full", t0, t1, thr, cluster_size)] = (
+                        outputs.label_images[(classification_compartment, t0, t1, thr, cluster_size)] = (
                             build_label_image(
                                 classification_valid,
                                 quiescent_full,

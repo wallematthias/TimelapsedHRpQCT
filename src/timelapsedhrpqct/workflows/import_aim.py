@@ -59,6 +59,14 @@ def _slice_image(image: sitk.Image, slice_range: StackSliceRange) -> sitk.Image:
     return sitk.RegionOfInterest(image, size=size, index=index)
 
 
+def _is_full_volume_stack(image: sitk.Image, slice_range: StackSliceRange) -> bool:
+    """Return whether a stack slice range covers the full source image volume."""
+    return (
+        int(slice_range.z_start) == 0
+        and int(slice_range.z_stop) == int(image.GetSize()[2])
+    )
+
+
 def _normalize_mask_roles(raw_masks: dict[str, Path]) -> dict[str, Path]:
     """Normalize incoming mask role aliases to canonical internal role names."""
     normalized: dict[str, Path] = {}
@@ -585,8 +593,15 @@ def import_raw_session(
         )
 
         stack_image = _slice_image(image, stack_range)
-        image_path = output_paths["image"]
-        _write_image(stack_image, image_path)
+        reuse_source_image = (
+            subject_crop_spec is None
+            and raw_session.stack_index is None
+            and len(stack_ranges) == 1
+            and _is_full_volume_stack(image, stack_range)
+        )
+        image_path = raw_session.raw_image_path if reuse_source_image else output_paths["image"]
+        if not reuse_source_image:
+            _write_image(stack_image, image_path)
 
         stack_mask_paths: dict[str, Path] = {}
         for role, mask in resolved_masks.items():

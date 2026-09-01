@@ -19,6 +19,7 @@ def test_example_configs_exist_and_load() -> None:
     assert cfg.multistack_correction.enabled is False
     assert cfg.fusion.enable_filling is False
     assert cfg.analysis.use_filled_images is False
+    assert cfg.masks.generate is False
 
 
 def test_default_site_presets_keep_binarization_in_segmentation_section() -> None:

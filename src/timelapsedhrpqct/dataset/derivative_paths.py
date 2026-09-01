@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from timelapsedhrpqct.dataset.layout import get_derivatives_root
+from timelapsedhrpqct.dataset.layout import get_derivative_family_root, get_derivatives_root
 from timelapsedhrpqct.dataset.models import RawSession
 
 
@@ -12,6 +12,7 @@ REGISTRATION_DIR_NAME = "registration"
 LEGACY_REGISTRATION_DIR_NAME = "timelapse_registration"
 TRANSFORMED_IMAGES_DIR_NAME = "transformed_images"
 LEGACY_TRANSFORMED_IMAGES_DIR_NAME = "transformed"
+REGISTRATION_FAMILY_NAME = "Registration"
 
 
 def derivative_image_filename(stem: str) -> str:
@@ -40,10 +41,35 @@ def legacy_layout_path(path: Path) -> Path:
     return Path(*parts)
 
 
+def legacy_timelapsed_registration_paths(path: Path) -> tuple[Path, ...]:
+    """Return historical Timelapsed registration locations for a shared path."""
+    parts = path.parts
+    try:
+        family_index = parts.index(REGISTRATION_FAMILY_NAME)
+    except ValueError:
+        return ()
+    if family_index == 0 or parts[family_index - 1] != "derivatives":
+        return ()
+
+    prefix = Path(*parts[: family_index - 1])
+    suffix = Path(*parts[family_index + 1 :])
+    candidates = [
+        prefix / "derivatives" / "TimelapsedHRpQCT" / suffix,
+        prefix / "TimelapsedHRpQCT" / suffix,
+    ]
+    return tuple(candidates)
+
+
 def existing_derivative_path(path: Path) -> Path:
     """Return preferred path when present, otherwise a legacy-layout sibling."""
     if path.exists():
         return path
+    for legacy_registration in legacy_timelapsed_registration_paths(path):
+        if legacy_registration.exists():
+            return legacy_registration
+        legacy_registration_layout = legacy_layout_path(legacy_registration)
+        if legacy_registration_layout.exists():
+            return legacy_registration_layout
     legacy = legacy_layout_path(path)
     if legacy.exists():
         return legacy
@@ -185,6 +211,14 @@ def _subject_dir(dataset_root: Path, subject_id: str, site: str, legacy: bool) -
     return root / f"site-{site}"
 
 
+def _registration_subject_dir(dataset_root: Path, subject_id: str, site: str, legacy: bool) -> Path:
+    """Return the shared Registration derivative subject/site directory."""
+    root = get_derivative_family_root(dataset_root, REGISTRATION_FAMILY_NAME) / f"sub-{subject_id}"
+    if legacy:
+        return root
+    return root / f"site-{site}"
+
+
 def _subject_prefix(subject_id: str, site: str, legacy: bool) -> str:
     """Helper for subject prefix."""
     if legacy:
@@ -200,7 +234,7 @@ def timelapse_stack_transform_dir(
 ) -> Path:
     """Helper for timelapse stack transform dir."""
     site, stack_index, legacy = _parse_site_stack_args(site, stack_index)
-    return _subject_dir(dataset_root, subject_id, site, legacy) / REGISTRATION_DIR_NAME / f"stack-{stack_index:02d}"
+    return _registration_subject_dir(dataset_root, subject_id, site, legacy) / REGISTRATION_DIR_NAME / f"stack-{stack_index:02d}"
 
 
 def stack_correction_dir(dataset_root: Path, subject_id: str, site: str | None = None) -> Path:

@@ -215,6 +215,31 @@ def _density_image_to_laplace_hamming_native(
     return image
 
 
+def _is_scene_image_metadata(metadata: dict) -> bool:
+    """Return whether stack metadata describes a Slicer scene-exported image."""
+    image_meta = metadata.get("image_metadata") or {}
+    return str(image_meta.get("source_format") or "").lower() == "scene_image"
+
+
+def _image_has_foreground(image: sitk.Image) -> bool:
+    """Return whether a binary-like image contains any nonzero voxel."""
+    return bool(np.any(sitk.GetArrayFromImage(image) > 0))
+
+
+def _scene_bmd_threshold_segmentation(
+    reference_image: sitk.Image,
+    full_mask: sitk.Image,
+    *,
+    threshold: float,
+) -> sitk.Image:
+    """Generate a scene-mode bone segmentation from BMD values inside full mask."""
+    thresholded = sitk.Cast(reference_image >= float(threshold), sitk.sitkUInt8)
+    support = sitk.Cast(full_mask > 0, sitk.sitkUInt8)
+    seg = sitk.And(thresholded, support)
+    seg.CopyInformation(reference_image)
+    return seg
+
+
 def _stack_slice_range_from_metadata(metadata: dict, reference_image: sitk.Image) -> StackSliceRange:
     """Return the source z-slab recorded by AIM import metadata."""
     raw = metadata.get("slice_range") or {}
@@ -315,6 +340,30 @@ def _generate_segmentation_image(
         params=params,
         verbose=verbose,
     )
+    if (
+        params.segmentation.method == "laplace_hamming"
+        and _is_scene_image_metadata(metadata)
+        and not _image_has_foreground(seg)
+    ):
+        fallback = _scene_bmd_threshold_segmentation(
+            reference_image,
+            full_mask,
+            threshold=float(params.segmentation.trab_threshold),
+        )
+        if _image_has_foreground(fallback):
+            seg = fallback
+            source_meta = {
+                "segmentation_input_unit": "bmd",
+                "segmentation_input_reader": "scene_bmd_threshold_fallback",
+                "segmentation_input_path": str(item.image_path),
+                "segmentation_input_reason": (
+                    "Laplace-Hamming requires native Scanco values. Scene-exported "
+                    "images do not preserve the AIM processing log needed for that "
+                    "conversion, so the configured trabecular BMD threshold is applied "
+                    "inside the full mask."
+                ),
+                "segmentation_fallback_from": "empty_laplace_hamming_scene_image",
+            }
     return _copy_information_from_reference(seg, reference_image), source_meta
 
 
@@ -331,7 +380,7 @@ def _segmentation_input_for_mask_generation(
     The normal imported stack is calibrated BMD/density and is also the
     contour image, so callers can pass None and let the processing layer use the
     main image. Laplace-Hamming native input is reserved for SEG generation so
-    full/trab/cort masks stay on seg_gauss contour support.
+    full/trab/cort masks stay on standard Gaussian contour support.
     """
     return None, {
         "segmentation_input_unit": "bmd",
@@ -671,6 +720,7 @@ def run_mask_generation(
     benchmark=None,
     subject_id_filter: str | None = None,
     site_filter: str | None = None,
+    force: bool = False,
 ) -> None:
     """
     Generate missing stack-level masks and/or seg after import, before
@@ -684,7 +734,7 @@ def run_mask_generation(
     dataset_root = Path(dataset_root)
 
     masks_cfg = getattr(config, "masks", None)
-    if masks_cfg is None or not getattr(masks_cfg, "generate", False):
+    if not force and (masks_cfg is None or not getattr(masks_cfg, "generate", False)):
         print("[timelapse] mask generation disabled")
         return
 

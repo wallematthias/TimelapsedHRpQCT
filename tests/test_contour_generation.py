@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import sys
 import types
+import warnings
 
 import numpy as np
 import SimpleITK as sitk
@@ -270,6 +271,27 @@ def test_terminal_outer_restore_is_filled_per_slice() -> None:
 
     assert filled[16, 16, 0]
     assert filled[:, :, 0].sum() > seed_xyz[:, :, 0].sum()
+
+
+def test_cortical_thickness_qc_handles_nan_cv_without_warning() -> None:
+    mask_xyz = np.zeros((8, 8, 3), dtype=bool)
+    mask_xyz[4, 4, :] = True
+    full = numpy_xyz_bool_to_sitk(mask_xyz)
+    trab = numpy_xyz_bool_to_sitk(mask_xyz)
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        qc = cortical_thickness_qc(
+            full,
+            trab,
+            n_angles=8,
+            min_full_voxels=1,
+            min_trab_voxels=1,
+        )
+
+    runtime_warnings = [warning for warning in caught if issubclass(warning.category, RuntimeWarning)]
+    assert runtime_warnings == []
+    assert qc["median_cv"] is None
 
 
 def test_seg_gauss_contour_support_uses_segmentation_thresholds_and_sigma() -> None:

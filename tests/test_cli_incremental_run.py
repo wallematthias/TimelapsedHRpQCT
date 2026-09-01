@@ -10,16 +10,21 @@ import pytest
 from timelapsedhrpqct.cli import (
     DEFAULT_CONFIG_PATH,
     _build_parser,
+    _cmd_generate_masks,
     _cmd_undo_restructure,
     _cmd_run,
+    _default_output_root,
     _filling_enabled,
     _needs_analysis,
     _needs_apply_transforms,
     _needs_filling,
+    _needs_mask_generation,
     _needs_timelapse_registration,
+    _normalize_output_root,
     _run_mode_from_args,
     _sessions_needing_import,
 )
+from timelapsedhrpqct.config.models import AppConfig
 from timelapsedhrpqct.dataset.artifacts import (
     FilledSessionRecord,
     FusedSessionRecord,
@@ -46,6 +51,81 @@ def _touch(path: Path) -> None:
     path.write_text("", encoding="utf-8")
 
 
+def test_default_output_root_uses_derivatives_family() -> None:
+    dataset_root = Path("/tmp/dataset")
+
+    assert _default_output_root(dataset_root) == dataset_root / "derivatives" / "TimelapsedHRpQCT"
+
+
+def test_normalize_output_root_avoids_nested_derivatives() -> None:
+    dataset_root = Path("/tmp/dataset")
+
+    assert _normalize_output_root(dataset_root, None) == dataset_root / "derivatives" / "TimelapsedHRpQCT"
+    assert _normalize_output_root(dataset_root, dataset_root) == dataset_root / "derivatives" / "TimelapsedHRpQCT"
+    assert (
+        _normalize_output_root(dataset_root, dataset_root / "derivatives")
+        == dataset_root / "derivatives" / "TimelapsedHRpQCT"
+    )
+    assert (
+        _normalize_output_root(dataset_root, dataset_root / "derivatives" / "TimelapsedHRpQCT")
+        == dataset_root / "derivatives" / "TimelapsedHRpQCT"
+    )
+
+
+def test_needs_mask_generation_respects_requested_roles_and_reused_segmentation(tmp_path: Path) -> None:
+    dataset_root = tmp_path / "dataset"
+    stack_dir = dataset_root / "derivatives" / "TimelapsedHRpQCT" / "sub-001" / "site-radius" / "ses-00" / "stacks"
+    image_path = stack_dir / "sub-001_site-radius_ses-00_stack-01_image.mha"
+    full_path = stack_dir / "sub-001_site-radius_ses-00_stack-01_mask-full.nii.gz"
+    seg_path = stack_dir / "sub-001_site-radius_ses-00_stack-01_seg.nii.gz"
+    metadata_path = stack_dir / "sub-001_site-radius_ses-00_stack-01.json"
+    _touch(image_path)
+    _touch(seg_path)
+    _touch(metadata_path)
+    upsert_imported_stack_records(
+        dataset_root,
+        [
+            ImportedStackRecord(
+                subject_id="001",
+                site="radius",
+                session_id="00",
+                stack_index=1,
+                image_path=image_path,
+                mask_paths={},
+                seg_path=seg_path,
+                metadata_path=metadata_path,
+            )
+        ],
+    )
+    config = AppConfig()
+    config.masks.roles = ["full"]
+    config.masks.generate_segmentation = True
+
+    assert _needs_mask_generation(dataset_root, config) is True
+
+    _touch(full_path)
+    upsert_imported_stack_records(
+        dataset_root,
+        [
+            ImportedStackRecord(
+                subject_id="001",
+                site="radius",
+                session_id="00",
+                stack_index=1,
+                image_path=image_path,
+                mask_paths={"full": full_path},
+                seg_path=seg_path,
+                metadata_path=metadata_path,
+            )
+        ],
+    )
+
+    assert _needs_mask_generation(dataset_root, config) is False
+
+    config.masks.overwrite = True
+    assert _needs_mask_generation(dataset_root, config) is True
+
+
 def test_parser_uses_repo_default_config_for_commands() -> None:
     parser = _build_parser()
 
@@ -61,6 +141,7 @@ def test_parser_uses_repo_default_config_for_commands() -> None:
     assert import_args.force_header_discovery is False
     assert run_args.force_header_discovery is False
     assert run_args.mode == "auto"
+    assert not hasattr(run_args, "generate_masks")
 
 
 def test_parser_accepts_copy_raw_inputs_for_import_and_run() -> None:
@@ -261,6 +342,105 @@ def test_sessions_needing_import_is_site_aware(tmp_path: Path, monkeypatch) -> N
     )
 
     assert [(s.session_id, s.site) for s in needed] == [("C1", "radius")]
+
+
+def test_sessions_needing_import_refreshes_when_discovered_roi_missing_from_stack_record(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    dataset_root = tmp_path / "dataset"
+    raw_image = tmp_path / "raw" / "sub-001_ses-00_site-radius_image.nii.gz"
+    raw_roi = tmp_path / "raw" / "sub-001_ses-00_site-radius_mask-roi1.nii.gz"
+    stack_image = dataset_root / "derivatives" / "TimelapsedHRpQCT" / "sub-001" / "site-radius" / "ses-00" / "stacks" / "stack.mha"
+    for path in (raw_image, raw_roi, stack_image):
+        _touch(path)
+    raw_sessions = [
+        RawSession(
+            "001",
+            "00",
+            raw_image,
+            site="radius",
+            raw_mask_paths={"roi1": raw_roi},
+        )
+    ]
+    monkeypatch.setattr(
+        "timelapsedhrpqct.cli._expected_stack_count_for_session",
+        lambda session, config: 1,
+    )
+    upsert_imported_stack_records(
+        dataset_root,
+        [
+            ImportedStackRecord(
+                "001",
+                "00",
+                1,
+                stack_image,
+                {},
+                None,
+                None,
+                StackSliceRange(1, 0, 10),
+                site="radius",
+            ),
+        ],
+    )
+
+    needed = _sessions_needing_import(
+        sessions=raw_sessions,
+        dataset_root=dataset_root,
+        config=SimpleNamespace(import_=SimpleNamespace()),
+    )
+
+    assert needed == raw_sessions
+
+
+def test_sessions_needing_import_skips_when_discovered_roi_is_already_on_stack_record(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    dataset_root = tmp_path / "dataset"
+    raw_image = tmp_path / "raw" / "sub-001_ses-00_site-radius_image.nii.gz"
+    raw_roi = tmp_path / "raw" / "sub-001_ses-00_site-radius_mask-roi1.nii.gz"
+    stack_image = dataset_root / "derivatives" / "TimelapsedHRpQCT" / "sub-001" / "site-radius" / "ses-00" / "stacks" / "stack.mha"
+    stack_roi = dataset_root / "derivatives" / "TimelapsedHRpQCT" / "sub-001" / "site-radius" / "ses-00" / "stacks" / "stack_mask-roi1.nii.gz"
+    for path in (raw_image, raw_roi, stack_image, stack_roi):
+        _touch(path)
+    raw_sessions = [
+        RawSession(
+            "001",
+            "00",
+            raw_image,
+            site="radius",
+            raw_mask_paths={"roi1": raw_roi},
+        )
+    ]
+    monkeypatch.setattr(
+        "timelapsedhrpqct.cli._expected_stack_count_for_session",
+        lambda session, config: 1,
+    )
+    upsert_imported_stack_records(
+        dataset_root,
+        [
+            ImportedStackRecord(
+                "001",
+                "00",
+                1,
+                stack_image,
+                {"roi1": stack_roi},
+                None,
+                None,
+                StackSliceRange(1, 0, 10),
+                site="radius",
+            ),
+        ],
+    )
+
+    needed = _sessions_needing_import(
+        sessions=raw_sessions,
+        dataset_root=dataset_root,
+        config=SimpleNamespace(import_=SimpleNamespace()),
+    )
+
+    assert needed == []
 
 
 def test_group_helpers_use_natural_session_order() -> None:
@@ -591,12 +771,12 @@ def test_cmd_run_auto_runs_stack_correction_when_config_enabled(monkeypatch, tmp
     monkeypatch.setattr("timelapsedhrpqct.cli._load_config_or_die", lambda path: config)
     monkeypatch.setattr(
         "timelapsedhrpqct.cli.discover_raw_sessions",
-        lambda root, discovery_config, force_header_discovery=False, canonicalize_sessions=False: [
+        lambda root, discovery_config, force_header_discovery=False, canonicalize_sessions=False, **_kwargs: [
             RawSession("001", "C1", Path("/tmp/C1.AIM"))
         ],
     )
     monkeypatch.setattr("timelapsedhrpqct.cli._cmd_import", lambda args: 0)
-    monkeypatch.setattr("timelapsedhrpqct.cli._needs_mask_generation", lambda dataset_root: False)
+    monkeypatch.setattr("timelapsedhrpqct.cli._needs_mask_generation", lambda dataset_root, config=None: False)
     monkeypatch.setattr("timelapsedhrpqct.cli._needs_timelapse_registration", lambda dataset_root: False)
     monkeypatch.setattr("timelapsedhrpqct.cli._needs_stack_correction", lambda dataset_root: True)
     monkeypatch.setattr("timelapsedhrpqct.cli._needs_apply_transforms", lambda dataset_root: False)
@@ -628,6 +808,96 @@ def test_cmd_run_auto_runs_stack_correction_when_config_enabled(monkeypatch, tmp
     assert len(stack_calls) == 1
 
 
+@pytest.mark.parametrize(
+    ("config_generate", "skip_generation", "expected_generation"),
+    [
+        (False, False, False),
+        (True, False, False),
+        (True, True, False),
+    ],
+)
+def test_cmd_run_never_generates_masks_in_remodelling_workflow(
+    monkeypatch,
+    tmp_path: Path,
+    config_generate: bool,
+    skip_generation: bool,
+    expected_generation: bool,
+) -> None:
+    dataset_root = tmp_path / "imported_dataset"
+    input_root = tmp_path / "raw"
+    input_root.mkdir()
+    dataset_root.mkdir()
+
+    config = SimpleNamespace(
+        discovery=SimpleNamespace(),
+        masks=SimpleNamespace(generate=config_generate),
+        multistack_correction=SimpleNamespace(enabled=False),
+        fusion=SimpleNamespace(enable_filling=False),
+        analysis=SimpleNamespace(use_filled_images=False),
+    )
+    monkeypatch.setattr("timelapsedhrpqct.cli._load_config_or_die", lambda path: config)
+    monkeypatch.setattr(
+        "timelapsedhrpqct.cli.discover_raw_sessions",
+        lambda root, discovery_config, **_kwargs: [RawSession("001", "C1", Path("/tmp/C1.AIM"))],
+    )
+    monkeypatch.setattr("timelapsedhrpqct.cli._cmd_import", lambda args: 0)
+    monkeypatch.setattr("timelapsedhrpqct.cli._needs_mask_generation", lambda root, config=None: True)
+    monkeypatch.setattr("timelapsedhrpqct.cli._needs_timelapse_registration", lambda root: False)
+    monkeypatch.setattr("timelapsedhrpqct.cli._needs_apply_transforms", lambda root: False)
+    monkeypatch.setattr("timelapsedhrpqct.cli._needs_analysis", lambda root, config, args: False)
+
+    generation_calls: list[object] = []
+    monkeypatch.setattr(
+        "timelapsedhrpqct.cli._cmd_generate_masks",
+        lambda args: generation_calls.append(args) or 0,
+    )
+
+    rc = _cmd_run(
+        argparse.Namespace(
+            input_root=input_root,
+            output_root=dataset_root,
+            config=tmp_path / "config.yml",
+            mode="regular",
+            dry_run=False,
+            skip_mask_generation=skip_generation,
+            thr=None,
+            clusters=None,
+            visualize=None,
+            force_header_discovery=False,
+        )
+    )
+
+    assert rc == 0
+    assert bool(generation_calls) is expected_generation
+
+
+def test_generate_masks_command_is_deprecated_and_does_not_generate(
+    monkeypatch,
+    tmp_path: Path,
+    capsys,
+) -> None:
+    dataset_root = tmp_path / "dataset"
+    dataset_root.mkdir()
+    config = SimpleNamespace(masks=SimpleNamespace(generate=False))
+    monkeypatch.setattr("timelapsedhrpqct.cli._load_config_or_die", lambda path: config)
+
+    rc = _cmd_generate_masks(
+        argparse.Namespace(
+            dataset_root=dataset_root,
+            config=tmp_path / "config.yml",
+            profile=None,
+            benchmark=False,
+            subject=None,
+            site=None,
+        )
+    )
+
+    captured = capsys.readouterr()
+    assert rc == 2
+    assert "deprecated" in captured.err
+    assert "Bone Contouring" in captured.err
+
+
 def test_cmd_run_skips_fill_when_disabled_and_analysis_does_not_require_filled(monkeypatch, tmp_path: Path) -> None:
     dataset_root = tmp_path / "imported_dataset"
     input_root = tmp_path / "raw"
@@ -643,12 +913,12 @@ def test_cmd_run_skips_fill_when_disabled_and_analysis_does_not_require_filled(m
     monkeypatch.setattr("timelapsedhrpqct.cli._load_config_or_die", lambda path: config)
     monkeypatch.setattr(
         "timelapsedhrpqct.cli.discover_raw_sessions",
-        lambda root, discovery_config, force_header_discovery=False, canonicalize_sessions=False: [
+        lambda root, discovery_config, force_header_discovery=False, canonicalize_sessions=False, **_kwargs: [
             RawSession("001", "C1", Path("/tmp/C1.AIM"))
         ],
     )
     monkeypatch.setattr("timelapsedhrpqct.cli._cmd_import", lambda args: 0)
-    monkeypatch.setattr("timelapsedhrpqct.cli._needs_mask_generation", lambda dataset_root: False)
+    monkeypatch.setattr("timelapsedhrpqct.cli._needs_mask_generation", lambda dataset_root, config=None: False)
     monkeypatch.setattr("timelapsedhrpqct.cli._needs_timelapse_registration", lambda dataset_root: False)
     monkeypatch.setattr("timelapsedhrpqct.cli._needs_stack_correction", lambda dataset_root: False)
     monkeypatch.setattr("timelapsedhrpqct.cli._needs_apply_transforms", lambda dataset_root: False)
@@ -694,12 +964,12 @@ def test_cmd_run_errors_if_fill_disabled_but_analysis_uses_filled(monkeypatch, t
     monkeypatch.setattr("timelapsedhrpqct.cli._load_config_or_die", lambda path: config)
     monkeypatch.setattr(
         "timelapsedhrpqct.cli.discover_raw_sessions",
-        lambda root, discovery_config, force_header_discovery=False, canonicalize_sessions=False: [
+        lambda root, discovery_config, force_header_discovery=False, canonicalize_sessions=False, **_kwargs: [
             RawSession("001", "C1", Path("/tmp/C1.AIM"))
         ],
     )
     monkeypatch.setattr("timelapsedhrpqct.cli._cmd_import", lambda args: 0)
-    monkeypatch.setattr("timelapsedhrpqct.cli._needs_mask_generation", lambda dataset_root: False)
+    monkeypatch.setattr("timelapsedhrpqct.cli._needs_mask_generation", lambda dataset_root, config=None: False)
     monkeypatch.setattr("timelapsedhrpqct.cli._needs_timelapse_registration", lambda dataset_root: False)
     monkeypatch.setattr("timelapsedhrpqct.cli._needs_stack_correction", lambda dataset_root: False)
     monkeypatch.setattr("timelapsedhrpqct.cli._needs_apply_transforms", lambda dataset_root: False)

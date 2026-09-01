@@ -138,7 +138,7 @@ class AdaptiveInnerContourConfig:
 
 @dataclass(slots=True)
 class MasksConfig:
-    generate: bool = True
+    generate: bool = False
     overwrite: bool = False
     roles: list[str] = field(default_factory=lambda: ["full", "trab", "cort"])
     generate_segmentation: bool = True

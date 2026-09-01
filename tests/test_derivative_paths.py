@@ -29,9 +29,44 @@ def test_timelapse_baseline_transform_path_matches_existing_layout() -> None:
     )
 
     assert str(path).endswith(
-        "TimelapsedHRpQCT/sub-001/registration/stack-02/baseline/"
+        "Registration/sub-001/registration/stack-02/baseline/"
         "sub-001_stack-02_from-ses-followup1_to-ses-baseline_baseline.tfm"
     )
+
+
+def test_site_aware_timelapse_registration_paths_use_shared_registration_family() -> None:
+    dataset_root = Path("/tmp/dataset")
+
+    path = timelapse_baseline_transform_path(
+        dataset_root=dataset_root,
+        subject_id="001",
+        site="tibia",
+        stack_index=2,
+        moving_session="followup1",
+        baseline_session="baseline",
+    )
+
+    assert str(path).endswith(
+        "derivatives/Registration/sub-001/site-tibia/registration/stack-02/baseline/"
+        "sub-001_site-tibia_stack-02_from-ses-followup1_to-ses-baseline_baseline.tfm"
+    )
+
+
+def test_registration_path_escapes_legacy_pipeline_output_root() -> None:
+    path = timelapse_baseline_transform_path(
+        dataset_root=Path("/tmp/dataset/TimelapsedHRpQCT"),
+        subject_id="001",
+        site="tibia",
+        stack_index=2,
+        moving_session="followup1",
+        baseline_session="baseline",
+    )
+
+    assert str(path).endswith(
+        "dataset/derivatives/Registration/sub-001/site-tibia/registration/stack-02/baseline/"
+        "sub-001_site-tibia_stack-02_from-ses-followup1_to-ses-baseline_baseline.tfm"
+    )
+    assert "TimelapsedHRpQCT/sub-001/site-tibia/registration" not in str(path)
 
 
 def test_multistack_correction_and_final_paths_match_existing_layout() -> None:
@@ -152,3 +187,64 @@ def test_existing_paths_fall_back_to_legacy_layout_names(tmp_path: Path) -> None
 
     assert existing_derivative_path(transform) == legacy_transform
     assert existing_image_path(image) == legacy_image
+
+
+def test_shared_registration_path_falls_back_to_historical_timelapsed_folder(
+    tmp_path: Path,
+) -> None:
+    preferred = (
+        tmp_path
+        / "derivatives"
+        / "Registration"
+        / "sub-001"
+        / "site-tibia"
+        / "registration"
+        / "stack-01"
+        / "baseline"
+        / "x.tfm"
+    )
+    historical = (
+        tmp_path
+        / "derivatives"
+        / "TimelapsedHRpQCT"
+        / "sub-001"
+        / "site-tibia"
+        / "registration"
+        / "stack-01"
+        / "baseline"
+        / "x.tfm"
+    )
+    historical.parent.mkdir(parents=True)
+    historical.write_text("legacy", encoding="utf-8")
+
+    assert existing_derivative_path(preferred) == historical
+
+
+def test_shared_registration_path_falls_back_when_output_root_was_pipeline_folder(
+    tmp_path: Path,
+) -> None:
+    preferred = (
+        tmp_path
+        / "derivatives"
+        / "Registration"
+        / "sub-001"
+        / "site-tibia"
+        / "registration"
+        / "stack-01"
+        / "baseline"
+        / "x.tfm"
+    )
+    historical = (
+        tmp_path
+        / "TimelapsedHRpQCT"
+        / "sub-001"
+        / "site-tibia"
+        / "registration"
+        / "stack-01"
+        / "baseline"
+        / "x.tfm"
+    )
+    historical.parent.mkdir(parents=True)
+    historical.write_text("legacy", encoding="utf-8")
+
+    assert existing_derivative_path(preferred) == historical

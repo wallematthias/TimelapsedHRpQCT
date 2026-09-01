@@ -68,12 +68,17 @@ def classify_role_from_name(path: Path, cfg: DiscoveryConfig) -> str:
         return "full"
     if "REGMASK" in normalized or normalized.endswith("_REG"):
         return "regmask"
-    generic_roi_match = re.search(r"(?i)_(ROI[0-9A-Z]+)$", stem_upper)
+    generic_roi_match = re.search(r"(?i)(?:_|-)ROI(?:[_-]?([0-9A-Z][0-9A-Z_]*))?$", stem_upper)
     if generic_roi_match:
-        return generic_roi_match.group(1).lower()
-    generic_mask_match = re.search(r"(?i)_(MASK[0-9A-Z]+)$", stem_upper)
+        suffix = str(generic_roi_match.group(1) or "").lower()
+        return f"roi{suffix}" if not suffix or suffix[0].isdigit() else f"roi_{suffix}"
+    scene_generic_roi_match = re.search(r"(?i)(?:_|-)MASK(?:_|-)ROI(?:[_-]?([0-9A-Z][0-9A-Z_]*))?$", stem_upper)
+    if scene_generic_roi_match:
+        suffix = str(scene_generic_roi_match.group(1) or "").lower()
+        return f"roi{suffix}" if not suffix or suffix[0].isdigit() else f"roi_{suffix}"
+    generic_mask_match = re.search(r"(?i)(?:_|-)MASK([0-9A-Z]+)$", stem_upper)
     if generic_mask_match:
-        return generic_mask_match.group(1).lower()
+        return f"mask{generic_mask_match.group(1).lower()}"
     if "_SEG" in normalized or normalized.endswith("SEG") or normalized.endswith("_MASK_SEG"):
         return "seg"
     if "_EVENTS" in stem_upper or stem_upper.endswith("EVENTS"):
@@ -112,6 +117,10 @@ def normalize_session_id(session_text: str, cfg: DiscoveryConfig) -> str:
     """Helper for normalize session id."""
     token = session_text.strip()
     token_upper = token.upper()
+
+    strambo_year_match = re.fullmatch(r"Y(\d+)", token_upper)
+    if strambo_year_match:
+        return strambo_year_match.group(1)
 
     followup_match = re.fullmatch(r"(?:FL|FU|FOLLOWUP)(\d+)", token_upper)
     if followup_match:
@@ -175,11 +184,26 @@ def decode_filename(path: Path, cfg: DiscoveryConfig) -> DecodedFilename:
     stem = re.sub(r"(?i)[_-]FULL$", "", stem)
     stem = re.sub(r"(?i)[_-]REGMASK$", "", stem)
     stem = re.sub(r"(?i)[_-]REG$", "", stem)
-    stem = re.sub(r"(?i)_ROI[0-9A-Z]+$", "", stem)
-    stem = re.sub(r"(?i)_MASK[0-9A-Z]+$", "", stem)
+    stem = re.sub(r"(?i)[_-]MASK[_-]ROI(?:[_-]?[0-9A-Z][0-9A-Z_]*)?$", "", stem)
+    stem = re.sub(r"(?i)[_-]ROI(?:[_-]?[0-9A-Z][0-9A-Z_]*)?$", "", stem)
+    stem = re.sub(r"(?i)[_-]MASK[0-9A-Z]+$", "", stem)
 
     stack_index = extract_stack_index(path)
     stem = re.sub(r"(?i)_STACK[_-]?\d+", "", stem)
+
+    scene_match = re.search(
+        r"(?i)^sub-(?P<subject>.+?)_ses-(?P<session>[^_]+)_site-(?P<site>.+)$",
+        stem,
+    )
+    if scene_match:
+        site = normalize_site(scene_match.group("site"), cfg) or cfg.default_site.lower()
+        return DecodedFilename(
+            subject_id=scene_match.group("subject"),
+            session_id=normalize_session_id(scene_match.group("session"), cfg),
+            role=role,
+            site=site,
+            stack_index=stack_index,
+        )
 
     parts = [p for p in stem.split("_") if p]
     if len(parts) < 2:

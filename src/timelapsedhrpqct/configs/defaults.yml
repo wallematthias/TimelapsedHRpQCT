@@ -96,22 +96,23 @@ discovery:
     seg: ["_SEG", "SEG"]
 
 # -----------------------------------------------------------------------------
-# Mask Generation
+# Masks / ROIs
 # -----------------------------------------------------------------------------
 masks:
-  # Generate missing masks after import/generate-masks.
+  # Deprecated compatibility setting. Timelapsed consumes supplied masks/ROIs
+  # and does not generate image-driven masks.
   # Options: true | false.
-  generate: true
+  generate: false
 
-  # Replace existing generated masks/segmentations.
+  # Deprecated compatibility setting retained for old config files.
   # Options: true | false.
   overwrite: false
 
-  # Canonical mask roles to create or require.
-  # Options: any subset of [full, trab, cort].
+  # Canonical ROI roles to require/use when present.
+  # Options: any subset of [full, trab, cort] plus ROI roles discovered from input.
   roles: [full, trab, cort]
 
-  # Generate a segmentation volume from masks/image when possible.
+  # Deprecated compatibility setting retained for old config files.
   # Options: true | false.
   generate_segmentation: true
 
@@ -284,10 +285,13 @@ masks:
     # Options: adaptive | seg_gauss | laplace_hamming.
     method: adaptive
     # Let contour-support binarization follow adaptive/seg_gauss segmentation thresholds.
-    # Laplace-Hamming still uses seg_gauss contour support so full/trab/cort ROIs
-    # stay on the calibrated BMD image while LH is reserved for SEG generation.
+    # Laplace-Hamming normally uses seg_gauss contour support so full/trab/cort ROIs
+    # stay on calibrated BMD thresholds unless a profile explicitly opts into LH contour support.
     # Options: true | false.
     use_segmentation_aligned_contour_support: false
+    # Use Laplace-Hamming binarization as contour support when method=laplace_hamming.
+    # This is intended for XCT1-style profiles and should stay false for XCT2 Gaussian workflows.
+    # Options: true | false.
     # Gaussian smoothing sigma before seg_gauss thresholding; range: 0-3 voxels.
     gaussian_sigma: 0.8
     # Trabecular threshold for seg_gauss segmentation; range: 100-600 mgHA/cm3.

@@ -22,3 +22,21 @@ def test_resolve_masks_honors_desired_roles_without_deriving_extra_masks() -> No
 
     assert sorted(resolved) == ["full"]
     assert provenance == {"full": "provided"}
+
+
+def test_resolve_masks_preserves_generic_roi_masks() -> None:
+    arr = np.zeros((4, 4, 4), dtype=np.uint8)
+    arr[1:3, 1:3, 1:3] = 1
+
+    image = sitk.GetImageFromArray(arr.astype(np.float32))
+    roi_mask = sitk.GetImageFromArray(arr)
+    roi_mask.CopyInformation(image)
+
+    resolved, provenance = resolve_masks(
+        image=image,
+        provided_masks={"roi1": roi_mask},
+        desired_roles=["roi1"],
+    )
+
+    assert sorted(resolved) == ["roi1"]
+    assert provenance == {"roi1": "provided"}

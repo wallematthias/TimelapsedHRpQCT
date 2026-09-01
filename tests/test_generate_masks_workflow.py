@@ -556,6 +556,67 @@ def test_laplace_hamming_segmentation_uses_scanco_native_int16_values(
     assert seg.GetSpacing() == reference.GetSpacing()
 
 
+def test_laplace_hamming_scene_image_falls_back_to_bmd_bone_segmentation(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    image_path = tmp_path / "scene_stack_image.nii.gz"
+    image_arr = np.array(
+        [
+            [[0.0, 350.0], [450.0, 100.0]],
+            [[500.0, 250.0], [330.0, 0.0]],
+        ],
+        dtype=np.float32,
+    )
+    reference = sitk.GetImageFromArray(image_arr)
+    write_image(image_path, image_arr)
+    full_mask = sitk.Cast(reference > -1, sitk.sitkUInt8)
+    empty_mask = sitk.Cast(reference > 1e9, sitk.sitkUInt8)
+    item = StackImageInput(
+        subject_id="001",
+        site="radius",
+        session_id="T1",
+        stack_id="stack-01",
+        stack_index=1,
+        image_path=image_path,
+        stack_dir=tmp_path,
+        stem="sub-001_site-radius_ses-T1_stack-01",
+    )
+    metadata = {
+        "source_image": str(image_path),
+        "image_metadata": {"source_format": "scene_image", "unit": "bmd"},
+        "slice_range": {"stack_index": 1, "z_start": 0, "z_stop": 2, "depth": 2},
+        "crop": {"applied": False},
+    }
+    params = _derive_params(AppConfig())
+    params.segmentation.method = "laplace_hamming"
+    params.segmentation.trab_threshold = 320.0
+
+    def fake_lh_segmentation(*_args, **_kwargs):
+        return empty_mask
+
+    monkeypatch.setattr(
+        "timelapsedhrpqct.workflows.generate_masks.generate_seg_from_existing_masks",
+        fake_lh_segmentation,
+    )
+
+    seg, source_meta = _generate_segmentation_image(
+        item=item,
+        metadata=metadata,
+        reference_image=reference,
+        full_mask=full_mask,
+        trab_mask=full_mask,
+        cort_mask=empty_mask,
+        params=params,
+        verbose=False,
+    )
+
+    seg_arr = sitk.GetArrayFromImage(seg) > 0
+    assert int(seg_arr.sum()) == 4
+    assert source_meta["segmentation_input_unit"] == "bmd"
+    assert source_meta["segmentation_input_reader"] == "scene_bmd_threshold_fallback"
+
+
 def test_laplace_hamming_aim_reader_uses_native_signed_short_values(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

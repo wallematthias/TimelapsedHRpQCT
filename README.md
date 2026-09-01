@@ -36,7 +36,7 @@ For related methodology, cite:
 For each subject, the pipeline can:
 
 1. Import raw AIM sessions into stack-level working artifacts.
-2. Generate missing full, trabecular, cortical, and segmentation volumes.
+2. Consume supplied masks/ROIs and segmentations.
 3. Register each stack longitudinally across sessions.
 4. When the selected profile enables multistack correction, estimate stack-to-stack correction transforms from per-stack superstacks.
 5. Apply the canonical final transforms once to original grayscale, mask, and segmentation data.
@@ -189,13 +189,13 @@ Run the default workflow (`auto` mode; follows the selected profile):
 timelapse run /path/to/raw_data
 ```
 
-Run while reusing pre-existing or custom masks (skip generation):
+Run with supplied masks/ROIs (the default):
 
 ```bash
-timelapse run /path/to/raw_data --skip-mask-generation
+timelapse run /path/to/raw_data
 ```
 
-Use this when your input already includes valid masks (for example `TRAB_MASK`, `CORT_MASK`, `FULL_MASK`, `REGMASK`, or `ROI*`) and you do not want the pipeline to regenerate them.
+Use this when your input already includes valid masks/ROIs (for example `FULL_MASK`, `REGMASK`, `TRAB_MASK`, `CORT_MASK`, or `ROI*`) and any segmentation required by the selected remodelling method. Prepare missing masks with Bone Contouring before running Timelapsed.
 
 Input discovery is recursive, so your source folder can be either flat/unstructured or organized in a BIDS/MIDS-style nested layout.
 When filename parsing is ambiguous, discovery can fall back to AIM header metadata (`Index Patient`, `Index Measurement`, `Site`).
@@ -217,7 +217,6 @@ Run stages manually:
 
 ```bash
 timelapse import /path/to/raw_data
-timelapse generate-masks /path/to/raw_data/imported_dataset
 timelapse register /path/to/raw_data/imported_dataset
 timelapse stackcorrect /path/to/raw_data/imported_dataset
 timelapse transform /path/to/raw_data/imported_dataset
@@ -234,7 +233,7 @@ The default analysis space is `baseline_common`, which is also the fastest optio
 The `run` command is incremental:
 
 - already imported sessions are skipped
-- imported stacks with complete masks/seg are skipped by mask generation
+- existing supplied masks/ROIs and segmentations are reused
 - existing baseline transforms are reused
 - existing final transforms are reused
 - existing fused transformed sessions are reused

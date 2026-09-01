@@ -3,7 +3,13 @@ from __future__ import annotations
 import SimpleITK as sitk
 
 
-VALID_MASK_ROLES = {"cort", "trab", "full"}
+DERIVABLE_MASK_ROLES = {"cort", "trab", "full"}
+
+
+def is_generic_mask_role(role: str) -> bool:
+    """Return whether a role is a generic registration/analysis mask role."""
+    role_lower = str(role or "").strip().lower()
+    return role_lower == "regmask" or role_lower.startswith("roi") or role_lower.startswith("mask")
 
 
 def same_geometry(a: sitk.Image, b: sitk.Image) -> bool:
@@ -70,11 +76,11 @@ def align_masks_to_image(
     """
     Align all provided masks to the image grid.
 
-    Only supported mask roles are retained.
+    Only supported anatomical and generic mask roles are retained.
     """
     aligned: dict[str, sitk.Image] = {}
     for role, mask in masks.items():
-        if role not in VALID_MASK_ROLES:
+        if role not in DERIVABLE_MASK_ROLES and not is_generic_mask_role(role):
             continue
         aligned[role] = align_mask_to_image(mask=mask, image=image)
     return aligned
@@ -176,7 +182,12 @@ def resolve_masks(
         - "derived_from_full_trab"
     """
     desired = set(desired_roles or ["cort", "trab", "full"])
-    desired &= VALID_MASK_ROLES
+    desired |= {role for role in provided_masks if is_generic_mask_role(role)}
+    desired = {
+        role
+        for role in desired
+        if role in DERIVABLE_MASK_ROLES or is_generic_mask_role(role)
+    }
 
     resolved: dict[str, sitk.Image] = {}
     provenance: dict[str, str] = {}

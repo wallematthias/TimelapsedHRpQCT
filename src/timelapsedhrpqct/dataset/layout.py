@@ -54,6 +54,23 @@ def get_derivatives_root(root: str | Path) -> Path:
     return root / "derivatives" / PIPELINE_NAME
 
 
+def get_dataset_root(root: str | Path) -> Path:
+    """Return the dataset root that owns shared derivative-family folders."""
+    root = Path(root)
+    if root.name == PIPELINE_NAME and root.parent.name == "derivatives":
+        return root.parent.parent
+    if root.name == PIPELINE_NAME:
+        return root.parent
+    if root.name == "derivatives":
+        return root.parent
+    return root
+
+
+def get_derivative_family_root(root: str | Path, derivative_family: str) -> Path:
+    """Return a shared derivative-family root such as derivatives/Registration."""
+    return get_dataset_root(root) / "derivatives" / derivative_family
+
+
 def get_derivative_session_dir(root: str | Path, session: RawSession) -> Path:
     """Helper for get derivative session dir."""
     return (

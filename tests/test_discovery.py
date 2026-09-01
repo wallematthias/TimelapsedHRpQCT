@@ -32,6 +32,50 @@ def test_discover_raw_sessions_accepts_scene_nifti_only_when_opted_in(tmp_path: 
     assert sessions[0].raw_mask_paths["full"] == full
 
 
+def test_discover_raw_sessions_accepts_bone_contouring_mask_names(tmp_path: Path) -> None:
+    root = tmp_path / "BoneContours"
+    session_dir = root / "sub-STRAMBO_0001" / "site-radius_left" / "ses-04" / "masks"
+    image = root / "sub-STRAMBO_0001_ses-04_site-radius_left_image.nii.gz"
+    full = session_dir / "sub-STRAMBO_0001_ses-04_site-radius_left_mask-full.AIM"
+    trab = session_dir / "sub-STRAMBO_0001_ses-04_site-radius_left_mask-trab.AIM"
+    cort = session_dir / "sub-STRAMBO_0001_ses-04_site-radius_left_mask-cort.AIM"
+    seg = session_dir / "sub-STRAMBO_0001_ses-04_site-radius_left_mask-seg.AIM"
+    for path in (image, full, trab, cort, seg):
+        _touch(path)
+
+    sessions = discover_raw_sessions(root, DiscoveryConfig(), allow_scene_images=True)
+
+    assert len(sessions) == 1
+    assert sessions[0].subject_id == "STRAMBO_0001"
+    assert sessions[0].session_id == "04"
+    assert sessions[0].site == "radius_left"
+    assert sessions[0].raw_image_path == image
+    assert sessions[0].raw_mask_paths == {"full": full, "trab": trab, "cort": cort}
+    assert sessions[0].raw_seg_path == seg
+
+
+def test_discover_raw_sessions_prefers_scanner_adjacent_masks_over_bone_contouring(tmp_path: Path) -> None:
+    root = tmp_path / "data"
+    image = root / "STRAMBO_0001_RL_Y00.AIM"
+    scanner_trab = root / "STRAMBO_0001_RL_Y00_TRAB_MASK.AIM"
+    contour_trab = (
+        root
+        / "BoneContours"
+        / "sub-STRAMBO_0001"
+        / "site-radius_left"
+        / "ses-Y00"
+        / "masks"
+        / "sub-STRAMBO_0001_ses-Y00_site-radius_left_mask-trab.AIM"
+    )
+    for path in (image, scanner_trab, contour_trab):
+        _touch(path)
+
+    sessions = discover_raw_sessions(root, DiscoveryConfig())
+
+    assert len(sessions) == 1
+    assert sessions[0].raw_mask_paths["trab"] == scanner_trab
+
+
 def test_discover_raw_sessions_ignores_pipeline_managed_copies(tmp_path: Path) -> None:
     root = tmp_path / "data"
 
@@ -70,6 +114,28 @@ def test_discover_raw_sessions_ignores_pipeline_managed_copies(tmp_path: Path) -
     assert sessions[0].subject_id == "INSR_269"
     assert sessions[0].session_id == "C1"
     assert sessions[0].raw_mask_paths["cort"] == raw_cort
+
+
+def test_discover_raw_sessions_ignores_legacy_pipeline_output_folder(tmp_path: Path) -> None:
+    root = tmp_path / "data"
+    raw_image = root / "STRAMBO_0001_RL_Y00.AIM"
+    stale_seg = (
+        root
+        / "TimelapsedHRpQCT"
+        / "sub-STRAMBO_0001"
+        / "site-radius_left"
+        / "transformed_images"
+        / "ses-Y00"
+        / "sub-STRAMBO_0001_site-radius_left_ses-Y00_seg_fused.nii.gz"
+    )
+    _touch(raw_image)
+    _touch(stale_seg)
+
+    sessions = discover_raw_sessions(root, DiscoveryConfig(), allow_scene_images=True)
+
+    assert len(sessions) == 1
+    assert sessions[0].raw_image_path == raw_image
+    assert sessions[0].raw_seg_path is None
 
 
 def test_discover_raw_sessions_extracts_site_and_stack_from_filename(tmp_path: Path) -> None:
@@ -136,9 +202,59 @@ def test_discover_raw_sessions_deduplicates_aim_version_aliases(tmp_path: Path) 
 
     assert len(sessions) == 1
     assert sessions[0].subject_id == "STRAMBO_0003"
-    assert sessions[0].session_id == "Y04"
+    assert sessions[0].session_id == "04"
     assert sessions[0].site == "tibia_right"
     assert sessions[0].raw_image_path == versioned
+
+
+def test_discover_raw_sessions_matches_strambo_year_aims_to_bone_contouring_masks(tmp_path: Path) -> None:
+    root = tmp_path / "data"
+    image = root / "STRAMBO_0001_RL_Y04.AIM"
+    full = (
+        root
+        / "BoneContours"
+        / "sub-STRAMBO_0001"
+        / "site-radius_left"
+        / "ses-04"
+        / "masks"
+        / "sub-STRAMBO_0001_ses-04_site-radius_left_mask-full.AIM"
+    )
+    trab = full.with_name("sub-STRAMBO_0001_ses-04_site-radius_left_mask-trab.AIM")
+    cort = full.with_name("sub-STRAMBO_0001_ses-04_site-radius_left_mask-cort.AIM")
+    seg = full.with_name("sub-STRAMBO_0001_ses-04_site-radius_left_mask-seg.AIM")
+    for path in (image, full, trab, cort, seg):
+        _touch(path)
+
+    sessions = discover_raw_sessions(root, DiscoveryConfig(), allow_scene_images=True)
+
+    assert len(sessions) == 1
+    assert sessions[0].subject_id == "STRAMBO_0001"
+    assert sessions[0].session_id == "04"
+    assert sessions[0].site == "radius_left"
+    assert sessions[0].raw_image_path == image
+    assert sessions[0].raw_mask_paths == {"full": full, "trab": trab, "cort": cort}
+    assert sessions[0].raw_seg_path == seg
+
+
+def test_discover_raw_sessions_prefers_shallow_duplicate_image_copy(tmp_path: Path) -> None:
+    root = tmp_path / "data"
+    shallow = root / "STRAMBO_0001_RL_Y00.AIM"
+    nested = (
+        root
+        / "Timelapse_clean_MS1-2_min2tp_20260617"
+        / "scans"
+        / "DR"
+        / "STRAMBO_0001"
+        / "STRAMBO_0001_RL_Y00.AIM"
+    )
+    for path in (shallow, nested):
+        _touch(path)
+
+    sessions = discover_raw_sessions(root, DiscoveryConfig())
+
+    assert len(sessions) == 1
+    assert sessions[0].session_id == "00"
+    assert sessions[0].raw_image_path == shallow
 
 
 def test_discover_raw_sessions_ignores_event_labelmaps(tmp_path: Path) -> None:
@@ -336,6 +452,42 @@ def test_discover_raw_sessions_supports_scene_exported_nifti_layout(tmp_path: Pa
     assert sessions[0].raw_image_path == image
     assert sessions[0].raw_mask_paths["full"] == full
     assert sessions[0].raw_mask_paths["cort"] == cort
+
+
+def test_discover_raw_sessions_treats_scene_generic_roi_as_mask(tmp_path: Path) -> None:
+    root = tmp_path / "scene"
+    session_dir = root / "sub-STRAMBO_0001" / "site-RL" / "native_space" / "ses-04"
+    image = session_dir / "sub-STRAMBO_0001_ses-04_site-RL_image.nii.gz"
+    roi = session_dir / "sub-STRAMBO_0001_ses-04_site-RL_mask-roi1.nii.gz"
+    _touch(image)
+    _touch(roi)
+
+    sessions = discover_raw_sessions(root, DiscoveryConfig(), allow_scene_images=True)
+
+    assert len(sessions) == 1
+    assert sessions[0].subject_id == "STRAMBO_0001"
+    assert sessions[0].session_id == "04"
+    assert sessions[0].site == "radius_left"
+    assert sessions[0].raw_image_path == image
+    assert sessions[0].raw_mask_paths["roi1"] == roi
+
+
+def test_discover_raw_sessions_treats_named_scene_roi_as_mask(tmp_path: Path) -> None:
+    root = tmp_path / "scene"
+    session_dir = root / "sub-STRAMBO_0001" / "site-RL" / "native_space" / "ses-04"
+    image = session_dir / "sub-STRAMBO_0001_ses-04_site-RL_image.nii.gz"
+    roi = session_dir / "sub-STRAMBO_0001_ses-04_site-RL_mask-roi_inner_core.nii.gz"
+    _touch(image)
+    _touch(roi)
+
+    sessions = discover_raw_sessions(root, DiscoveryConfig(), allow_scene_images=True)
+
+    assert len(sessions) == 1
+    assert sessions[0].subject_id == "STRAMBO_0001"
+    assert sessions[0].session_id == "04"
+    assert sessions[0].site == "radius_left"
+    assert sessions[0].raw_image_path == image
+    assert sessions[0].raw_mask_paths["roi_inner_core"] == roi
 
 
 def test_discover_raw_sessions_supports_scene_nifti_with_loaded_default_config(tmp_path: Path) -> None:

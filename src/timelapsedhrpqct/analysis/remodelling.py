@@ -875,19 +875,6 @@ def compute_pair_remodelling_preview(
     """Compute interactive remodelling preview arrays for a single pair."""
     if image_arr_t0.shape != image_arr_t1.shape:
         raise ValueError("Interactive remodelling preview requires matching image shapes.")
-    if valid_mask.shape != image_arr_t0.shape:
-        raise ValueError("Interactive remodelling preview requires valid_mask to match image shape.")
-
-    valid = build_pair_valid_mask(
-        method=method,
-        valid_mask=valid_mask,
-        seg_arr_t0=seg_arr_t0,
-        seg_arr_t1=seg_arr_t1,
-        support_mask_t0=support_mask_t0,
-        support_mask_t1=support_mask_t1,
-        marrow_mask_dilation_voxels=marrow_mask_dilation_voxels,
-        marrow_mask_erosion_voxels=marrow_mask_erosion_voxels,
-    )
     dens0 = maybe_smooth_density(
         np.asarray(image_arr_t0, dtype=np.float32),
         gaussian_filter=bool(gaussian_filter),
@@ -899,6 +886,76 @@ def compute_pair_remodelling_preview(
         gaussian_sigma=float(gaussian_sigma),
     )
     delta = dens1 - dens0
+    return compute_pair_remodelling_preview_from_delta(
+        delta=delta,
+        seg_arr_t0=seg_arr_t0,
+        seg_arr_t1=seg_arr_t1,
+        valid_mask=valid_mask,
+        threshold=threshold,
+        cluster_size=cluster_size,
+        method=method,
+        label_map=label_map,
+        support_mask_t0=support_mask_t0,
+        support_mask_t1=support_mask_t1,
+        marrow_mask_dilation_voxels=marrow_mask_dilation_voxels,
+        marrow_mask_erosion_voxels=marrow_mask_erosion_voxels,
+        ring_artifact_suppression_enabled=ring_artifact_suppression_enabled,
+        ring_artifact_suppression_mode=ring_artifact_suppression_mode,
+        ring_artifact_suppression_proximity_voxels=ring_artifact_suppression_proximity_voxels,
+        ring_artifact_suppression_axial_radius_voxels=ring_artifact_suppression_axial_radius_voxels,
+        ring_artifact_suppression_radial_bin_width_voxels=ring_artifact_suppression_radial_bin_width_voxels,
+        ring_artifact_suppression_min_radius_band_events=ring_artifact_suppression_min_radius_band_events,
+        ring_artifact_suppression_radial_band_padding_voxels=ring_artifact_suppression_radial_band_padding_voxels,
+        ring_artifact_suppression_max_radius_bands=ring_artifact_suppression_max_radius_bands,
+        ring_artifact_suppression_min_radius_band_separation_voxels=(
+            ring_artifact_suppression_min_radius_band_separation_voxels
+        ),
+        ring_artifact_suppression_center_yx=ring_artifact_suppression_center_yx,
+        ring_artifact_suppression_centers_yx=ring_artifact_suppression_centers_yx,
+    )
+
+
+def compute_pair_remodelling_preview_from_delta(
+    *,
+    delta: np.ndarray,
+    seg_arr_t0: np.ndarray | None,
+    seg_arr_t1: np.ndarray | None,
+    valid_mask: np.ndarray,
+    threshold: float,
+    cluster_size: int,
+    method: str = "grayscale_and_binary",
+    label_map: dict[str, int] | None = None,
+    support_mask_t0: np.ndarray | None = None,
+    support_mask_t1: np.ndarray | None = None,
+    marrow_mask_dilation_voxels: int = 0,
+    marrow_mask_erosion_voxels: int = 0,
+    ring_artifact_suppression_enabled: bool = False,
+    ring_artifact_suppression_mode: str = "component",
+    ring_artifact_suppression_proximity_voxels: int = 1,
+    ring_artifact_suppression_axial_radius_voxels: int = 0,
+    ring_artifact_suppression_radial_bin_width_voxels: float = 1.0,
+    ring_artifact_suppression_min_radius_band_events: int = 100,
+    ring_artifact_suppression_radial_band_padding_voxels: int = 2,
+    ring_artifact_suppression_max_radius_bands: int = 2,
+    ring_artifact_suppression_min_radius_band_separation_voxels: int = 8,
+    ring_artifact_suppression_center_yx: tuple[float, float] | None = None,
+    ring_artifact_suppression_centers_yx: list[tuple[float, float]] | None = None,
+) -> PairRemodellingPreview:
+    """Compute remodelling preview labels from a cached grayscale difference image."""
+    delta = np.asarray(delta, dtype=np.float32)
+    if valid_mask.shape != delta.shape:
+        raise ValueError("Interactive remodelling preview requires valid_mask to match delta shape.")
+
+    valid = build_pair_valid_mask(
+        method=method,
+        valid_mask=valid_mask,
+        seg_arr_t0=seg_arr_t0,
+        seg_arr_t1=seg_arr_t1,
+        support_mask_t0=support_mask_t0,
+        support_mask_t1=support_mask_t1,
+        marrow_mask_dilation_voxels=marrow_mask_dilation_voxels,
+        marrow_mask_erosion_voxels=marrow_mask_erosion_voxels,
+    )
     thr = float(threshold)
 
     classified = _classify_pair_remodelling(

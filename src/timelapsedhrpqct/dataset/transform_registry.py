@@ -4,7 +4,7 @@ import json
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
-from timelapsedhrpqct.dataset.layout import get_derivatives_root
+from timelapsedhrpqct.dataset.layout import get_derivative_family_root, get_derivatives_root
 
 
 @dataclass(frozen=True, slots=True)
@@ -30,6 +30,10 @@ class TransformRegistryConflictError(RuntimeError):
 
 
 def _registry_path(dataset_root: str | Path) -> Path:
+    return get_derivative_family_root(dataset_root, "Registration") / "_artifacts" / "transform_registry.json"
+
+
+def _legacy_registry_path(dataset_root: str | Path) -> Path:
     return get_derivatives_root(dataset_root) / "_artifacts" / "transform_registry.json"
 
 
@@ -95,10 +99,27 @@ def _deserialize_record(dataset_root: str | Path, payload: dict) -> TransformReg
 
 
 def iter_transform_registry_records(dataset_root: str | Path) -> list[TransformRegistryRecord]:
-    return [
-        _deserialize_record(dataset_root, payload)
-        for payload in _read_records(_registry_path(dataset_root))
-    ]
+    paths = [_registry_path(dataset_root), _legacy_registry_path(dataset_root)]
+    records: dict[tuple, TransformRegistryRecord] = {}
+    for path in paths:
+        for payload in _read_records(path):
+            record = _deserialize_record(dataset_root, payload)
+            key = (
+                record.subject_id,
+                record.site,
+                int(record.stack_index),
+                record.moving_session,
+                record.fixed_session,
+                record.transform_kind,
+                str(record.internal_path),
+                record.source_format.lower(),
+                str(record.source_path),
+                record.source_direction,
+                record.internal_direction,
+                record.coordinate_convention,
+            )
+            records.setdefault(key, record)
+    return list(records.values())
 
 
 def upsert_transform_registry_record(

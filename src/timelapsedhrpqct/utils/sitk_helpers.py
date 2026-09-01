@@ -6,9 +6,15 @@ from pathlib import Path
 import numpy as np
 import SimpleITK as sitk
 
+from timelapsedhrpqct.io.aim import read_aim
+
 
 def load_image(path: Path) -> sitk.Image:
     """Load image."""
+    path = Path(path)
+    if path.name.lower().endswith((".aim", ".aim;1", ".aim;2", ".aim;3", ".aim;4")):
+        image, _metadata = read_aim(path, scaling="bmd")
+        return image
     return sitk.ReadImage(str(path))
 
 

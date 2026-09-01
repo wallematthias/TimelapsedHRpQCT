@@ -293,6 +293,21 @@ def _baseline_record_for_stack(records: list, baseline_session: str):
     )
 
 
+def _require_full_masks_for_stack_correction(stack_records: list) -> None:
+    """Require full masks before mask-based multistack correction."""
+    for record in stack_records:
+        full_mask = record.mask_paths.get("full")
+        if full_mask is not None and full_mask.exists():
+            continue
+        raise ValueError(
+            "No usable full mask for stack correction for "
+            f"sub-{record.subject_id} site-{record.site} ses-{record.session_id} "
+            f"stack-{int(record.stack_index):02d}. Provide a full mask; generate "
+            "missing masks with Bone Contouring, or set "
+            "multistack_correction.use_masks=false."
+        )
+
+
 def _print_image_info(name: str, image: sitk.Image) -> None:
     """Helper for print image info."""
     corners = image_physical_corners(image)
@@ -1084,6 +1099,10 @@ def run_stack_correction(
         stack_indices = sorted(stacks_by_index)
         first_stack_index = stack_indices[0]
         baseline_session = stacks_by_index[first_stack_index][0].session_id
+
+        if settings.use_masks and len(stack_indices) > 1:
+            for stack_records in stacks_by_index.values():
+                _require_full_masks_for_stack_correction(stack_records)
 
         for stack_index, stack_records in sorted(stacks_by_index.items()):
             baseline_record = _baseline_record_for_stack(stack_records, baseline_session)
