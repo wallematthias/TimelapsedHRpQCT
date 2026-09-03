@@ -54,27 +54,27 @@ def _touch(path: Path) -> None:
 def test_default_output_root_uses_derivatives_family() -> None:
     dataset_root = Path("/tmp/dataset")
 
-    assert _default_output_root(dataset_root) == dataset_root / "derivatives" / "TimelapsedHRpQCT"
+    assert _default_output_root(dataset_root) == dataset_root / "derivatives" / "Timelapse"
 
 
 def test_normalize_output_root_avoids_nested_derivatives() -> None:
     dataset_root = Path("/tmp/dataset")
 
-    assert _normalize_output_root(dataset_root, None) == dataset_root / "derivatives" / "TimelapsedHRpQCT"
-    assert _normalize_output_root(dataset_root, dataset_root) == dataset_root / "derivatives" / "TimelapsedHRpQCT"
+    assert _normalize_output_root(dataset_root, None) == dataset_root / "derivatives" / "Timelapse"
+    assert _normalize_output_root(dataset_root, dataset_root) == dataset_root / "derivatives" / "Timelapse"
     assert (
         _normalize_output_root(dataset_root, dataset_root / "derivatives")
-        == dataset_root / "derivatives" / "TimelapsedHRpQCT"
+        == dataset_root / "derivatives" / "Timelapse"
     )
     assert (
-        _normalize_output_root(dataset_root, dataset_root / "derivatives" / "TimelapsedHRpQCT")
-        == dataset_root / "derivatives" / "TimelapsedHRpQCT"
+        _normalize_output_root(dataset_root, dataset_root / "derivatives" / "Timelapse")
+        == dataset_root / "derivatives" / "Timelapse"
     )
 
 
 def test_needs_mask_generation_respects_requested_roles_and_reused_segmentation(tmp_path: Path) -> None:
     dataset_root = tmp_path / "dataset"
-    stack_dir = dataset_root / "derivatives" / "TimelapsedHRpQCT" / "sub-001" / "site-radius" / "ses-00" / "stacks"
+    stack_dir = dataset_root / "derivatives" / "Timelapse" / "sub-001" / "site-radius" / "ses-00" / "stacks"
     image_path = stack_dir / "sub-001_site-radius_ses-00_stack-01_image.mha"
     full_path = stack_dir / "sub-001_site-radius_ses-00_stack-01_mask-full.nii.gz"
     seg_path = stack_dir / "sub-001_site-radius_ses-00_stack-01_seg.nii.gz"
@@ -333,17 +333,17 @@ def test_sessions_needing_import_is_site_aware(tmp_path: Path, monkeypatch) -> N
     upsert_imported_stack_records(
         dataset_root,
         [
-            ImportedStackRecord(
-                "001",
-                "C1",
-                1,
-                Path("/tmp/tibia_stack.mha"),
-                {},
-                None,
-                None,
-                StackSliceRange(1, 0, 10),
-                site="tibia",
-            ),
+                ImportedStackRecord(
+                    "001",
+                    "C1",
+                    None,
+                    Path("/tmp/tibia_stack.mha"),
+                    {},
+                    None,
+                    None,
+                    StackSliceRange(None, 0, 10),
+                    site="tibia",
+                ),
         ],
     )
 
@@ -363,7 +363,7 @@ def test_sessions_needing_import_refreshes_when_discovered_roi_missing_from_stac
     dataset_root = tmp_path / "dataset"
     raw_image = tmp_path / "raw" / "sub-001_ses-00_site-radius_image.nii.gz"
     raw_roi = tmp_path / "raw" / "sub-001_ses-00_site-radius_mask-roi1.nii.gz"
-    stack_image = dataset_root / "derivatives" / "TimelapsedHRpQCT" / "sub-001" / "site-radius" / "ses-00" / "stacks" / "stack.mha"
+    stack_image = dataset_root / "derivatives" / "Timelapse" / "sub-001" / "site-radius" / "ses-00" / "stacks" / "stack.mha"
     for path in (raw_image, raw_roi, stack_image):
         _touch(path)
     raw_sessions = [
@@ -412,8 +412,8 @@ def test_sessions_needing_import_skips_when_discovered_roi_is_already_on_stack_r
     dataset_root = tmp_path / "dataset"
     raw_image = tmp_path / "raw" / "sub-001_ses-00_site-radius_image.nii.gz"
     raw_roi = tmp_path / "raw" / "sub-001_ses-00_site-radius_mask-roi1.nii.gz"
-    stack_image = dataset_root / "derivatives" / "TimelapsedHRpQCT" / "sub-001" / "site-radius" / "ses-00" / "stacks" / "stack.mha"
-    stack_roi = dataset_root / "derivatives" / "TimelapsedHRpQCT" / "sub-001" / "site-radius" / "ses-00" / "stacks" / "stack_mask-roi1.nii.gz"
+    stack_image = dataset_root / "derivatives" / "Timelapse" / "sub-001" / "site-radius" / "ses-00" / "stacks" / "stack.mha"
+    stack_roi = dataset_root / "derivatives" / "Timelapse" / "sub-001" / "site-radius" / "ses-00" / "stacks" / "stack_mask-roi1.nii.gz"
     for path in (raw_image, raw_roi, stack_image, stack_roi):
         _touch(path)
     raw_sessions = [
@@ -432,17 +432,17 @@ def test_sessions_needing_import_skips_when_discovered_roi_is_already_on_stack_r
     upsert_imported_stack_records(
         dataset_root,
         [
-            ImportedStackRecord(
-                "001",
-                "00",
-                1,
-                stack_image,
-                {"roi1": stack_roi},
-                None,
-                None,
-                StackSliceRange(1, 0, 10),
-                site="radius",
-            ),
+                ImportedStackRecord(
+                    "001",
+                    "00",
+                    None,
+                    stack_image,
+                    {"roi1": stack_roi},
+                    None,
+                    None,
+                    StackSliceRange(None, 0, 10),
+                    site="radius",
+                ),
         ],
     )
 
@@ -514,7 +514,7 @@ def test_needs_apply_transforms_and_filling_reflect_artifact_presence(tmp_path: 
     _touch(filled_image_path(dataset_root, "001", "C1"))
     _touch(filled_full_mask_path(dataset_root, "001", "C1"))
     _touch(filladded_mask_path(dataset_root, "001", "C1"))
-    meta_path = dataset_root / "derivatives" / "TimelapsedHRpQCT" / "sub-001" / "filled" / "ses-C1" / "sub-001_ses-C1_filling.json"
+    meta_path = dataset_root / "derivatives" / "Timelapse" / "sub-001" / "filled" / "ses-C1" / "sub-001_ses-C1_filling.json"
     _touch(meta_path)
 
     upsert_filled_session_record(
@@ -1010,7 +1010,7 @@ def test_cmd_undo_restructure_moves_files_back_to_original_source(tmp_path: Path
     moved_path.write_text("raw", encoding="utf-8")
 
     source_path = tmp_path / "raw_input" / "SUBJECT_001_DT_T1.AIM"
-    metadata_path = dataset_root / "derivatives" / "TimelapsedHRpQCT" / "sub-001" / "site-tibia" / "ses-T1" / "stacks" / "meta.json"
+    metadata_path = dataset_root / "derivatives" / "Timelapse" / "sub-001" / "site-tibia" / "ses-T1" / "stacks" / "meta.json"
     metadata_path.parent.mkdir(parents=True, exist_ok=True)
     metadata_path.write_text(
         json.dumps(

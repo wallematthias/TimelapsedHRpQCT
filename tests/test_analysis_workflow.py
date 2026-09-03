@@ -144,11 +144,11 @@ def _write_analysis_session(
     )
 
 
-def test_run_analysis_auto_migrates_legacy_fused_sidecars(
+def test_run_analysis_ignores_legacy_fused_sidecars(
     tmp_path: Path,
     capsys,
 ) -> None:
-    dataset_root = tmp_path / "TimelapsedHRpQCT"
+    dataset_root = tmp_path / "Timelapse"
     legacy_dir = (
         dataset_root
         / "sub-SAMPLE001"
@@ -180,11 +180,9 @@ def test_run_analysis_auto_migrates_legacy_fused_sidecars(
     run_analysis(dataset_root=dataset_root, config=config)
 
     captured = capsys.readouterr()
-    assert "Detected 1 legacy fused metadata sidecar(s)" in captured.out
-    assert "Legacy migration complete" in captured.out
-    assert "Skipping sub-SAMPLE001 site-tibia: need at least 2 sessions." in captured.out
-    assert not image_path.exists()
-    assert iter_fused_session_records(dataset_root)[0].site == "tibia"
+    assert "No subject/site groups found" in captured.out
+    assert image_path.exists()
+    assert iter_fused_session_records(dataset_root) == []
 
 
 def _write_analysis_session_with_custom_masks(
@@ -327,7 +325,7 @@ def _build_delta_smoothing_dataset(dataset_root: Path, subject_id: str = "001") 
 
 
 def test_run_analysis_explains_how_to_supply_missing_required_masks(tmp_path: Path) -> None:
-    dataset_root = tmp_path / "TimelapsedHRpQCT"
+    dataset_root = tmp_path / "Timelapse"
     image = np.zeros((3, 3, 3), dtype=np.float32)
     support = np.ones((3, 3, 3), dtype=np.uint8)
     _write_analysis_session_with_custom_masks(
@@ -906,6 +904,7 @@ def _build_pairwise_t0_shifted_followup_dataset(
     c1_tfm = timelapse_baseline_transform_path(dataset_root, subject_id, 1, "C1", "C1")
     c2_tfm = timelapse_baseline_transform_path(dataset_root, subject_id, 1, "C2", "C1")
     c1_tfm.parent.mkdir(parents=True, exist_ok=True)
+    c2_tfm.parent.mkdir(parents=True, exist_ok=True)
     sitk.WriteTransform(sitk.Transform(3, sitk.sitkIdentity), str(c1_tfm))
 
     shift_back_to_native = sitk.TranslationTransform(3, (1.0, 0.0, 0.0))
@@ -1007,6 +1006,8 @@ def _build_pairwise_t0_three_session_mixed_geometry_dataset(
     c2_tfm = timelapse_baseline_transform_path(dataset_root, subject_id, 1, "C2", "C1")
     c3_tfm = timelapse_baseline_transform_path(dataset_root, subject_id, 1, "C3", "C1")
     c1_tfm.parent.mkdir(parents=True, exist_ok=True)
+    c2_tfm.parent.mkdir(parents=True, exist_ok=True)
+    c3_tfm.parent.mkdir(parents=True, exist_ok=True)
     sitk.WriteTransform(sitk.Transform(3, sitk.sitkIdentity), str(c1_tfm))
     sitk.WriteTransform(sitk.Transform(3, sitk.sitkIdentity), str(c2_tfm))
     sitk.WriteTransform(sitk.Transform(3, sitk.sitkIdentity), str(c3_tfm))
@@ -1448,12 +1449,9 @@ def test_run_analysis_detects_known_events_at_explicit_threshold(tmp_path: Path)
         profile="eth-uofc",
     )
 
-    analysis_dir = (
-        get_derivatives_root(dataset_root) / "sub-001" / "analysis"
-    )
-    pairwise_df = pd.read_csv(analysis_dir / "sub-001_pairwise_remodelling.csv")
-    trajectory_df = pd.read_csv(analysis_dir / "sub-001_trajectory_metrics.csv")
-    analysis_meta = json.loads((analysis_dir / "sub-001_analysis.json").read_text())
+    pairwise_df = pd.read_csv(pairwise_remodelling_csv_path(dataset_root, "001"))
+    trajectory_df = pd.read_csv(trajectory_metrics_csv_path(dataset_root, "001"))
+    analysis_meta = json.loads(analysis_metadata_path(dataset_root, "001").read_text())
 
     trab_row = pairwise_df.loc[
         (pairwise_df["compartment"] == "trab")
@@ -1539,10 +1537,7 @@ def test_run_analysis_supports_full_mask_delta_only_without_seg(tmp_path: Path) 
     )
 
     pairwise_df = pd.read_csv(
-        get_derivatives_root(dataset_root)
-        / "sub-001"
-        / "analysis"
-        / "sub-001_pairwise_remodelling.csv"
+        pairwise_remodelling_csv_path(dataset_root, "001")
     )
     row = pairwise_df.iloc[0]
     assert row["compartment"] == "full"
@@ -1577,10 +1572,7 @@ def test_run_analysis_optional_gaussian_filter_smooths_density_delta(tmp_path: P
     )
 
     pairwise_path = (
-        get_derivatives_root(dataset_root)
-        / "sub-001"
-        / "analysis"
-        / "sub-001_pairwise_remodelling.csv"
+        pairwise_remodelling_csv_path(dataset_root, "001")
     )
     unsmoothed_df = pd.read_csv(pairwise_path)
     unsmoothed_row = unsmoothed_df.iloc[0]
@@ -1597,12 +1589,7 @@ def test_run_analysis_optional_gaussian_filter_smooths_density_delta(tmp_path: P
     smoothed_df = pd.read_csv(pairwise_path)
     smoothed_row = smoothed_df.iloc[0]
     meta = json.loads(
-        (
-            get_derivatives_root(dataset_root)
-            / "sub-001"
-            / "analysis"
-            / "sub-001_analysis.json"
-        ).read_text()
+        analysis_metadata_path(dataset_root, "001").read_text()
     )
 
     assert int(smoothed_row["formation_vox"]) == 0
@@ -1634,6 +1621,29 @@ def test_run_analysis_pairwise_fixed_t0_records_space_in_metadata(tmp_path: Path
 
     assert meta["space"] == "pairwise_fixed_t0"
     assert int(pairwise_df.iloc[0]["formation_vox"]) == 1
+
+
+def test_analysis_binary_mask_loader_reads_aim_masks_in_native_units(monkeypatch, tmp_path: Path) -> None:
+    from timelapsedhrpqct.workflows import analysis as analysis_module
+
+    mask_path = tmp_path / "mask.AIM"
+    mask_path.write_bytes(b"placeholder")
+    native_mask = sitk.GetImageFromArray(np.array([[[0, 127], [255, 0]]], dtype=np.uint8))
+
+    def fake_read_aim(path, *, scaling):
+        assert Path(path) == mask_path
+        assert scaling == "native"
+        return native_mask, {}
+
+    def fail_load_image(path):
+        raise AssertionError(f"AIM mask should not be loaded through density loader: {path}")
+
+    monkeypatch.setattr(analysis_module, "read_aim", fake_read_aim)
+    monkeypatch.setattr(analysis_module, "load_image", fail_load_image)
+
+    arr = analysis_module._load_binary_mask_array(mask_path)
+
+    assert arr.tolist() == [[[False, True], [True, False]]]
 
 
 def test_run_analysis_pairwise_fixed_t0_skips_unregistered_imported_sessions(tmp_path: Path, capsys) -> None:
@@ -2186,10 +2196,7 @@ def test_run_analysis_respects_threshold_and_cluster_filters(tmp_path: Path) -> 
     )
 
     pairwise_df = pd.read_csv(
-        get_derivatives_root(dataset_root)
-        / "sub-001"
-        / "analysis"
-        / "sub-001_pairwise_remodelling.csv"
+        pairwise_remodelling_csv_path(dataset_root, "001")
     )
     trab_row = pairwise_df.loc[
         (pairwise_df["compartment"] == "trab")

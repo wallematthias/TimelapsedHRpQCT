@@ -60,7 +60,7 @@ from timelapsedhrpqct.processing.analysis_io import (
     discover_analysis_subject_ids,
 )
 from timelapsedhrpqct.io.metadata import parse_processing_log
-from timelapsedhrpqct.io.aim import _get_aim_calibration_constants_from_processing_log
+from timelapsedhrpqct.io.aim import _get_aim_calibration_constants_from_processing_log, read_aim
 from timelapsedhrpqct.processing.ipl_resampling import (
     full_cubic_support_mask,
     ipl_cubic_resample,
@@ -75,6 +75,28 @@ from timelapsedhrpqct.utils.sitk_helpers import (
     image_to_array,
 )
 from timelapsedhrpqct.utils.session_ids import session_sort_key
+
+
+def _stack_label(stack_index: int | None) -> str:
+    return "unstacked" if stack_index is None else f"stack-{stack_index:02d}"
+
+
+def _is_aim_path(path: Path) -> bool:
+    name = path.name.lower()
+    return name.endswith((".aim", ".aim;1", ".aim;2", ".aim;3", ".aim;4"))
+
+
+def _load_binary_mask_image(path: Path) -> sitk.Image:
+    """Load a binary mask or segmentation without grayscale density scaling."""
+    path = Path(path)
+    if _is_aim_path(path):
+        image, _metadata = read_aim(path, scaling="native")
+        return sitk.Cast(image > 0, sitk.sitkUInt8)
+    return sitk.Cast(load_image(path) > 0, sitk.sitkUInt8)
+
+
+def _load_binary_mask_array(path: Path) -> np.ndarray:
+    return (image_to_array(_load_binary_mask_image(path)) > 0).astype(bool, copy=False)
 
 
 def _free_memory() -> None:
@@ -474,7 +496,7 @@ def _load_session_to_baseline_transform(
     session_id: str,
     baseline_session: str,
 ) -> sitk.Transform:
-    """Load a session-to-baseline transform with backward-compatible fallbacks."""
+    """Load a session-to-baseline transform from the current derivative layout."""
     final_path = final_transform_path(
         dataset_root=dataset_root,
         subject_id=subject_id,
@@ -486,16 +508,6 @@ def _load_session_to_baseline_transform(
     final_path = existing_derivative_path(final_path)
     if final_path.exists():
         return sitk.ReadTransform(str(final_path))
-
-    legacy_final_path = final_transform_path(
-        dataset_root=dataset_root,
-        subject_id=subject_id,
-        stack_index=stack_index,
-        moving_session=session_id,
-        baseline_session=baseline_session,
-    )
-    if legacy_final_path.exists():
-        return sitk.ReadTransform(str(legacy_final_path))
 
     baseline_path = timelapse_baseline_transform_path(
         dataset_root=dataset_root,
@@ -509,18 +521,8 @@ def _load_session_to_baseline_transform(
     if baseline_path.exists():
         return sitk.ReadTransform(str(baseline_path))
 
-    legacy_baseline_path = timelapse_baseline_transform_path(
-        dataset_root=dataset_root,
-        subject_id=subject_id,
-        stack_index=stack_index,
-        moving_session=session_id,
-        baseline_session=baseline_session,
-    )
-    if legacy_baseline_path.exists():
-        return sitk.ReadTransform(str(legacy_baseline_path))
-
     raise FileNotFoundError(
-        f"Missing analysis transform for sub-{subject_id} ses-{session_id} stack-{stack_index:02d}"
+        f"Missing analysis transform for sub-{subject_id} ses-{session_id} {_stack_label(stack_index)}"
     )
 
 
@@ -725,7 +727,7 @@ def _series_segmentation_union_in_baseline_space(
                 "analysis.change_region.source=bone_union requires segmentation "
                 f"for session {session.session_id}."
             )
-        seg_img = load_image(session.seg_path)
+        seg_img = _load_binary_mask_image(session.seg_path)
         seg_tx = _resample_image(
             sitk.Cast(seg_img > 0, sitk.sitkUInt8),
             baseline_ref,
@@ -1012,9 +1014,9 @@ def _load_support_mask_array(
 ) -> np.ndarray:
     """Load or derive a support mask used as `full` analysis region."""
     if "full" in mask_paths and mask_paths["full"].exists():
-        return (image_to_array(load_image(mask_paths["full"])) > 0).astype(bool, copy=False)
+        return _load_binary_mask_array(mask_paths["full"])
     if "regmask" in mask_paths and mask_paths["regmask"].exists():
-        return (image_to_array(load_image(mask_paths["regmask"])) > 0).astype(bool, copy=False)
+        return _load_binary_mask_array(mask_paths["regmask"])
 
     roi_paths = [
         path for role, path in sorted(mask_paths.items()) if _is_roi_role(role) and path.exists()
@@ -1022,7 +1024,7 @@ def _load_support_mask_array(
     if roi_paths:
         union: np.ndarray | None = None
         for path in roi_paths:
-            arr = (image_to_array(load_image(path)) > 0).astype(bool, copy=False)
+            arr = _load_binary_mask_array(path)
             union = arr if union is None else (union | arr)
         if union is not None:
             return union
@@ -1033,8 +1035,8 @@ def _load_support_mask_array(
         and mask_paths["trab"].exists()
         and mask_paths["cort"].exists()
     ):
-        trab = (image_to_array(load_image(mask_paths["trab"])) > 0).astype(bool, copy=False)
-        cort = (image_to_array(load_image(mask_paths["cort"])) > 0).astype(bool, copy=False)
+        trab = _load_binary_mask_array(mask_paths["trab"])
+        cort = _load_binary_mask_array(mask_paths["cort"])
         return trab | cort
 
     ref_arr = image_to_array(load_image(reference_image_path))
@@ -1046,7 +1048,7 @@ def _load_mask_array_cached(path: Path, cache: dict[Path, np.ndarray]) -> np.nda
     key = path.resolve()
     arr = cache.get(key)
     if arr is None:
-        arr = (image_to_array(load_image(path)) > 0).astype(bool, copy=False)
+        arr = _load_binary_mask_array(path)
         cache[key] = arr
     return arr
 
@@ -1134,7 +1136,7 @@ def _resolve_pairwise_reference_stack_index(
     subject_id: str,
     site: str,
     required_session_ids: set[str] | None = None,
-) -> int:
+) -> int | None:
     """Pick a deterministic stack index that can serve session reference geometry."""
     grouped = group_imported_stacks_by_subject_site_and_stack(iter_imported_stack_records(dataset_root))
     stacks_by_index = grouped.get((subject_id, site), {})
@@ -1142,17 +1144,17 @@ def _resolve_pairwise_reference_stack_index(
         raise ValueError(f"Missing imported stack records for sub-{subject_id} site-{site}")
 
     required = {str(s).strip() for s in (required_session_ids or set()) if str(s).strip()}
-    for stack_index in sorted(stacks_by_index.keys()):
+    for stack_index in sorted(stacks_by_index.keys(), key=lambda value: -1 if value is None else int(value)):
         sessions = {record.session_id for record in stacks_by_index[stack_index]}
         if not required or required.issubset(sessions):
-            return int(stack_index)
+            return stack_index
 
     if required:
         missing_desc = ", ".join(sorted(required))
         raise ValueError(
             f"No stack contains all required sessions for pairwise t0 reference: {missing_desc}"
         )
-    return int(sorted(stacks_by_index.keys())[0])
+    return sorted(stacks_by_index.keys(), key=lambda value: -1 if value is None else int(value))[0]
 
 
 def _baseline_common_outputs(
@@ -1199,9 +1201,7 @@ def _baseline_common_outputs(
         image_arr = image_to_array(load_image(s.image_path)).astype(np.float32, copy=False)
         image_arrs.append(_maybe_smooth_density(image_arr, params))
         if s.seg_path is not None and s.seg_path.exists():
-            seg_arrs.append(
-                (image_to_array(load_image(s.seg_path)) > 0).astype(bool, copy=False)
-            )
+            seg_arrs.append(_load_binary_mask_array(s.seg_path))
         else:
             seg_arrs.append(np.zeros_like(image_arrs[-1], dtype=bool))
 
@@ -1227,7 +1227,7 @@ def _baseline_common_outputs(
             if role == "full":
                 role_arr = support_arr
             else:
-                role_arr = (image_to_array(load_image(s.mask_paths[role])) > 0).astype(bool, copy=False)
+                role_arr = _load_binary_mask_array(s.mask_paths[role])
             session_compartment_masks[role] = role_arr
 
         if params.full_mask_dilation_voxels > 0:
@@ -1280,7 +1280,7 @@ def _pairwise_fixed_t0_outputs(
 
     single_stack = len(stacks_by_index) == 1
     if single_stack:
-        stack_index = int(next(iter(sorted(stacks_by_index.keys()))))
+        stack_index = next(iter(stacks_by_index.keys()))
         stack_records = sorted(stacks_by_index[stack_index], key=lambda r: session_sort_key(r.session_id))
         if len(stack_records) < 2:
             raise ValueError(
@@ -1316,7 +1316,7 @@ def _pairwise_fixed_t0_outputs(
         if skipped_sessions:
             skipped_text = ", ".join(skipped_sessions)
             print(
-                f"[analysis] sub-{subject_id} site-{site} stack-{stack_index:02d}: "
+                f"[analysis] sub-{subject_id} site-{site} {_stack_label(stack_index)}: "
                 f"skipping session(s) without analysis transforms: {skipped_text}"
             )
         if len(analysis_sessions) < 2:
@@ -1324,7 +1324,7 @@ def _pairwise_fixed_t0_outputs(
                 f"Skipping sub-{subject_id} site-{site}: need at least 2 sessions with analysis transforms."
             )
         baseline_ref = load_image(analysis_sessions[0].image_path)
-        mode_desc = f"stack-{stack_index:02d} single-stack"
+        mode_desc = f"{_stack_label(stack_index)} single-stack"
     else:
         require_seg = _analysis_requires_seg(params.method)
         fused_sessions = discover_analysis_sessions(
@@ -1442,7 +1442,7 @@ def _pairwise_fixed_t0_outputs(
                     pixel_id=sitk.sitkUInt8,
                 )
             else:
-                mask_img = load_image(record.mask_paths[role])
+                mask_img = _load_binary_mask_image(record.mask_paths[role])
             mask_tx = _resample_image(
                 sitk.Cast(mask_img > 0, sitk.sitkUInt8),
                 baseline_ref,
@@ -2039,27 +2039,6 @@ def run_analysis(
 
     subject_site_keys = discover_analysis_subject_ids(dataset_root)
     if not subject_site_keys:
-        from timelapsedhrpqct.tools.legacy_migration import (
-            discover_legacy_fused_metadata_paths,
-            migrate_legacy_dataset,
-        )
-
-        legacy_metadata = discover_legacy_fused_metadata_paths(dataset_root)
-        if legacy_metadata:
-            print(
-                f"[analysis] Detected {len(legacy_metadata)} legacy fused metadata "
-                "sidecar(s); migrating to the current disk-saving layout."
-            )
-            result = migrate_legacy_dataset(dataset_root)
-            print(
-                f"[analysis] Legacy migration complete: "
-                f"{result.fused_sessions} fused session(s), "
-                f"{result.converted_images} image(s) converted to NIfTI, "
-                f"{result.pruned_remodelling_images} non-full remodelling image(s) pruned."
-            )
-            subject_site_keys = discover_analysis_subject_ids(dataset_root)
-
-    if not subject_site_keys:
         print(f"[analysis] No subject/site groups found under: {dataset_root}")
         return
 
@@ -2246,12 +2225,6 @@ def run_analysis(
         pairwise_path.parent.mkdir(parents=True, exist_ok=True)
         pairwise_df.to_csv(pairwise_path, index=False)
         trajectory_df.to_csv(trajectory_path, index=False)
-        if site == "radius":
-            legacy_pairwise_path = pairwise_remodelling_csv_path(dataset_root, subject_id)
-            legacy_trajectory_path = trajectory_metrics_csv_path(dataset_root, subject_id)
-            legacy_pairwise_path.parent.mkdir(parents=True, exist_ok=True)
-            pairwise_df.to_csv(legacy_pairwise_path, index=False)
-            trajectory_df.to_csv(legacy_trajectory_path, index=False)
 
         analysis_meta = build_analysis_summary_metadata(
             dataset_root=dataset_root,
@@ -2295,17 +2268,6 @@ def run_analysis(
         )
         meta_path = analysis_metadata_path(dataset_root, subject_id, site)
         write_json(analysis_meta, meta_path)
-        if site == "radius":
-            legacy_meta = dict(analysis_meta)
-            legacy_meta["common_regions"] = {
-                comp: str(common_region_path(dataset_root, subject_id, comp))
-                for comp in outputs.common_masks.keys()
-            }
-            legacy_meta["analysis_dir"] = str(analysis_dir(dataset_root, subject_id))
-            legacy_meta["analysis_metadata"] = str(analysis_metadata_path(dataset_root, subject_id))
-            legacy_meta["pairwise_csv"] = str(pairwise_remodelling_csv_path(dataset_root, subject_id))
-            legacy_meta["trajectory_csv"] = str(trajectory_metrics_csv_path(dataset_root, subject_id))
-            write_json(legacy_meta, analysis_metadata_path(dataset_root, subject_id))
 
         print(
             f"[analysis] sub-{subject_id} site-{site}: wrote "

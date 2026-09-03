@@ -144,7 +144,56 @@ def test_common_region_batch_writes_manifest_for_indexed_stack_records(tmp_path:
 
     assert manifest_path == tmp_path / "derivatives" / "CommonRegion" / "manifest.json"
     assert manifest_path.is_file()
-    assert '"scan_region_native_common"' in manifest_path.read_text(encoding="utf-8")
+    manifest_text = manifest_path.read_text(encoding="utf-8")
+    assert '"scan_region_native_common"' in manifest_text
+    assert "/site-" not in manifest_text
+    assert "/ses-T1/xct/masks/" in manifest_text
+    assert "/sub-001/xct/masks/" in manifest_text
+
+
+def test_common_region_batch_omits_stack_token_for_unstacked_single_stack_series(tmp_path: Path) -> None:
+    """A single unstacked source series must not be exported as explicit stack-01."""
+    common_region = importlib.import_module("timelapsedhrpqct.common_region")
+    _indexed_stack(tmp_path, "T1", _image(), stack_index=None)
+    _indexed_stack(tmp_path, "T2", _image(), stack_index=None)
+
+    manifest_path = common_region.run_common_region_batch(
+        tmp_path,
+        subject_id="001",
+        site="tibia",
+        transforms_to_reference={
+            (None, "T1"): sitk.Transform(3, sitk.sitkIdentity),
+            (None, "T2"): sitk.Transform(3, sitk.sitkIdentity),
+        },
+    )
+
+    manifest = read_manifest(manifest_path)
+    common_records = [record for record in manifest.records if record.role == "scan_region_native_common"]
+    assert common_records
+    assert {record.stack_index for record in common_records} == {None}
+    assert not any("_stack-01_" in record.path.name for record in common_records)
+
+
+def test_common_region_batch_normalizes_timelapse_derivative_root(tmp_path: Path) -> None:
+    """CommonRegion must remain a sibling of Timelapse, not nested inside it."""
+    common_region = importlib.import_module("timelapsedhrpqct.common_region")
+    timelapse_root = tmp_path / "derivatives" / "Timelapse"
+    _indexed_stack(timelapse_root, "T1", _image())
+    _indexed_stack(timelapse_root, "T2", _image())
+
+    manifest_path = common_region.run_common_region_batch(
+        timelapse_root,
+        subject_id="001",
+        site="tibia",
+        transforms_to_reference={
+            (1, "T1"): sitk.Transform(3, sitk.sitkIdentity),
+            (1, "T2"): sitk.Transform(3, sitk.sitkIdentity),
+        },
+    )
+
+    assert manifest_path == tmp_path / "derivatives" / "CommonRegion" / "manifest.json"
+    assert manifest_path.is_file()
+    assert not (timelapse_root / "derivatives" / "CommonRegion").exists()
 
 
 def test_common_region_batch_rejects_missing_imported_stack_records(tmp_path: Path) -> None:
@@ -190,7 +239,7 @@ def test_timelapsed_publishes_native_stack_segmentation_manifest(tmp_path: Path)
 def test_timelapsed_publishes_virtual_source_image_records(tmp_path: Path) -> None:
     """A virtual imported image must remain virtual when exposed to downstream tools."""
     derivatives = importlib.import_module("timelapsedhrpqct.derivatives")
-    metadata_path = tmp_path / "derivatives" / "TimelapsedHRpQCT" / "sub-001" / "ses-T1" / "stacks" / "stack-01.json"
+    metadata_path = tmp_path / "derivatives" / "Timelapse" / "sub-001" / "ses-T1" / "stacks" / "stack-01.json"
     metadata_path.parent.mkdir(parents=True, exist_ok=True)
     source_path = tmp_path / "raw" / "scan.AIM"
     metadata_path.write_text(
@@ -420,12 +469,23 @@ def test_common_region_cli_publishes_existing_timelapsed_transforms_before_loadi
     assert captured["keys"] == {(1, "1"), (1, "2")}
 
 
-def test_derivatives_inspect_includes_legacy_compatibility_records(tmp_path: Path, capsys) -> None:
-    """Skipping compatibility discovery would hide legacy Timelapsed outputs from the new CLI."""
-    legacy = tmp_path / "derivatives" / "TimelapsedHRpQCT" / "sub-001" / "site-tibia"
+def test_timelapse_run_emits_shared_common_region_derivative() -> None:
+    """The full Timelapsed run should publish CommonRegion outputs for downstream tools."""
+    source = (Path(__file__).resolve().parents[1] / "src" / "timelapsedhrpqct" / "cli.py").read_text(encoding="utf-8")
+
+    assert "def _emit_common_region_after_registration(" in source
+    assert "run_common_region_batch(" in source
+    assert 'with benchmark.section("stage.common_region"' in source
+
+
+def test_derivatives_inspect_ignores_legacy_compatibility_records(tmp_path: Path, capsys) -> None:
+    """Normal inspection should report current manifests, not old-layout compatibility records."""
+    legacy = tmp_path / "derivatives" / "Timelapse" / "sub-001" / "site-tibia"
     legacy.mkdir(parents=True)
     (legacy / "registered_transform.tfm").write_text("legacy", encoding="utf-8")
 
     assert main(["derivatives", "inspect", str(tmp_path)]) == 0
 
-    assert "Legacy compatibility records: 1" in capsys.readouterr().out
+    out = capsys.readouterr().out
+    assert "Derivative manifests: 0" in out
+    assert "Legacy compatibility records" not in out

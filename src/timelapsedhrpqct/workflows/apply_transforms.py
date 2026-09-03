@@ -33,7 +33,11 @@ from timelapsedhrpqct.processing.fused_outputs import (
 )
 from timelapsedhrpqct.processing.fusion import fuse_images
 from timelapsedhrpqct.processing.transform_apply import _interpolator
-from timelapsedhrpqct.utils.sitk_helpers import load_image, write_image, write_json
+from timelapsedhrpqct.utils.sitk_helpers import load_image, load_mask_image, write_image, write_json
+
+
+def _stack_label(stack_index: int | None) -> str:
+    return "unstacked" if stack_index is None else f"stack-{stack_index:02d}"
 
 
 def _load_transform(path: Path) -> sitk.Transform:
@@ -332,11 +336,11 @@ def _resolve_transform_for_record(
     )
     baseline_path = existing_derivative_path(baseline_path)
     if baseline_path.exists():
-        return _load_transform(baseline_path), str(baseline_path), "timelapse_fallback"
+        return _load_transform(baseline_path), str(baseline_path), "baseline_transform"
 
     raise FileNotFoundError(
         f"Missing final and timelapse transform for "
-        f"sub-{subject_id} ses-{session_id} stack-{stack_index:02d}"
+        f"sub-{subject_id} ses-{session_id} {_stack_label(stack_index)}"
     )
 
 
@@ -456,7 +460,7 @@ def run_apply_transforms(
                     if role not in mask_union_by_role:
                         mask_union_by_role[role] = _make_u8_accumulator(reference_image)
 
-                    mask_img = load_image(mask_path)
+                    mask_img = load_mask_image(mask_path)
                     mask_tx = _resample_once(
                         image=sitk.Cast(mask_img > 0, sitk.sitkUInt8),
                         reference=reference_image,
@@ -478,7 +482,7 @@ def run_apply_transforms(
                     if seg_union is None:
                         seg_union = _make_u8_accumulator(reference_image)
 
-                    seg_img = load_image(record.seg_path)
+                    seg_img = load_mask_image(record.seg_path)
                     seg_tx = _resample_once(
                         image=sitk.Cast(seg_img > 0, sitk.sitkUInt8),
                         reference=reference_image,
@@ -506,7 +510,7 @@ def run_apply_transforms(
                 )
 
                 print(
-                    f"[apply]     stack-{stack_index:02d}: used {transform_source_kind}"
+                    f"[apply]     {_stack_label(stack_index)}: used {transform_source_kind}"
                 )
 
                 del image, nonzero, transform

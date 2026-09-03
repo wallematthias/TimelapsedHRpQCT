@@ -102,7 +102,7 @@ def _add_benchmark_argument(parser: argparse.ArgumentParser) -> None:
         action="store_true",
         help=(
             "Record wall-clock timing sections and write JSON/CSV summaries "
-            "under derivatives/TimelapsedHRpQCT/_artifacts."
+            "under derivatives/Timelapse/_artifacts."
         ),
     )
 
@@ -150,13 +150,13 @@ def _build_parser() -> argparse.ArgumentParser:
     # derivative-contract workflows
     # ------------------------------------------------------------------
     derivatives_parser = subparsers.add_parser(
-        "derivatives", help="Inspect derivative manifests and legacy compatibility records."
+        "derivatives", help="Inspect current derivative manifests."
     )
     derivatives_subparsers = derivatives_parser.add_subparsers(
         dest="derivatives_command", required=True
     )
     derivatives_inspect = derivatives_subparsers.add_parser(
-        "inspect", help="Summarize derivative manifests and compatible legacy artifacts."
+        "inspect", help="Summarize current derivative manifests."
     )
     derivatives_inspect.add_argument("dataset_root", type=Path)
 
@@ -344,9 +344,9 @@ def _build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=None,
         help=(
-            "Output dataset root. Defaults to <input_root>/derivatives/TimelapsedHRpQCT "
+            "Output dataset root. Defaults to <input_root>/derivatives/Timelapse "
             "if not provided. If a dataset root or derivatives folder is selected, "
-            "the TimelapsedHRpQCT family folder is used under it."
+            "the Timelapse family folder is used under it."
         ),
     )
     _add_config_argument(import_parser)
@@ -555,9 +555,9 @@ def _build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=None,
         help=(
-            "Output dataset root. Defaults to <input_root>/derivatives/TimelapsedHRpQCT "
+            "Output dataset root. Defaults to <input_root>/derivatives/Timelapse "
             "if not provided. If a dataset root or derivatives folder is selected, "
-            "the TimelapsedHRpQCT family folder is used under it."
+            "the Timelapse family folder is used under it."
         ),
     )
     _add_config_argument(run_parser)
@@ -845,7 +845,10 @@ def _cmd_inspect(args: argparse.Namespace) -> int:
         sessions = sorted(
             {record.session_id for records in stacks_by_index.values() for record in records}
         )
-        stacks = ", ".join(f"{idx:02d}" for idx in sorted(stacks_by_index))
+        stacks = ", ".join(
+            "unstacked" if idx is None else f"{idx:02d}"
+            for idx in sorted(stacks_by_index, key=lambda value: 0 if value is None else int(value))
+        )
         print(
             f"[timelapse] sub-{subject_id} site-{site}: "
             f"{len(sessions)} session(s), stack(s) {stacks}"
@@ -876,16 +879,14 @@ def _emit_derivative_progress(
 
 
 def _cmd_derivatives_inspect(args: argparse.Namespace) -> int:
-    """Inspect current manifests together with readable legacy Timelapsed records."""
-    from bone_imaging_derivatives import discover_legacy_timelapsed_records, discover_manifests
+    """Inspect current derivative manifests."""
+    from bone_imaging_derivatives import discover_manifests
 
     root = args.dataset_root.resolve()
     manifests = discover_manifests(root)
-    legacy = discover_legacy_timelapsed_records(root)
     print(f"[timelapse] Derivative manifests: {len(manifests)}")
     for manifest in manifests:
         print(f"[timelapse] {manifest.derivative_family}: {len(manifest.records)} record(s)")
-    print(f"[timelapse] Legacy compatibility records: {len(legacy)}")
     return 0
 
 
@@ -924,11 +925,58 @@ def _cmd_common_region(args: argparse.Namespace) -> int:
             discover_manifests(root), derivative="Registration", role="transform_to_reference",
             subject_id=args.subject, site=args.site,
         )
-        if record.session_id is not None and record.stack_index is not None
+        if record.session_id is not None
     }
     output = run_common_region_batch(root, subject_id=args.subject, site=args.site, transforms_to_reference=transforms)
     _emit_derivative_progress("CommonRegion", args.subject, args.site, "common-region", "complete", str(output))
     return 0
+
+
+def _emit_common_region_after_registration(dataset_root: Path, *, subject: str | None, site: str | None) -> None:
+    """Write shared CommonRegion derivatives from the Timelapsed baseline transforms."""
+    import SimpleITK as sitk
+    from timelapsedhrpqct.common_region import run_common_region_batch
+
+    grouped = group_imported_stacks_by_subject_site_and_stack(iter_imported_stack_records(dataset_root))
+    for (subject_id, site_name), stacks_by_index in sorted(grouped.items()):
+        if subject and subject_id != subject:
+            continue
+        if site and site_name != site:
+            continue
+        transforms = {}
+        for stack_index, stack_records in sorted(stacks_by_index.items()):
+            baseline_session = stack_records[0].session_id
+            for record in stack_records:
+                transform_path = existing_derivative_path(
+                    timelapse_baseline_transform_path(
+                        dataset_root=dataset_root,
+                        subject_id=subject_id,
+                        site=site_name,
+                        stack_index=stack_index,
+                        moving_session=record.session_id,
+                        baseline_session=baseline_session,
+                    )
+                )
+                if not transform_path.exists():
+                    raise ValueError(
+                        f"Missing baseline transform needed for CommonRegion: {transform_path}"
+                    )
+                transforms[(stack_index, record.session_id)] = sitk.ReadTransform(str(transform_path))
+        if transforms:
+            output = run_common_region_batch(
+                dataset_root,
+                subject_id=subject_id,
+                site=site_name,
+                transforms_to_reference=transforms,
+            )
+            _emit_derivative_progress(
+                "CommonRegion",
+                subject_id,
+                site_name,
+                "common-region",
+                "complete",
+                str(output),
+            )
 
 
 def _cmd_prerequisites_ensure(args: argparse.Namespace) -> int:
@@ -1116,11 +1164,25 @@ def _expected_stack_count_for_session(session, config: AppConfig) -> int:
     return len(stack_ranges)
 
 
+def _expected_stack_indices_for_session(session, config: AppConfig) -> list[int | None]:
+    explicit_stack = getattr(session, "stack_index", None)
+    if explicit_stack is not None:
+        return [int(explicit_stack)]
+    count = _expected_stack_count_for_session(session, config)
+    if count == 1:
+        return [None]
+    return list(range(1, count + 1))
+
+
+def _stack_key(stack_index: int | None) -> int:
+    return 0 if stack_index is None else int(stack_index)
+
+
 def _sessions_needing_import(sessions, dataset_root: Path, config: AppConfig) -> list:
     """Helper for sessions needing import."""
     existing = defaultdict(dict)
     for record in iter_imported_stack_records(dataset_root):
-        existing[(record.subject_id, record.site, record.session_id)][int(record.stack_index)] = record
+        existing[(record.subject_id, record.site, record.session_id)][_stack_key(record.stack_index)] = record
 
     needed = []
     for session in sessions:
@@ -1134,11 +1196,12 @@ def _sessions_needing_import(sessions, dataset_root: Path, config: AppConfig) ->
             or "radius"
         ).strip().lower()
         imported_records = existing.get((session.subject_id, session_site, session.session_id), {})
-        if len(imported_records) < expected_count:
+        expected_indices = _expected_stack_indices_for_session(session, config)
+        expected_keys = [_stack_key(index) for index in expected_indices]
+        if len(imported_records) < len(expected_keys):
             needed.append(session)
             continue
-        expected_indices = range(1, expected_count + 1)
-        if any(index not in imported_records for index in expected_indices):
+        if any(index not in imported_records for index in expected_keys):
             needed.append(session)
             continue
         required_mask_roles = {
@@ -1148,7 +1211,7 @@ def _sessions_needing_import(sessions, dataset_root: Path, config: AppConfig) ->
         }
         if required_mask_roles and any(
             not _record_has_existing_mask(imported_records[index], role)
-            for index in expected_indices
+            for index in expected_keys
             for role in required_mask_roles
         ):
             needed.append(session)
@@ -1156,7 +1219,7 @@ def _sessions_needing_import(sessions, dataset_root: Path, config: AppConfig) ->
         raw_seg_path = getattr(session, "raw_seg_path", None)
         if raw_seg_path is not None and any(
             not _path_exists(getattr(imported_records[index], "seg_path", None))
-            for index in expected_indices
+            for index in expected_keys
         ):
             needed.append(session)
     return needed
@@ -1218,15 +1281,7 @@ def _needs_timelapse_registration(dataset_root: Path) -> bool:
                 )
                 if existing_derivative_path(path).exists():
                     continue
-                legacy_path = timelapse_baseline_transform_path(
-                    dataset_root=dataset_root,
-                    subject_id=subject_id,
-                    stack_index=stack_index,
-                    moving_session=record.session_id,
-                    baseline_session=baseline_session,
-                )
-                if not existing_derivative_path(legacy_path).exists():
-                    return True
+                return True
     return False
 
 
@@ -1248,15 +1303,7 @@ def _needs_stack_correction(dataset_root: Path) -> bool:
                 )
                 if existing_derivative_path(path).exists():
                     continue
-                legacy_path = final_transform_path(
-                    dataset_root=dataset_root,
-                    subject_id=subject_id,
-                    stack_index=stack_index,
-                    moving_session=record.session_id,
-                    baseline_session=baseline_session,
-                )
-                if not existing_derivative_path(legacy_path).exists():
-                    return True
+                return True
     return False
 
 
@@ -1460,7 +1507,7 @@ def _needs_analysis(
         return payload.get(key) == value
 
     def _analysis_output_exists(path_str: str, expected_path: Path | None = None) -> bool:
-        """Return whether an analysis output exists with legacy path fallback."""
+        """Return whether an analysis output exists at the current expected path."""
         path = Path(path_str)
         if not path.is_absolute():
             path = dataset_root / path
@@ -1482,11 +1529,7 @@ def _needs_analysis(
             continue
         meta_path = analysis_metadata_path(dataset_root, subject_id, site)
         if not meta_path.exists():
-            legacy_meta_path = analysis_metadata_path(dataset_root, subject_id)
-            if legacy_meta_path.exists():
-                meta_path = legacy_meta_path
-            else:
-                return True
+            return True
         try:
             payload = json.loads(meta_path.read_text(encoding="utf-8"))
         except Exception:
@@ -2096,6 +2139,13 @@ def _cmd_run(args: argparse.Namespace) -> int:
             return rc
     else:
         print("[timelapse] register: baseline transforms already exist -> skip")
+
+    with benchmark.section("stage.common_region", dataset_root=str(dataset_root)):
+        _emit_common_region_after_registration(
+            dataset_root,
+            subject=getattr(args, "subject", None),
+            site=getattr(args, "site", None),
+        )
 
     if run_mode == "multistack":
         # 4. stackcorrect

@@ -11,7 +11,7 @@ from timelapsedhrpqct.dataset.layout import get_derivative_family_root, get_deri
 class TransformRegistryRecord:
     subject_id: str
     site: str
-    stack_index: int
+    stack_index: int | None
     moving_session: str
     fixed_session: str
     transform_kind: str
@@ -83,7 +83,7 @@ def _deserialize_record(dataset_root: str | Path, payload: dict) -> TransformReg
     return TransformRegistryRecord(
         subject_id=str(payload["subject_id"]),
         site=str(payload.get("site", "radius")),
-        stack_index=int(payload["stack_index"]),
+        stack_index=None if payload.get("stack_index") is None else int(payload["stack_index"]),
         moving_session=str(payload["moving_session"]),
         fixed_session=str(payload["fixed_session"]),
         transform_kind=str(payload["transform_kind"]),
@@ -107,7 +107,7 @@ def iter_transform_registry_records(dataset_root: str | Path) -> list[TransformR
             key = (
                 record.subject_id,
                 record.site,
-                int(record.stack_index),
+                record.stack_index,
                 record.moving_session,
                 record.fixed_session,
                 record.transform_kind,
@@ -127,11 +127,15 @@ def upsert_transform_registry_record(
     record: TransformRegistryRecord,
 ) -> None:
     path = _registry_path(dataset_root)
+
+    def stack_key(value: int | None) -> int:
+        return 0 if value is None else int(value)
+
     existing = {
         (
             r["subject_id"],
             r.get("site", "radius"),
-            int(r["stack_index"]),
+            stack_key(r.get("stack_index")),
             r["moving_session"],
             r["fixed_session"],
             r["transform_kind"],
@@ -144,7 +148,7 @@ def upsert_transform_registry_record(
     key = (
         payload["subject_id"],
         payload.get("site", "radius"),
-        int(payload["stack_index"]),
+        stack_key(payload.get("stack_index")),
         payload["moving_session"],
         payload["fixed_session"],
         payload["transform_kind"],
@@ -157,7 +161,7 @@ def upsert_transform_registry_record(
         key=lambda r: (
             r["subject_id"],
             r.get("site", "radius"),
-            int(r["stack_index"]),
+            stack_key(r.get("stack_index")),
             r["moving_session"],
             r["fixed_session"],
             r["transform_kind"],
@@ -173,7 +177,7 @@ def find_external_pairwise_transform(
     *,
     subject_id: str,
     site: str,
-    stack_index: int,
+    stack_index: int | None,
     moving_session: str,
     fixed_session: str,
 ) -> TransformRegistryRecord | None:
@@ -182,7 +186,7 @@ def find_external_pairwise_transform(
         for record in iter_transform_registry_records(dataset_root)
         if record.subject_id == subject_id
         and record.site == site
-        and int(record.stack_index) == int(stack_index)
+        and record.stack_index == stack_index
         and record.moving_session == moving_session
         and record.fixed_session == fixed_session
         and record.transform_kind == "pairwise"
@@ -194,7 +198,7 @@ def find_external_pairwise_transform(
         details = ", ".join(str(match.internal_path) for match in matches)
         raise TransformRegistryConflictError(
             "Multiple external pairwise transforms match "
-            f"sub-{subject_id} site-{site} stack-{stack_index:02d} "
+            f"sub-{subject_id} site-{site} stack-{stack_index if stack_index is not None else 'unstacked'} "
             f"{moving_session} -> {fixed_session}: {details}"
         )
     if not matches:

@@ -11,7 +11,7 @@ from timelapsedhrpqct.dataset.artifacts import (
 from timelapsedhrpqct.dataset.layout import get_derivatives_root
 
 
-def test_imported_artifact_index_stores_paths_relative_to_dataset_root(
+def test_imported_artifact_index_stores_paths_relative_to_timelapse_root(
     tmp_path: Path,
 ) -> None:
     dataset_root = tmp_path / "dataset"
@@ -46,9 +46,9 @@ def test_imported_artifact_index_stores_paths_relative_to_dataset_root(
     record = payload["records"][0]
 
     assert not Path(record["image_path"]).is_absolute()
-    assert record["image_path"].startswith("derivatives/TimelapsedHRpQCT/")
-    assert record["mask_paths"]["full"].startswith("derivatives/TimelapsedHRpQCT/")
-    assert record["metadata_path"].startswith("derivatives/TimelapsedHRpQCT/")
+    assert record["image_path"].startswith("sub-001/")
+    assert record["mask_paths"]["full"].startswith("sub-001/")
+    assert record["metadata_path"].startswith("sub-001/")
 
 
 def test_imported_artifact_index_reads_legacy_absolute_paths(

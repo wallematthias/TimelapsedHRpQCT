@@ -16,14 +16,15 @@ from timelapsedhrpqct.workflows.analysis import _get_analysis_params
 def test_builtin_profiles_are_discoverable() -> None:
     profiles = list_config_profiles()
 
-    assert "standard" in profiles
-    assert "xct1-standard" in profiles
-    assert "eth-uofc" in profiles
-    assert "eth-uofc-compatibility" in profiles
-    assert "multistack" in profiles
-    assert "ped-fx" in profiles
-    assert "ucsf" not in profiles
-    assert "shriners" not in profiles
+    assert profiles == [
+        "eth-uofc",
+        "multistack",
+        "ped-fx",
+        "shriners",
+        "standard",
+        "ucsf",
+        "xct1-standard",
+    ]
 
 
 def test_profile_is_applied_before_user_config(tmp_path: Path) -> None:
@@ -131,7 +132,7 @@ def test_study_profiles_define_expected_analysis_methods() -> None:
     standard = load_config(profile="standard")
     xct1 = load_config(profile="xct1-standard")
     eth_uofc = load_config(profile="eth-uofc")
-    eth_uofc_compat = load_config(profile="eth-uofc-compatibility")
+    ucsf = load_config(profile="ucsf")
 
     assert standard.masks.segmentation.method == "laplace_hamming"
     assert standard.analysis.method == "auto"
@@ -164,11 +165,11 @@ def test_study_profiles_define_expected_analysis_methods() -> None:
     assert xct1.masks.outer.periosteal_kernelsize >= 9
     assert xct1.masks.outer.periosteal_open_radius <= 1
 
-    for config in (eth_uofc, eth_uofc_compat):
-        assert config.masks.segmentation.method == "seg_gauss"
-        assert config.masks.segmentation.gaussian_sigma == 1.2
-        assert config.masks.segmentation.trab_threshold == 320
-        assert config.masks.segmentation.cort_threshold == 450
+    assert eth_uofc.masks.segmentation.method == "seg_gauss"
+    assert eth_uofc.masks.segmentation.gaussian_sigma == 1.2
+    assert eth_uofc.masks.segmentation.trab_threshold == 320
+    assert eth_uofc.masks.segmentation.cort_threshold == 450
+    for config in (eth_uofc,):
         assert config.analysis.method == "auto"
         assert config.analysis.change_region.source == "common_mask"
         assert config.analysis.binary_reclassification.enabled is True
@@ -177,8 +178,17 @@ def test_study_profiles_define_expected_analysis_methods() -> None:
         assert config.analysis.cluster_sizes == [12]
         assert config.analysis.gaussian_filter is True
 
+    assert ucsf.masks.segmentation.method == "laplace_hamming"
+    assert ucsf.analysis.method == "auto"
+    assert ucsf.analysis.change_region.source == "bone_union"
+    assert ucsf.analysis.binary_reclassification.enabled is False
+    assert _get_analysis_params(ucsf).method == "grayscale_delta_only"
+    assert ucsf.analysis.thresholds == [475]
+    assert ucsf.analysis.cluster_sizes == [5]
+    assert ucsf.analysis.gaussian_filter is False
+
     assert eth_uofc.analysis.image_interpolator == "bspline"
-    assert eth_uofc_compat.analysis.image_interpolator == "ipl_cubic"
+    assert ucsf.analysis.image_interpolator == "ipl_cubic"
 
 
 def test_builtin_profiles_fill_full_mask_holes_by_default() -> None:
@@ -187,12 +197,7 @@ def test_builtin_profiles_fill_full_mask_holes_by_default() -> None:
         assert config.masks.outer.fill_holes is True, profile
 
 
-def test_private_shriners_profile_inherits_disabled_ring_suppression(monkeypatch) -> None:
-    private_profile = Path("src/timelapsedhrpqct/configs/profiles/shriners.yml")
-    if not private_profile.is_file():
-        pytest.skip("Private shriners profile is not present in this checkout.")
-
-    monkeypatch.setenv("TIMELAPSE_INCLUDE_PRIVATE_PROFILES", "1")
+def test_shriners_profile_inherits_disabled_ring_suppression() -> None:
     shriners = load_config(profile="shriners")
 
     assert shriners.analysis.ring_artifact_suppression.enabled is False

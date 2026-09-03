@@ -13,7 +13,7 @@ from timelapsedhrpqct.utils.session_ids import session_sort_key
 class ImportedStackRecord:
     subject_id: str
     session_id: str
-    stack_index: int
+    stack_index: int | None
     image_path: Path
     mask_paths: dict[str, Path]
     seg_path: Path | None
@@ -75,7 +75,7 @@ def _serialize_path(dataset_root: str | Path, path: Path | None) -> str | None:
     """Return serialize path."""
     if path is None:
         return None
-    root = Path(dataset_root).resolve()
+    root = get_derivatives_root(dataset_root).resolve()
     candidate = path.resolve() if path.is_absolute() else (root / path).resolve()
     try:
         return str(candidate.relative_to(root))
@@ -90,7 +90,7 @@ def _deserialize_path(dataset_root: str | Path, payload: str | None) -> Path | N
     path = Path(payload)
     if path.is_absolute():
         return path
-    return Path(dataset_root) / path
+    return get_derivatives_root(dataset_root) / path
 
 
 def _stack_slice_to_dict(slice_range: StackSliceRange | None) -> dict | None:
@@ -152,7 +152,7 @@ def _deserialize_imported_stack(
         subject_id=payload["subject_id"],
         site=payload.get("site", "radius"),
         session_id=payload["session_id"],
-        stack_index=int(payload["stack_index"]),
+        stack_index=None if payload.get("stack_index") is None else int(payload["stack_index"]),
         image_path=_deserialize_path(dataset_root, payload["image_path"]),
         mask_paths={
             k: _deserialize_path(dataset_root, v)
@@ -246,15 +246,19 @@ def upsert_imported_stack_records(
 ) -> None:
     """Helper for upsert imported stack records."""
     index_path = _imported_stack_index_path(dataset_root)
+
+    def stack_key(value: int | None) -> int:
+        return 0 if value is None else int(value)
+
     existing = {
-        (r["subject_id"], r["site"], r["session_id"], int(r["stack_index"])): r
+        (r["subject_id"], r["site"], r["session_id"], stack_key(r.get("stack_index"))): r
         for r in _read_records(index_path)
     }
     for record in records:
-        existing[(record.subject_id, record.site, record.session_id, int(record.stack_index))] = (
+        existing[(record.subject_id, record.site, record.session_id, stack_key(record.stack_index))] = (
             _serialize_imported_stack(dataset_root, record)
         )
-    ordered = sorted(existing.values(), key=lambda r: (r["subject_id"], r["site"], r["session_id"], int(r["stack_index"])))
+    ordered = sorted(existing.values(), key=lambda r: (r["subject_id"], r["site"], r["session_id"], stack_key(r.get("stack_index"))))
     _write_records(index_path, ordered)
 
 
@@ -318,9 +322,9 @@ def iter_filled_session_records(dataset_root: str | Path) -> list[FilledSessionR
 
 def group_imported_stacks_by_subject_site_and_stack(
     records: list[ImportedStackRecord],
-) -> dict[tuple[str, str], dict[int, list[ImportedStackRecord]]]:
+) -> dict[tuple[str, str], dict[int | None, list[ImportedStackRecord]]]:
     """Helper for group imported stacks by subject site and stack."""
-    grouped: dict[tuple[str, str], dict[int, list[ImportedStackRecord]]] = {}
+    grouped: dict[tuple[str, str], dict[int | None, list[ImportedStackRecord]]] = {}
 
     for record in records:
         grouped.setdefault((record.subject_id, record.site), {}).setdefault(record.stack_index, []).append(record)

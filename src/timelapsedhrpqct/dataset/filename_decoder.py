@@ -15,6 +15,13 @@ from timelapsedhrpqct.config.models import DiscoveryConfig
 
 _AIM_WITH_OPTIONAL_VERSION_RE = re.compile(r"(?i)\.aim(?:;\d+)?$")
 _SCENE_IMAGE_SUFFIX_RE = re.compile(r"(?i)(?:\.nii(?:\.gz)?|\.mha|\.mhd|\.nrrd|\.nhdr)$")
+_MIDS_XCT_RE = re.compile(
+    r"(?i)^sub-(?P<subject>.+?)_ses-(?P<session>[^_]+)_voi-(?P<site>.+?)(?:_stack[-_]?(?P<stack>\d+))?_xct$"
+)
+_MIDS_DESC_MASK_RE = re.compile(
+    r"(?i)^sub-(?P<subject>.+?)_ses-(?P<session>[^_]+)_voi-(?P<site>.+?)"
+    r"(?:_stack[-_]?(?P<stack>\d+))?_desc-(?P<role>.+?)_mask$"
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -113,7 +120,7 @@ def normalize_site(site_text: str | None, cfg: DiscoveryConfig) -> str | None:
     if not site_text:
         return None
     shared = normalize_artifact_site(site_text)
-    if shared in {"radius_left", "radius_right", "tibia_left", "tibia_right", "knee_left", "knee_right"}:
+    if shared in {"radiusleft", "radiusright", "tibialeft", "tibiaright", "kneeleft", "kneeright"}:
         return shared
     token = site_text.strip().upper()
     for canonical_site, aliases in cfg.site_aliases.items():
@@ -193,6 +200,28 @@ def decode_filename(path: Path, cfg: DiscoveryConfig) -> DecodedFilename:
     """Helper for decode filename."""
     stem = strip_aim_suffix(path.name)
     role = classify_role_from_name(path, cfg)
+
+    mids_mask_match = _MIDS_DESC_MASK_RE.match(stem)
+    if mids_mask_match:
+        groups = mids_mask_match.groupdict()
+        return DecodedFilename(
+            subject_id=groups["subject"],
+            session_id=normalize_session_id(groups["session"], cfg),
+            role=normalize_role(groups["role"]),
+            site=normalize_site(groups["site"], cfg) or cfg.default_site.lower(),
+            stack_index=int(groups["stack"]) if groups.get("stack") else None,
+        )
+
+    mids_image_match = _MIDS_XCT_RE.match(stem)
+    if mids_image_match:
+        groups = mids_image_match.groupdict()
+        return DecodedFilename(
+            subject_id=groups["subject"],
+            session_id=normalize_session_id(groups["session"], cfg),
+            role="image",
+            site=normalize_site(groups["site"], cfg) or cfg.default_site.lower(),
+            stack_index=int(groups["stack"]) if groups.get("stack") else None,
+        )
 
     stem = re.sub(r"(?i)[_-]TRAB[_-]MASK$", "", stem)
     stem = re.sub(r"(?i)[_-]CORT[_-]MASK$", "", stem)

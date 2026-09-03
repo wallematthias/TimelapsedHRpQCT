@@ -73,7 +73,7 @@ def test_transform_registry_round_trips_relative_paths(tmp_path: Path) -> None:
     assert not Path(registry_payload["records"][0]["internal_path"]).is_absolute()
 
 
-def test_transform_registry_reads_legacy_timelapsed_registry(tmp_path: Path) -> None:
+def test_transform_registry_ignores_deprecated_timelapsed_registry(tmp_path: Path) -> None:
     dataset_root = tmp_path / "dataset"
     transform_path = dataset_root / "derivatives" / "TimelapsedHRpQCT" / "sub-SAMPLE341" / "tfm.tfm"
     _write_transform(transform_path, (1.0, 2.0, 3.0))
@@ -112,16 +112,12 @@ def test_transform_registry_reads_legacy_timelapsed_registry(tmp_path: Path) -> 
         encoding="utf-8",
     )
 
-    records = iter_transform_registry_records(dataset_root)
-
-    assert len(records) == 1
-    assert records[0].internal_path == transform_path
-    assert records[0].provenance == "legacy-test"
+    assert iter_transform_registry_records(dataset_root) == []
 
 
 def test_find_external_pairwise_transform_requires_exactly_one_match(tmp_path: Path) -> None:
     dataset_root = tmp_path / "dataset"
-    transform_path = dataset_root / "derivatives" / "TimelapsedHRpQCT" / "sub-SAMPLE341" / "tfm.tfm"
+    transform_path = dataset_root / "derivatives" / "Registration" / "sub-SAMPLE341" / "tfm.tfm"
     _write_transform(transform_path, (1.0, 2.0, 3.0))
     upsert_transform_registry_record(dataset_root, _record(transform_path))
 

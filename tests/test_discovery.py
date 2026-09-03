@@ -94,12 +94,12 @@ def test_discover_raw_sessions_ignores_non_segmentation_derivative_masks(tmp_pat
 
 def test_discover_raw_sessions_accepts_bone_contouring_mask_names(tmp_path: Path) -> None:
     root = tmp_path / "BoneContours"
-    session_dir = root / "sub-STRAMBO_0001" / "site-radius_left" / "ses-04" / "masks"
-    image = root / "sub-STRAMBO_0001_ses-04_site-radius_left_image.nii.gz"
-    full = session_dir / "sub-STRAMBO_0001_ses-04_site-radius_left_mask-full.AIM"
-    trab = session_dir / "sub-STRAMBO_0001_ses-04_site-radius_left_mask-trab.AIM"
-    cort = session_dir / "sub-STRAMBO_0001_ses-04_site-radius_left_mask-cort.AIM"
-    seg = session_dir / "sub-STRAMBO_0001_ses-04_site-radius_left_mask-seg.AIM"
+    session_dir = root / "sub-STRAMBO_0001" / "site-radiusleft" / "ses-04" / "masks"
+    image = root / "sub-STRAMBO_0001_ses-04_site-radiusleft_image.nii.gz"
+    full = session_dir / "sub-STRAMBO_0001_ses-04_site-radiusleft_mask-full.AIM"
+    trab = session_dir / "sub-STRAMBO_0001_ses-04_site-radiusleft_mask-trab.AIM"
+    cort = session_dir / "sub-STRAMBO_0001_ses-04_site-radiusleft_mask-cort.AIM"
+    seg = session_dir / "sub-STRAMBO_0001_ses-04_site-radiusleft_mask-seg.AIM"
     for path in (image, full, trab, cort, seg):
         _touch(path)
 
@@ -108,10 +108,88 @@ def test_discover_raw_sessions_accepts_bone_contouring_mask_names(tmp_path: Path
     assert len(sessions) == 1
     assert sessions[0].subject_id == "STRAMBO_0001"
     assert sessions[0].session_id == "04"
-    assert sessions[0].site == "radius_left"
+    assert sessions[0].site == "radiusleft"
     assert sessions[0].raw_image_path == image
     assert sessions[0].raw_mask_paths == {"full": full, "trab": trab, "cort": cort}
     assert sessions[0].raw_seg_path == seg
+
+
+def test_discover_raw_sessions_ignores_mask_only_contour_derivative_groups(tmp_path: Path) -> None:
+    root = tmp_path / "dataset"
+    image = root / "sub-001" / "ses-001" / "xct" / "sub-001_ses-001_voi-radiusleft_xct.AIM"
+    stale_mask = (
+        root
+        / "derivatives"
+        / "BoneContours"
+        / "sub-001"
+        / "ses-001"
+        / "xct"
+        / "sub-001_ses-001_voi-radius_desc-full_mask.AIM"
+    )
+    _touch(image)
+    _touch(stale_mask)
+
+    sessions = discover_raw_sessions(root, DiscoveryConfig())
+
+    assert len(sessions) == 1
+    assert sessions[0].subject_id == "001"
+    assert sessions[0].session_id == "001"
+    assert sessions[0].site == "radiusleft"
+    assert sessions[0].raw_mask_paths == {}
+
+
+def test_discover_raw_sessions_ignores_non_mask_aims_in_contour_derivatives(tmp_path: Path) -> None:
+    root = tmp_path / "dataset"
+    image = root / "sub-001" / "ses-001" / "xct" / "sub-001_ses-001_voi-radiusleft_xct.AIM"
+    contour_dir = root / "derivatives" / "BoneContours" / "sub-001" / "ses-001" / "xct"
+    full = contour_dir / "sub-001_ses-001_voi-radiusleft_desc-full_mask.AIM"
+    trab = contour_dir / "sub-001_ses-001_voi-radiusleft_desc-trab_mask.AIM"
+    cort = contour_dir / "sub-001_ses-001_voi-radiusleft_desc-cort_mask.AIM"
+    material_label = contour_dir / "sub-001_ses-001_voi-radiusleft_desc-fea-materials_label.AIM"
+    for path in (image, full, trab, cort, material_label):
+        _touch(path)
+
+    sessions = discover_raw_sessions(root, DiscoveryConfig())
+
+    assert len(sessions) == 1
+    assert sessions[0].raw_image_path == image
+    assert sessions[0].raw_mask_paths == {"full": full, "trab": trab, "cort": cort}
+
+
+def test_discover_raw_sessions_uses_imported_contours_from_normalized_layout(tmp_path: Path) -> None:
+    root = tmp_path / "dataset"
+    image = root / "sub-001" / "ses-001" / "xct" / "sub-001_ses-001_voi-radiusleft_xct.AIM"
+    contours = root / "derivatives" / "ImportedContours" / "sub-001" / "ses-001" / "xct"
+    full = contours / "sub-001_ses-001_voi-radiusleft_desc-full_mask.AIM"
+    roi1 = contours / "sub-001_ses-001_voi-radiusleft_desc-roi1_mask.AIM"
+    for path in (image, full, roi1):
+        _touch(path)
+
+    sessions = discover_raw_sessions(root, DiscoveryConfig())
+
+    assert len(sessions) == 1
+    assert sessions[0].site == "radiusleft"
+    assert sessions[0].raw_mask_paths == {"full": full, "roi1": roi1}
+
+
+def test_discover_raw_sessions_prefers_imported_contours_over_bone_contours(tmp_path: Path) -> None:
+    root = tmp_path / "dataset"
+    image = root / "sub-001" / "ses-001" / "xct" / "sub-001_ses-001_voi-radiusleft_xct.AIM"
+    bone_full = (
+        root / "derivatives" / "BoneContours" / "sub-001" / "ses-001" / "xct"
+        / "sub-001_ses-001_voi-radiusleft_desc-full_mask.AIM"
+    )
+    imported_full = (
+        root / "derivatives" / "ImportedContours" / "sub-001" / "ses-001" / "xct"
+        / "sub-001_ses-001_voi-radiusleft_desc-full_mask.AIM"
+    )
+    for path in (image, bone_full, imported_full):
+        _touch(path)
+
+    sessions = discover_raw_sessions(root, DiscoveryConfig())
+
+    assert len(sessions) == 1
+    assert sessions[0].raw_mask_paths["full"] == imported_full
 
 
 def test_discover_raw_sessions_prefers_scanner_adjacent_masks_over_bone_contouring(tmp_path: Path) -> None:
@@ -122,10 +200,10 @@ def test_discover_raw_sessions_prefers_scanner_adjacent_masks_over_bone_contouri
         root
         / "BoneContours"
         / "sub-STRAMBO_0001"
-        / "site-radius_left"
+        / "site-radiusleft"
         / "ses-Y00"
         / "masks"
-        / "sub-STRAMBO_0001_ses-Y00_site-radius_left_mask-trab.AIM"
+        / "sub-STRAMBO_0001_ses-Y00_site-radiusleft_mask-trab.AIM"
     )
     for path in (image, scanner_trab, contour_trab):
         _touch(path)
@@ -183,10 +261,10 @@ def test_discover_raw_sessions_ignores_legacy_pipeline_output_folder(tmp_path: P
         root
         / "TimelapsedHRpQCT"
         / "sub-STRAMBO_0001"
-        / "site-radius_left"
+        / "site-radiusleft"
         / "transformed_images"
         / "ses-Y00"
-        / "sub-STRAMBO_0001_site-radius_left_ses-Y00_seg_fused.nii.gz"
+        / "sub-STRAMBO_0001_site-radiusleft_ses-Y00_seg_fused.nii.gz"
     )
     _touch(raw_image)
     _touch(stale_seg)
@@ -263,7 +341,7 @@ def test_discover_raw_sessions_deduplicates_aim_version_aliases(tmp_path: Path) 
     assert len(sessions) == 1
     assert sessions[0].subject_id == "STRAMBO_0003"
     assert sessions[0].session_id == "04"
-    assert sessions[0].site == "tibia_right"
+    assert sessions[0].site == "tibiaright"
     assert sessions[0].raw_image_path == versioned
 
 
@@ -274,14 +352,14 @@ def test_discover_raw_sessions_matches_strambo_year_aims_to_bone_contouring_mask
         root
         / "BoneContours"
         / "sub-STRAMBO_0001"
-        / "site-radius_left"
+        / "site-radiusleft"
         / "ses-04"
         / "masks"
-        / "sub-STRAMBO_0001_ses-04_site-radius_left_mask-full.AIM"
+        / "sub-STRAMBO_0001_ses-04_site-radiusleft_mask-full.AIM"
     )
-    trab = full.with_name("sub-STRAMBO_0001_ses-04_site-radius_left_mask-trab.AIM")
-    cort = full.with_name("sub-STRAMBO_0001_ses-04_site-radius_left_mask-cort.AIM")
-    seg = full.with_name("sub-STRAMBO_0001_ses-04_site-radius_left_mask-seg.AIM")
+    trab = full.with_name("sub-STRAMBO_0001_ses-04_site-radiusleft_mask-trab.AIM")
+    cort = full.with_name("sub-STRAMBO_0001_ses-04_site-radiusleft_mask-cort.AIM")
+    seg = full.with_name("sub-STRAMBO_0001_ses-04_site-radiusleft_mask-seg.AIM")
     for path in (image, full, trab, cort, seg):
         _touch(path)
 
@@ -290,7 +368,7 @@ def test_discover_raw_sessions_matches_strambo_year_aims_to_bone_contouring_mask
     assert len(sessions) == 1
     assert sessions[0].subject_id == "STRAMBO_0001"
     assert sessions[0].session_id == "04"
-    assert sessions[0].site == "radius_left"
+    assert sessions[0].site == "radiusleft"
     assert sessions[0].raw_image_path == image
     assert sessions[0].raw_mask_paths == {"full": full, "trab": trab, "cort": cort}
     assert sessions[0].raw_seg_path == seg
@@ -533,8 +611,8 @@ def test_discover_raw_sessions_keeps_left_and_right_radius_separate(tmp_path: Pa
     sessions = discover_raw_sessions(root, DiscoveryConfig())
 
     assert [(s.site, s.raw_image_path.name) for s in sessions] == [
-        ("radius_left", "SUBJ001_RL_T1.AIM"),
-        ("radius_right", "SUBJ001_RR_T1.AIM"),
+        ("radiusleft", "SUBJ001_RL_T1.AIM"),
+        ("radiusright", "SUBJ001_RR_T1.AIM"),
     ]
 
 
@@ -580,6 +658,90 @@ def test_discover_raw_sessions_supports_nested_bids_like_layout(tmp_path: Path) 
     assert sessions[0].raw_mask_paths["trab"] == trab
 
 
+def test_discover_raw_sessions_supports_normalized_mids_xct_and_ipl_contours(tmp_path: Path) -> None:
+    root = tmp_path / "dataset"
+    image = root / "sub-001" / "ses-001" / "xct" / "sub-001_ses-001_voi-radiusleft_stack-02_xct.AIM"
+    bone_full = (
+        root
+        / "derivatives"
+        / "BoneContours"
+        / "sub-001"
+        / "ses-001"
+        / "xct"
+        / "sub-001_ses-001_voi-radiusleft_stack-02_desc-full_mask.AIM"
+    )
+    ipl_full = (
+        root
+        / "derivatives"
+        / "IPLContours"
+        / "sub-001"
+        / "ses-001"
+        / "xct"
+        / "sub-001_ses-001_voi-radiusleft_stack-02_desc-full_mask.AIM"
+    )
+    trab = (
+        root
+        / "derivatives"
+        / "IPLContours"
+        / "sub-001"
+        / "ses-001"
+        / "xct"
+        / "sub-001_ses-001_voi-radiusleft_stack-02_desc-trab_mask.AIM"
+    )
+    cort = (
+        root
+        / "derivatives"
+        / "IPLContours"
+        / "sub-001"
+        / "ses-001"
+        / "xct"
+        / "sub-001_ses-001_voi-radiusleft_stack-02_desc-cort_mask.AIM"
+    )
+    for path in (image, bone_full, ipl_full, trab, cort):
+        _touch(path)
+
+    sessions = discover_raw_sessions(root, DiscoveryConfig())
+
+    assert len(sessions) == 1
+    assert sessions[0].subject_id == "001"
+    assert sessions[0].session_id == "001"
+    assert sessions[0].site == "radiusleft"
+    assert sessions[0].stack_index == 2
+    assert sessions[0].raw_image_path == image
+    assert sessions[0].raw_mask_paths["full"] == ipl_full
+    assert sessions[0].raw_mask_paths["trab"] == trab
+    assert sessions[0].raw_mask_paths["cort"] == cort
+
+
+def test_discover_raw_sessions_uses_imported_contour_niftis_without_scene_mode(tmp_path: Path) -> None:
+    root = tmp_path / "dataset"
+    image = root / "sub-BMLT006" / "ses-000" / "xct" / "sub-BMLT006_ses-000_voi-knee_stack-01_xct.AIM"
+    full = (
+        root
+        / "derivatives"
+        / "ImportedContours"
+        / "sub-BMLT006"
+        / "ses-000"
+        / "xct"
+        / "sub-BMLT006_ses-000_voi-knee_stack-01_desc-full_mask.nii.gz"
+    )
+    trab = full.with_name("sub-BMLT006_ses-000_voi-knee_stack-01_desc-trab_mask.nii.gz")
+    cort = full.with_name("sub-BMLT006_ses-000_voi-knee_stack-01_desc-cort_mask.nii.gz")
+    seg = full.with_name("sub-BMLT006_ses-000_voi-knee_stack-01_desc-seg_mask.nii.gz")
+    for path in (image, full, trab, cort, seg):
+        _touch(path)
+
+    sessions = discover_raw_sessions(root, DiscoveryConfig())
+
+    assert len(sessions) == 1
+    assert sessions[0].subject_id == "BMLT006"
+    assert sessions[0].session_id == "000"
+    assert sessions[0].site == "knee"
+    assert sessions[0].stack_index == 1
+    assert sessions[0].raw_mask_paths == {"full": full, "trab": trab, "cort": cort}
+    assert sessions[0].raw_seg_path == seg
+
+
 def test_discover_raw_sessions_supports_scene_exported_nifti_layout(tmp_path: Path) -> None:
     root = tmp_path / "scene"
     session_dir = root / "sub-STRAMBO_0001" / "site-RL" / "native_space" / "ses-04"
@@ -595,7 +757,7 @@ def test_discover_raw_sessions_supports_scene_exported_nifti_layout(tmp_path: Pa
     assert len(sessions) == 1
     assert sessions[0].subject_id == "STRAMBO_0001"
     assert sessions[0].session_id == "04"
-    assert sessions[0].site == "radius_left"
+    assert sessions[0].site == "radiusleft"
     assert sessions[0].raw_image_path == image
     assert sessions[0].raw_mask_paths["full"] == full
     assert sessions[0].raw_mask_paths["cort"] == cort
@@ -614,7 +776,7 @@ def test_discover_raw_sessions_treats_scene_generic_roi_as_mask(tmp_path: Path) 
     assert len(sessions) == 1
     assert sessions[0].subject_id == "STRAMBO_0001"
     assert sessions[0].session_id == "04"
-    assert sessions[0].site == "radius_left"
+    assert sessions[0].site == "radiusleft"
     assert sessions[0].raw_image_path == image
     assert sessions[0].raw_mask_paths["roi1"] == roi
 
@@ -632,7 +794,7 @@ def test_discover_raw_sessions_treats_named_scene_roi_as_mask(tmp_path: Path) ->
     assert len(sessions) == 1
     assert sessions[0].subject_id == "STRAMBO_0001"
     assert sessions[0].session_id == "04"
-    assert sessions[0].site == "radius_left"
+    assert sessions[0].site == "radiusleft"
     assert sessions[0].raw_image_path == image
     assert sessions[0].raw_mask_paths["roi_inner_core"] == roi
 
@@ -652,7 +814,7 @@ def test_discover_raw_sessions_supports_scene_nifti_with_loaded_default_config(t
     assert len(sessions) == 1
     assert sessions[0].subject_id == "STRAMBO_0001"
     assert sessions[0].session_id == "04"
-    assert sessions[0].site == "radius_left"
+    assert sessions[0].site == "radiusleft"
 
 
 def test_discover_raw_sessions_supports_sided_site_aliases(tmp_path: Path) -> None:
@@ -665,7 +827,7 @@ def test_discover_raw_sessions_supports_sided_site_aliases(tmp_path: Path) -> No
     assert len(sessions) == 1
     assert sessions[0].subject_id == "SUBJECT_001"
     assert sessions[0].session_id == "T1"
-    assert sessions[0].site == "tibia_right"
+    assert sessions[0].site == "tibiaright"
 
 
 def test_discovery_falls_back_to_header_and_resolves_mask_site_from_image(
@@ -704,7 +866,7 @@ def test_discovery_falls_back_to_header_and_resolves_mask_site_from_image(
     assert len(sessions) == 1
     assert sessions[0].subject_id == "482"
     assert sessions[0].session_id == "M2207"
-    assert sessions[0].site == "tibia_left"
+    assert sessions[0].site == "tibialeft"
     assert sessions[0].raw_image_path == image
     assert sessions[0].raw_mask_paths["trab"] == trab
 
@@ -738,7 +900,7 @@ def test_discovery_force_header_discovery_overrides_filename_parsing(
     assert len(sessions) == 1
     assert sessions[0].subject_id == "H482"
     assert sessions[0].session_id == "M2207"
-    assert sessions[0].site == "radius_left"
+    assert sessions[0].site == "radiusleft"
 
 
 def test_discovery_force_header_unknown_numeric_site_falls_back_to_path_context(

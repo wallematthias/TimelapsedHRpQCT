@@ -41,6 +41,17 @@ from timelapsedhrpqct.processing.transform_chain import (
 from timelapsedhrpqct.utils.sitk_helpers import load_image, write_image, write_json
 
 
+def _load_mask_image(path: Path) -> sitk.Image:
+    """Load a registration mask without applying grayscale density scaling."""
+    path = Path(path)
+    if path.name.lower().endswith((".aim", ".aim;1", ".aim;2", ".aim;3", ".aim;4")):
+        from timelapsedhrpqct.io.aim import read_aim
+
+        image, _metadata = read_aim(path, scaling="native")
+        return sitk.Cast(image > 0, sitk.sitkUInt8)
+    return sitk.Cast(load_image(path) > 0, sitk.sitkUInt8)
+
+
 def _load_union_generic_mask(mask_paths: dict[str, Path]) -> tuple[sitk.Image | None, str | None]:
     """Union available generic ROI/mask roles into one registration mask."""
     generic_roles = sorted(
@@ -55,7 +66,7 @@ def _load_union_generic_mask(mask_paths: dict[str, Path]) -> tuple[sitk.Image | 
     used_paths: list[str] = []
     for role in generic_roles:
         path = mask_paths[role]
-        current = sitk.Cast(load_image(path) > 0, sitk.sitkUInt8)
+        current = _load_mask_image(path)
         if union_mask is None:
             union_mask = current
             used_paths.append(str(path))
@@ -89,7 +100,7 @@ def _load_union_named_masks(
     used_paths: list[str] = []
     for role in existing_roles:
         path = mask_paths[role]
-        current = sitk.Cast(load_image(path) > 0, sitk.sitkUInt8)
+        current = _load_mask_image(path)
         if union_mask is None:
             union_mask = current
             used_paths.append(str(path))
@@ -113,11 +124,11 @@ def _load_registration_mask(record) -> tuple[sitk.Image | None, str | None]:
     """Select best-available registration mask and provenance for a stack record."""
     regmask_path = record.mask_paths.get("regmask")
     if regmask_path is not None and regmask_path.exists():
-        return load_image(regmask_path), str(regmask_path)
+        return _load_mask_image(regmask_path), str(regmask_path)
 
     full_path = record.mask_paths.get("full")
     if full_path is not None and full_path.exists():
-        return load_image(full_path), str(full_path)
+        return _load_mask_image(full_path), str(full_path)
 
     trab_cort_union, trab_cort_ref = _load_union_named_masks(
         record.mask_paths,
@@ -138,10 +149,14 @@ def _load_required_registration_mask(record) -> tuple[sitk.Image, str]:
     raise ValueError(
         "No usable registration mask for "
         f"sub-{record.subject_id} site-{record.site} ses-{record.session_id} "
-        f"stack-{int(record.stack_index):02d}. Provide a regmask, full mask, or "
+        f"{_stack_label(record.stack_index)}. Provide a regmask, full mask, or "
         "generic ROI masks; generate missing masks with Bone Contouring, or set "
         "timelapsed_registration.use_masks=false."
     )
+
+
+def _stack_label(stack_index: int | None) -> str:
+    return "unstacked" if stack_index is None else f"stack-{stack_index:02d}"
 
 
 def _write_transform(transform: sitk.Transform, path: Path) -> None:
@@ -150,7 +165,7 @@ def _write_transform(transform: sitk.Transform, path: Path) -> None:
     sitk.WriteTransform(flatten_transform(transform), str(path))
 
 
-def _stack_transform_dir(dataset_root: Path, subject_id: str, site: str, stack_index: int) -> Path:
+def _stack_transform_dir(dataset_root: Path, subject_id: str, site: str, stack_index: int | None) -> Path:
     """Return transform directory for a subject/site/stack registration run."""
     return timelapse_stack_transform_dir(dataset_root, subject_id, site, stack_index)
 
@@ -164,8 +179,8 @@ def _pairwise_transform_path(
     fixed_session: str | None = None,
 ) -> Path:
     """Build output path for a pairwise registration transform."""
-    if stack_index is None or moving_session is None or fixed_session is None:
-        raise ValueError("stack_index, moving_session, and fixed_session are required")
+    if moving_session is None or fixed_session is None:
+        raise ValueError("moving_session and fixed_session are required")
     return timelapse_pairwise_transform_path(
         dataset_root,
         subject_id,
@@ -185,8 +200,8 @@ def _pairwise_metadata_path(
     fixed_session: str | None = None,
 ) -> Path:
     """Build output path for pairwise registration metadata."""
-    if stack_index is None or moving_session is None or fixed_session is None:
-        raise ValueError("stack_index, moving_session, and fixed_session are required")
+    if moving_session is None or fixed_session is None:
+        raise ValueError("moving_session and fixed_session are required")
     return timelapse_pairwise_metadata_path(
         dataset_root,
         subject_id,
@@ -206,8 +221,8 @@ def _baseline_transform_path(
     baseline_session: str | None = None,
 ) -> Path:
     """Build output path for baseline-space transform of one moving session."""
-    if stack_index is None or moving_session is None or baseline_session is None:
-        raise ValueError("stack_index, moving_session, and baseline_session are required")
+    if moving_session is None or baseline_session is None:
+        raise ValueError("moving_session and baseline_session are required")
     return timelapse_baseline_transform_path(
         dataset_root,
         subject_id,
@@ -227,8 +242,8 @@ def _baseline_metadata_path(
     baseline_session: str | None = None,
 ) -> Path:
     """Build output path for baseline transform metadata."""
-    if stack_index is None or moving_session is None or baseline_session is None:
-        raise ValueError("stack_index, moving_session, and baseline_session are required")
+    if moving_session is None or baseline_session is None:
+        raise ValueError("moving_session and baseline_session are required")
     return timelapse_baseline_metadata_path(
         dataset_root,
         subject_id,
@@ -248,8 +263,8 @@ def _baseline_registered_image_path(
     baseline_session: str | None = None,
 ) -> Path:
     """Build output path for moving image resampled to baseline space."""
-    if stack_index is None or moving_session is None or baseline_session is None:
-        raise ValueError("stack_index, moving_session, and baseline_session are required")
+    if moving_session is None or baseline_session is None:
+        raise ValueError("moving_session and baseline_session are required")
     return timelapse_baseline_registered_image_path(
         dataset_root,
         subject_id,
@@ -264,7 +279,7 @@ def _baseline_overlay_path(
     dataset_root: Path,
     subject_id: str,
     site: str,
-    stack_index: int,
+    stack_index: int | None,
     moving_session: str,
     baseline_session: str,
 ) -> Path:
@@ -283,7 +298,7 @@ def _baseline_checkerboard_path(
     dataset_root: Path,
     subject_id: str,
     site: str,
-    stack_index: int,
+    stack_index: int | None,
     moving_session: str,
     baseline_session: str,
 ) -> Path:
@@ -517,11 +532,11 @@ def run_timelapse_registration(
                     )
 
                 print(
-                    f"[timelapse]   stack-{stack_index:02d}: only one session, wrote identity baseline transform"
+                    f"[timelapse]   {_stack_label(stack_index)}: only one session, wrote identity baseline transform"
                 )
                 continue
 
-            print(f"[timelapse]   stack-{stack_index:02d}: {len(stack_records)} sessions")
+            print(f"[timelapse]   {_stack_label(stack_index)}: {len(stack_records)} sessions")
 
             pairwise: list[PairwiseTransform] = []
             baseline_session = _resolve_baseline_session_id(
@@ -767,5 +782,5 @@ def run_timelapse_registration(
                     )
 
             print(
-                f"[timelapse]   stack-{stack_index:02d}: wrote {len(baseline_transforms)} baseline transform(s)"
+                f"[timelapse]   {_stack_label(stack_index)}: wrote {len(baseline_transforms)} baseline transform(s)"
             )

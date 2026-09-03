@@ -24,10 +24,10 @@ VALID_ROLES = {"image", "cort", "trab", "full", "seg", "regmask", "events"}
 _AIM_WITH_OPTIONAL_VERSION_RE = re.compile(r"(?i)\.aim(?:;\d+)?$")
 _SCENE_IMAGE_SUFFIX_RE = re.compile(r"(?i)(?:\.nii(?:\.gz)?|\.mha|\.mhd|\.nrrd|\.nhdr)$")
 _HEADER_SITE_CODE_MAP = {
-    "20": "radius_left",
-    "21": "radius_right",
-    "38": "tibia_left",
-    "29": "tibia_right",
+    "20": "radiusleft",
+    "21": "radiusright",
+    "38": "tibialeft",
+    "29": "tibiaright",
 }
 
 
@@ -78,7 +78,29 @@ def _is_discoverable_raw_or_segmentation_derivative(path: Path, root: Path) -> b
     if idx + 1 >= len(lowered):
         return False
     family = lowered[idx + 1]
-    return family in {"segmentation", "bonecontours", "bone_contours", "bonecontouring", "bone_contouring"}
+    return family in {
+        "importedcontours",
+        "imported_contours",
+        "segmentation",
+        "bonecontours",
+        "bone_contours",
+        "bonecontouring",
+        "bone_contouring",
+        "iplcontours",
+        "ipl_contours",
+    }
+
+
+def _is_discoverable_derivative(path: Path, root: Path) -> bool:
+    """Return whether path is inside a derivative family accepted as mask input."""
+    try:
+        rel_parts = path.relative_to(root).parts
+    except ValueError:
+        return False
+    lowered = [part.lower().replace("-", "_") for part in rel_parts]
+    if "derivatives" not in lowered:
+        return False
+    return _is_discoverable_raw_or_segmentation_derivative(path, root)
 
 
 def _strip_aim_suffix(name: str) -> str:
@@ -167,13 +189,27 @@ def _is_bone_contouring_output(path: Path) -> bool:
     return bool(parts & {"bonecontours", "bone_contours", "bonecontouring", "bone_contouring"})
 
 
+def _is_ipl_contouring_output(path: Path) -> bool:
+    """Return whether a path appears to come from imported scanner/IPL contour derivatives."""
+    parts = {part.lower().replace("-", "_") for part in path.parts}
+    return bool(parts & {"iplcontours", "ipl_contours"})
+
+
+def _is_imported_contours_output(path: Path) -> bool:
+    """Return whether a path comes from curated imported contour derivatives."""
+    parts = {part.lower().replace("-", "_") for part in path.parts}
+    return bool(parts & {"importedcontours", "imported_contours"})
+
+
 def _mask_source_priority(path: Path, image_candidates: list[Path]) -> int:
     """Rank discovered mask sources; lower values are preferred."""
-    if any(path.parent == image_path.parent for image_path in image_candidates):
+    if _is_imported_contours_output(path) or _is_ipl_contouring_output(path):
         return 0
+    if any(path.parent == image_path.parent for image_path in image_candidates):
+        return 1
     if _is_bone_contouring_output(path):
         return 2
-    return 1 if _is_aim_file(path) else 3
+    return 3 if _is_aim_file(path) else 4
 
 
 def _prefer_mask_source(existing: Path, candidate: Path, image_candidates: list[Path]) -> Path | None:
@@ -287,7 +323,7 @@ def _normalize_site(site_text: str | None, cfg: DiscoveryConfig) -> str | None:
     if not site_text:
         return None
     shared = normalize_artifact_site(site_text)
-    if shared in {"radius_left", "radius_right", "tibia_left", "tibia_right", "knee_left", "knee_right"}:
+    if shared in {"radiusleft", "radiusright", "tibialeft", "tibiaright", "kneeleft", "kneeright"}:
         return shared
     token = site_text.strip().upper()
     for canonical_site, aliases in cfg.site_aliases.items():
@@ -695,7 +731,8 @@ def discover_raw_sessions(
 
     for path in root.rglob("*"):
         is_aim = _is_aim_file(path)
-        if not is_aim and not (allow_scene_images and _is_scene_image_file(path)):
+        is_derivative_volume = (not is_aim) and _is_scene_image_file(path) and _is_discoverable_derivative(path, root)
+        if not is_aim and not (allow_scene_images and _is_scene_image_file(path)) and not is_derivative_volume:
             continue
         if _is_pipeline_managed_copy(path, root):
             continue
@@ -771,6 +808,8 @@ def discover_raw_sessions(
                         path,
                         discovery_config,
                     )
+        if _is_discoverable_derivative(path, root) and role == "image":
+            continue
         grouped[(subject_id, session_id, site, stack_index)].append((path, role, site))
 
     grouped_resolved = _resolve_missing_sites_from_group_context(grouped, discovery_config)
@@ -829,9 +868,9 @@ def discover_raw_sessions(
         if len(image_candidates) == 0:
             if all(role == "events" for _path, role, _site in entries):
                 continue
-            raise ValueError(
-                f"No raw image AIM found for {subject_id}/{session_id}/{site_value}"
-            )
+            if all(role != "image" for _path, role, _site in entries):
+                continue
+            raise ValueError(f"No raw image AIM found for {subject_id}/{session_id}/{site_value}")
 
         image_candidates = _deduplicate_image_candidates(image_candidates, root)
         if len(image_candidates) > 1:

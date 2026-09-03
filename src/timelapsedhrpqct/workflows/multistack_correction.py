@@ -45,7 +45,7 @@ from timelapsedhrpqct.processing.superstack import (
 from timelapsedhrpqct.processing.transform_chain import (
     compose_with_stackshift_correction,
 )
-from timelapsedhrpqct.utils.sitk_helpers import load_image, write_image, write_json
+from timelapsedhrpqct.utils.sitk_helpers import load_image, load_mask_image, write_image, write_json
 
 
 def _load_transform(path: Path) -> sitk.Transform:
@@ -410,7 +410,7 @@ def _build_stack_superstack_in_common_reference(
         aligned_images.append(aligned)
 
         if aligned_masks is not None and "full" in record.mask_paths and record.mask_paths["full"].exists():
-            mask_img = load_image(record.mask_paths["full"])
+            mask_img = load_mask_image(record.mask_paths["full"])
             aligned_mask = sitk.Resample(
                 sitk.Cast(mask_img > 0, sitk.sitkFloat32),
                 common_reference,
@@ -857,14 +857,14 @@ def _estimate_stack_corrections_from_boundary_slices(
         fixed_image_full = load_image(fixed_record.image_path)
         moving_image_full = load_image(moving_record.image_path)
         fixed_mask_full = (
-            load_image(fixed_record.mask_paths["full"])
+            load_mask_image(fixed_record.mask_paths["full"])
             if settings.use_masks
             and "full" in fixed_record.mask_paths
             and fixed_record.mask_paths["full"].exists()
             else None
         )
         moving_mask_full = (
-            load_image(moving_record.mask_paths["full"])
+            load_mask_image(moving_record.mask_paths["full"])
             if settings.use_masks
             and "full" in moving_record.mask_paths
             and moving_record.mask_paths["full"].exists()

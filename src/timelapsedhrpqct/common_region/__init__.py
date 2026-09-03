@@ -7,7 +7,7 @@ from typing import Mapping
 
 import SimpleITK as sitk
 from bone_imaging_derivatives import DerivativeRecord
-from bone_imaging_derivatives.layout import record_output_path
+from bone_imaging_derivatives.layout import record_output_path, voi_token
 
 from timelapsedhrpqct import __version__
 from timelapsedhrpqct.dataset.artifacts import group_imported_stacks_by_subject_site_and_stack, iter_imported_stack_records
@@ -79,12 +79,16 @@ def build_common_scan_region(
     return common, native_common
 
 
+def _stack_token(stack_index: int | None) -> str:
+    return "" if stack_index is None else f"_stack-{stack_index:02d}"
+
+
 def run_common_region_batch(
     dataset_root: str | Path,
     *,
     subject_id: str,
     site: str,
-    transforms_to_reference: Mapping[tuple[int, str], sitk.Transform],
+    transforms_to_reference: Mapping[tuple[int | None, str], sitk.Transform],
 ) -> Path:
     """Write all scan-support products and upsert a CommonRegion manifest."""
     root = Path(dataset_root)
@@ -108,8 +112,8 @@ def run_common_region_batch(
         reference_paths: dict[str, Path] = {}
         for session_id in images:
             native_path = record_output_path(
-                root, "CommonRegion", subject_id, site, "native_space", f"ses-{session_id}", "masks",
-                f"sub-{subject_id}_ses-{session_id}_site-{site}_stack-{stack_index:02d}_mask-scan-region_native.nii.gz",
+                root, "CommonRegion", subject_id, site, f"ses-{session_id}", "masks",
+                f"sub-{subject_id}_ses-{session_id}_voi-{voi_token(site)}{_stack_token(stack_index)}_mask-scan-region_native.nii.gz",
             )
             write_image(native_supports[session_id], native_path)
             records.append(DerivativeRecord(
@@ -117,8 +121,8 @@ def run_common_region_batch(
                 "native", native_path, "generated", inputs=(str(artifact_by_session[session_id].image_path),), content_type="mask",
             ))
             reference_path = record_output_path(
-                root, "CommonRegion", subject_id, site, "reference_space", f"ses-{session_id}", "masks",
-                f"sub-{subject_id}_ses-{session_id}_site-{site}_stack-{stack_index:02d}_mask-scan-region_reference.nii.gz",
+                root, "CommonRegion", subject_id, site, f"ses-{session_id}", "masks",
+                f"sub-{subject_id}_ses-{session_id}_voi-{voi_token(site)}{_stack_token(stack_index)}_mask-scan-region_reference.nii.gz",
             )
             write_image(reference_supports[session_id], reference_path)
             reference_paths[session_id] = reference_path
@@ -128,8 +132,8 @@ def run_common_region_batch(
                 coordinate_reference={"session_id": reference_session},
             ))
         common_path = record_output_path(
-            root, "CommonRegion", subject_id, site, "reference_space",
-            f"sub-{subject_id}_site-{site}_stack-{stack_index:02d}_mask-scan-region_common.nii.gz",
+            root, "CommonRegion", subject_id, site, "masks",
+            f"sub-{subject_id}_voi-{voi_token(site)}{_stack_token(stack_index)}_mask-scan-region_common.nii.gz",
         )
         write_image(common, common_path)
         records.append(DerivativeRecord(
@@ -139,8 +143,8 @@ def run_common_region_batch(
         ))
         for session_id, native_region in native_common.items():
             path = record_output_path(
-                root, "CommonRegion", subject_id, site, "native_space", f"ses-{session_id}", "masks",
-                f"sub-{subject_id}_ses-{session_id}_site-{site}_stack-{stack_index:02d}_mask-scan-region_native_common.nii.gz",
+                root, "CommonRegion", subject_id, site, f"ses-{session_id}", "masks",
+                f"sub-{subject_id}_ses-{session_id}_voi-{voi_token(site)}{_stack_token(stack_index)}_mask-scan-region_native_common.nii.gz",
             )
             write_image(native_region, path)
             records.append(DerivativeRecord(

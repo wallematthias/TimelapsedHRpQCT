@@ -5,6 +5,10 @@ from pathlib import Path
 from timelapsedhrpqct.dataset.artifacts import FusedSessionRecord
 
 
+def _stack_token(stack_index: int | None) -> str:
+    return "" if stack_index is None else f"_stack-{stack_index:02d}"
+
+
 def build_fused_session_metadata(
     *,
     subject_id: str,
@@ -29,7 +33,7 @@ def build_fused_session_metadata(
         "session_id": session_id,
         "kind": "fused_transformed_session",
         "space_from": [
-            f"sub-{subject_id}{site_token}_ses-{session_id}_stack-{c['stack_index']:02d}_native"
+            f"sub-{subject_id}{site_token}_ses-{session_id}{_stack_token(c.get('stack_index'))}_native"
             for c in contributors
         ],
         "space_to": f"sub-{subject_id}{site_token}_fused_baseline_common",

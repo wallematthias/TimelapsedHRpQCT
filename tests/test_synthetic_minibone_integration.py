@@ -39,7 +39,7 @@ def test_synthetic_minibone_fixture_runs_end_to_end(tmp_path: Path) -> None:
         ),
         encoding="utf-8",
     )
-    output_root = tmp_path / "TimelapsedHRpQCT"
+    output_root = tmp_path / "Timelapse"
 
     subprocess.run(
         [

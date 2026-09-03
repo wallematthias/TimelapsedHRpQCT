@@ -48,7 +48,7 @@ discovery:
   session_regex: '(?i)^(?P<subject>.+?)(?:_(?P<site>DR|DT|KN|RL|RR|TL|TR|KL|KR|RADIUS|TIBIA|KNEE|RADIUS_LEFT|RADIUS_RIGHT|TIBIA_LEFT|TIBIA_RIGHT|KNEE_LEFT|KNEE_RIGHT))?(?:_STACK(?P<stack>\d+))?_(?P<session>[A-Z][A-Z0-9]*)(?:_(?P<role>.*))?\.aim(?:;\d+)?$'
 
   # Site assigned when no site can be parsed from filename/path/header.
-  # Options: radius | tibia | knee | radius_left | radius_right | tibia_left | tibia_right | knee_left | knee_right.
+  # Options: radius | tibia | knee | radiusleft | radiusright | tibialeft | tibiaright | kneeleft | kneeright.
   default_site: tibia
 
   # Site aliases accepted during discovery. Edit only when your scanner/export
@@ -61,17 +61,17 @@ discovery:
     # Tokens mapped to the canonical knee site.
     knee: [KN, KNEE]
     # Tokens mapped to the canonical left radius site.
-    radius_left: [RL, RADIUS_LEFT, RADL, LEFT_RADIUS]
+    radiusleft: [RL, RADIUS_LEFT, RADL, LEFT_RADIUS]
     # Tokens mapped to the canonical right radius site.
-    radius_right: [RR, RADIUS_RIGHT, RADR, RIGHT_RADIUS]
+    radiusright: [RR, RADIUS_RIGHT, RADR, RIGHT_RADIUS]
     # Tokens mapped to the canonical left tibia site.
-    tibia_left: [TL, TIBIA_LEFT, TIBL, LEFT_TIBIA]
+    tibialeft: [TL, TIBIA_LEFT, TIBL, LEFT_TIBIA]
     # Tokens mapped to the canonical right tibia site.
-    tibia_right: [TR, TIBIA_RIGHT, TIBR, RIGHT_TIBIA]
+    tibiaright: [TR, TIBIA_RIGHT, TIBR, RIGHT_TIBIA]
     # Tokens mapped to the canonical left knee site.
-    knee_left: [KL, KNL, KNEE_LEFT, KNEEL, LEFT_KNEE]
+    kneeleft: [KL, KNL, KNEE_LEFT, KNEEL, LEFT_KNEE]
     # Tokens mapped to the canonical right knee site.
-    knee_right: [KR, KNR, KNEE_RIGHT, KNEER, RIGHT_KNEE]
+    kneeright: [KR, KNR, KNEE_RIGHT, KNEER, RIGHT_KNEE]
 
   # Session aliases normalized during discovery. Add study-specific names here
   # if needed, for example M00 -> T1 or M12 -> T2.

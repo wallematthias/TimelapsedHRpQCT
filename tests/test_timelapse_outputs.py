@@ -31,6 +31,30 @@ def test_build_pairwise_registration_metadata_preserves_contract() -> None:
     assert metadata["moving_mask_used"] is False
 
 
+def test_build_pairwise_registration_metadata_omits_stack_token_for_unstacked() -> None:
+    metadata = build_pairwise_registration_metadata(
+        subject_id="001",
+        site="radiusleft",
+        stack_index=None,
+        moving_session="002",
+        fixed_session="001",
+        metric_value=1.5,
+        optimizer_stop_condition="done",
+        iterations=12,
+        registration_metadata={"backend": "fake"},
+        fixed_image="/tmp/fixed.mha",
+        moving_image="/tmp/moving.mha",
+        fixed_mask=None,
+        moving_mask=None,
+        fixed_mask_used=False,
+        moving_mask_used=False,
+    )
+
+    assert metadata["stack_index"] is None
+    assert metadata["space_from"] == "sub-001_site-radiusleft_ses-002_native"
+    assert metadata["space_to"] == "sub-001_site-radiusleft_ses-001_native"
+
+
 def test_build_baseline_registration_metadata_handles_identity_and_qc_cases() -> None:
     identity = build_baseline_registration_metadata(
         subject_id="001",
@@ -56,3 +80,19 @@ def test_build_baseline_registration_metadata_handles_identity_and_qc_cases() ->
     assert composed["fixed_image"] == "/tmp/fixed.mha"
     assert composed["moving_image"] == "/tmp/moving.mha"
     assert composed["qc_outputs"]["overlay"] == "/tmp/overlay.mha"
+
+
+def test_build_baseline_registration_metadata_omits_stack_token_for_unstacked() -> None:
+    metadata = build_baseline_registration_metadata(
+        subject_id="001",
+        site="radiusleft",
+        stack_index=None,
+        moving_session="002",
+        baseline_session="001",
+        space_from_session="002",
+        source="composed",
+    )
+
+    assert metadata["stack_index"] is None
+    assert metadata["space_from"] == "sub-001_site-radiusleft_ses-002_native"
+    assert metadata["space_to"] == "sub-001_site-radiusleft_ses-001_baseline"
