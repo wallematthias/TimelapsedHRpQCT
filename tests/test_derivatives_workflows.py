@@ -126,6 +126,26 @@ def test_common_region_uses_image_fov_not_a_biological_mask() -> None:
     assert int(sitk.GetArrayViewFromImage(native_regions["T2"]).sum()) == 64
 
 
+def test_common_region_uses_stored_resampling_transform_direction() -> None:
+    """Stored transforms map reference output points into session input space."""
+    common_region = importlib.import_module("timelapsedhrpqct.common_region")
+    image = _image()
+    shifted_session_from_reference = sitk.TranslationTransform(3, (1.0, 0.0, 0.0))
+
+    common_reference, native_regions = common_region.build_common_scan_region(
+        {"T1": image, "T2": image},
+        {"T1": sitk.Transform(3, sitk.sitkIdentity), "T2": shifted_session_from_reference},
+        reference_session="T1",
+    )
+
+    reference_arr = sitk.GetArrayFromImage(common_reference) > 0
+    native_arr = sitk.GetArrayFromImage(native_regions["T2"]) > 0
+    assert reference_arr[:, :, 0].all()
+    assert not reference_arr[:, :, -1].any()
+    assert not native_arr[:, :, 0].any()
+    assert native_arr[:, :, -1].all()
+
+
 def test_common_region_batch_writes_manifest_for_indexed_stack_records(tmp_path: Path) -> None:
     """A missing batch writer would make a generated common mask opaque to consumers."""
     common_region = importlib.import_module("timelapsedhrpqct.common_region")

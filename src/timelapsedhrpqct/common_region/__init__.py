@@ -44,7 +44,7 @@ def _common_region_products(
     native_supports = {session_id: _fov_support(image) for session_id, image in images.items()}
     reference_supports = {
         session_id: sitk.Resample(
-            support, reference, transforms_to_reference[session_id].GetInverse(),
+            support, reference, transforms_to_reference[session_id],
             sitk.sitkNearestNeighbor, 0, sitk.sitkUInt8,
         )
         for session_id, support in native_supports.items()
@@ -54,7 +54,7 @@ def _common_region_products(
         common = sitk.Cast(sitk.And(common > 0, support > 0), sitk.sitkUInt8)
     native_common = {
         session_id: sitk.Resample(
-            common, image, transforms_to_reference[session_id],
+            common, image, transforms_to_reference[session_id].GetInverse(),
             sitk.sitkNearestNeighbor, 0, sitk.sitkUInt8,
         )
         for session_id, image in images.items()
