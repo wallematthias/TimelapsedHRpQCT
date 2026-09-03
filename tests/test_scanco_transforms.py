@@ -4,15 +4,16 @@ from pathlib import Path
 
 import SimpleITK as sitk
 
-from timelapsedhrpqct.dataset.derivative_paths import timelapse_pairwise_transform_path
 from timelapsedhrpqct.dataset.models import RawSession, StackArtifact
 from timelapsedhrpqct.dataset.transform_registry import iter_transform_registry_records
 from timelapsedhrpqct.processing.scanco_transforms import (
     ManufacturerTransformRecord,
+    discover_manufacturer_transform_records,
     import_manufacturer_pairwise_transforms,
     read_scanco_dat_transform,
     write_scanco_dat_transform,
 )
+from timelapsedhrpqct.config.models import DiscoveryConfig
 
 
 def _write_dat(path: Path, tx: float = 1.0, ty: float = 2.0, tz: float = 3.0) -> None:
@@ -57,6 +58,29 @@ def test_scanco_dat_export_handles_composite_final_transform(tmp_path: Path) -> 
     assert imported.TransformPoint((1.0, 2.0, 3.0)) == composite.TransformPoint((1.0, 2.0, 3.0))
 
 
+def test_discover_manufacturer_transform_records_accepts_unstacked_normalized_dat(tmp_path: Path) -> None:
+    dat_path = (
+        tmp_path
+        / "derivatives"
+        / "ImportedRegistration"
+        / "sub-SAMPLE341"
+        / "ses-T2"
+        / "xct"
+        / "pairwise"
+        / "sub-SAMPLE341_ses-T2_voi-tibia_from-ses-T2_to-ses-T1_pairwise.DAT"
+    )
+    _write_dat(dat_path)
+
+    records = discover_manufacturer_transform_records(tmp_path, DiscoveryConfig())
+
+    assert len(records) == 1
+    assert records[0].subject_id == "SAMPLE341"
+    assert records[0].site == "tibia"
+    assert records[0].stack_index is None
+    assert records[0].moving_session == "T2"
+    assert records[0].fixed_session == "T1"
+
+
 def test_import_manufacturer_transform_writes_registry_record(tmp_path: Path) -> None:
     dat_path = tmp_path / "raw" / "sub-SAMPLE341" / "site-tibia" / "ses-T1" / "SAMPLE341_T2-to-T1.DAT"
     _write_dat(dat_path, tx=4.0, ty=5.0, tz=6.0)
@@ -91,7 +115,16 @@ def test_import_manufacturer_transform_writes_registry_record(tmp_path: Path) ->
         dataset_root=dataset_root,
     )
 
-    tfm_dst = timelapse_pairwise_transform_path(dataset_root, "SAMPLE341", "tibia", 1, "T2", "T1")
+    tfm_dst = (
+        dataset_root
+        / "derivatives"
+        / "ImportedRegistration"
+        / "sub-SAMPLE341"
+        / "ses-T2"
+        / "xct"
+        / "pairwise"
+        / "sub-SAMPLE341_ses-T2_voi-tibia_stack-01_from-ses-T2_to-ses-T1_pairwise.tfm"
+    )
     registry_records = iter_transform_registry_records(dataset_root)
 
     assert written == [tfm_dst]

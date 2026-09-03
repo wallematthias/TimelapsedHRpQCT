@@ -1990,6 +1990,46 @@ def _cmd_import_transforms(args: argparse.Namespace) -> int:
     return 0
 
 
+def _import_manufacturer_transforms_for_run(
+    input_root: Path,
+    dataset_root: Path,
+    config: AppConfig,
+    *,
+    subject: str | None,
+    site: str | None,
+) -> int:
+    """Import discovered manufacturer DAT transforms for the selected run."""
+    from timelapsedhrpqct.processing.scanco_transforms import (
+        discover_manufacturer_transform_records,
+        import_manufacturer_pairwise_transforms,
+    )
+
+    records = discover_manufacturer_transform_records(input_root, config.discovery)
+    if subject is not None:
+        records = [record for record in records if record.subject_id == subject]
+    if site is not None:
+        records = [record for record in records if record.site == site]
+    if not records:
+        return 0
+    raw_sessions = discover_raw_sessions(
+        root=input_root,
+        discovery_config=config.discovery,
+    )
+    if subject is not None:
+        raw_sessions = [session for session in raw_sessions if session.subject_id == subject]
+    if site is not None:
+        raw_sessions = [session for session in raw_sessions if session.site == site]
+    written = import_manufacturer_pairwise_transforms(
+        records=records,
+        raw_sessions=list(raw_sessions),
+        stack_artifacts=iter_imported_stack_records(dataset_root),
+        dataset_root=dataset_root,
+    )
+    if written:
+        print(f"[timelapse] imported {len(written)} manufacturer DAT transform(s)")
+    return len(written)
+
+
 def _cmd_export_transform_dat(args: argparse.Namespace) -> int:
     """Export canonical SimpleITK transform as Scanco DAT."""
     import SimpleITK as sitk
@@ -2105,6 +2145,8 @@ def _cmd_run(args: argparse.Namespace) -> int:
         storage_mode=str(getattr(args, "storage_mode", "minimal") or "minimal"),
         force_header_discovery=bool(getattr(args, "force_header_discovery", False)),
         allow_scene_images=bool(getattr(args, "allow_scene_images", False)),
+        subject=getattr(args, "subject", None),
+        site=getattr(args, "site", None),
     )
     with benchmark.section("stage.import", dataset_root=str(output_root)):
         rc = _cmd_import(import_args)
@@ -2120,6 +2162,14 @@ def _cmd_run(args: argparse.Namespace) -> int:
     print(
         "[timelapse] masks/ROIs: using imported or discovered inputs "
         "(prepare missing masks with Bone Contouring before running Timelapsed)"
+    )
+
+    _import_manufacturer_transforms_for_run(
+        input_root,
+        dataset_root,
+        config,
+        subject=getattr(args, "subject", None),
+        site=getattr(args, "site", None),
     )
 
     # 3. register

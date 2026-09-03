@@ -780,7 +780,7 @@ def test_cmd_run_auto_runs_stack_correction_when_config_enabled(monkeypatch, tmp
         analysis=SimpleNamespace(use_filled_images=False),
     )
 
-    monkeypatch.setattr("timelapsedhrpqct.cli._load_config_or_die", lambda path: config)
+    monkeypatch.setattr("timelapsedhrpqct.cli._load_config_or_die", lambda path, **_kwargs: config)
     monkeypatch.setattr(
         "timelapsedhrpqct.cli.discover_raw_sessions",
         lambda root, discovery_config, force_header_discovery=False, canonicalize_sessions=False, **_kwargs: [
@@ -818,6 +818,146 @@ def test_cmd_run_auto_runs_stack_correction_when_config_enabled(monkeypatch, tmp
 
     assert rc == 0
     assert len(stack_calls) == 1
+
+
+def test_cmd_run_forwards_subject_site_filters_to_import(monkeypatch, tmp_path: Path) -> None:
+    dataset_root = tmp_path / "imported_dataset"
+    input_root = tmp_path / "raw"
+    input_root.mkdir()
+    dataset_root.mkdir()
+
+    config = SimpleNamespace(
+        discovery=SimpleNamespace(),
+        multistack_correction=SimpleNamespace(enabled=False),
+        fusion=SimpleNamespace(enable_filling=False),
+        analysis=SimpleNamespace(use_filled_images=False),
+    )
+
+    monkeypatch.setattr("timelapsedhrpqct.cli._load_config_or_die", lambda path, **_kwargs: config)
+    monkeypatch.setattr(
+        "timelapsedhrpqct.cli.discover_raw_sessions",
+        lambda root, discovery_config, force_header_discovery=False, canonicalize_sessions=False, **_kwargs: [
+            RawSession("SAMPLE341", "001", Path("/tmp/SAMPLE341_T1.AIM"), site="tibia"),
+            RawSession("SAMPLE345", "001", Path("/tmp/SAMPLE345_T1.AIM"), site="tibia"),
+        ],
+    )
+    import_calls: list[object] = []
+    monkeypatch.setattr("timelapsedhrpqct.cli._cmd_import", lambda args: import_calls.append(args) or 0)
+    monkeypatch.setattr("timelapsedhrpqct.cli._needs_timelapse_registration", lambda dataset_root: False)
+    monkeypatch.setattr("timelapsedhrpqct.cli._needs_stack_correction", lambda dataset_root: False)
+    monkeypatch.setattr("timelapsedhrpqct.cli._needs_apply_transforms", lambda dataset_root: False)
+    monkeypatch.setattr(
+        "timelapsedhrpqct.cli._needs_analysis",
+        lambda dataset_root, config, args: False,
+    )
+
+    rc = _cmd_run(
+        argparse.Namespace(
+            input_root=input_root,
+            output_root=dataset_root,
+            config=tmp_path / "config.yml",
+            profile="eth-uofc",
+            mode="regular",
+            dry_run=False,
+            copy_raw_inputs=False,
+            restructure_raw=False,
+            storage_mode="minimal",
+            thr=None,
+            clusters=None,
+            visualize=None,
+            force_header_discovery=False,
+            allow_scene_images=False,
+            subject="SAMPLE341",
+            site="tibia",
+        )
+    )
+
+    assert rc == 0
+    assert len(import_calls) == 1
+    assert import_calls[0].subject == "SAMPLE341"
+    assert import_calls[0].site == "tibia"
+
+
+def test_cmd_run_imports_matching_manufacturer_transforms_before_registration(monkeypatch, tmp_path: Path) -> None:
+    dataset_root = tmp_path / "imported_dataset"
+    input_root = tmp_path / "raw"
+    input_root.mkdir()
+    dataset_root.mkdir()
+
+    config = SimpleNamespace(
+        discovery=SimpleNamespace(),
+        multistack_correction=SimpleNamespace(enabled=False),
+        fusion=SimpleNamespace(enable_filling=False),
+        analysis=SimpleNamespace(use_filled_images=False),
+    )
+    sessions = [
+        RawSession("SAMPLE341", "001", Path("/tmp/SAMPLE341_T1.AIM"), site="tibia"),
+        RawSession("SAMPLE341", "002", Path("/tmp/SAMPLE341_T2.AIM"), site="tibia"),
+        RawSession("SAMPLE345", "001", Path("/tmp/SAMPLE345_T1.AIM"), site="tibia"),
+        RawSession("SAMPLE345", "002", Path("/tmp/SAMPLE345_T2.AIM"), site="tibia"),
+    ]
+    imported_records = [
+        ImportedStackRecord("SAMPLE341", "001", None, Path("/tmp/SAMPLE341_T1.AIM"), {}, None, None, site="tibia"),
+        ImportedStackRecord("SAMPLE341", "002", None, Path("/tmp/SAMPLE341_T2.AIM"), {}, None, None, site="tibia"),
+    ]
+    upsert_imported_stack_records(dataset_root, imported_records)
+
+    class _ManufacturerRecord:
+        def __init__(self, subject_id: str):
+            self.subject_id = subject_id
+            self.site = "tibia"
+            self.stack_index = None
+            self.moving_session = "002"
+            self.fixed_session = "001"
+            self.source_path = Path(f"/tmp/{subject_id}_T2-to-T1.DAT")
+
+    transform_import_calls = []
+
+    monkeypatch.setattr("timelapsedhrpqct.cli._load_config_or_die", lambda path, **_kwargs: config)
+    monkeypatch.setattr(
+        "timelapsedhrpqct.cli.discover_raw_sessions",
+        lambda root, discovery_config, force_header_discovery=False, canonicalize_sessions=False, **_kwargs: list(sessions),
+    )
+    monkeypatch.setattr("timelapsedhrpqct.cli._cmd_import", lambda args: 0)
+    monkeypatch.setattr(
+        "timelapsedhrpqct.processing.scanco_transforms.discover_manufacturer_transform_records",
+        lambda root, discovery_config: [_ManufacturerRecord("SAMPLE341"), _ManufacturerRecord("SAMPLE345")],
+    )
+    monkeypatch.setattr(
+        "timelapsedhrpqct.processing.scanco_transforms.import_manufacturer_pairwise_transforms",
+        lambda **kwargs: transform_import_calls.append(kwargs) or [Path("/tmp/imported.tfm")],
+    )
+    monkeypatch.setattr("timelapsedhrpqct.cli._needs_timelapse_registration", lambda dataset_root: False)
+    monkeypatch.setattr("timelapsedhrpqct.cli._needs_stack_correction", lambda dataset_root: False)
+    monkeypatch.setattr("timelapsedhrpqct.cli._needs_apply_transforms", lambda dataset_root: False)
+    monkeypatch.setattr("timelapsedhrpqct.cli._needs_analysis", lambda dataset_root, config, args: False)
+    monkeypatch.setattr("timelapsedhrpqct.cli._emit_common_region_after_registration", lambda *args, **kwargs: None)
+
+    rc = _cmd_run(
+        argparse.Namespace(
+            input_root=input_root,
+            output_root=dataset_root,
+            config=tmp_path / "config.yml",
+            profile="eth-uofc",
+            mode="regular",
+            dry_run=False,
+            copy_raw_inputs=False,
+            restructure_raw=False,
+            storage_mode="minimal",
+            thr=None,
+            clusters=None,
+            visualize=None,
+            force_header_discovery=False,
+            allow_scene_images=False,
+            subject="SAMPLE341",
+            site="tibia",
+        )
+    )
+
+    assert rc == 0
+    assert len(transform_import_calls) == 1
+    assert [record.subject_id for record in transform_import_calls[0]["records"]] == ["SAMPLE341"]
+    assert [session.subject_id for session in transform_import_calls[0]["raw_sessions"]] == ["SAMPLE341", "SAMPLE341"]
 
 
 @pytest.mark.parametrize(

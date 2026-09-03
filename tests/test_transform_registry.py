@@ -134,6 +134,28 @@ def test_find_external_pairwise_transform_requires_exactly_one_match(tmp_path: P
     assert match.internal_path == transform_path
 
 
+def test_find_external_pairwise_transform_prefers_imported_registration(tmp_path: Path) -> None:
+    dataset_root = tmp_path / "dataset"
+    generated = dataset_root / "derivatives" / "Registration" / "sub-SAMPLE341" / "generated.tfm"
+    imported = dataset_root / "derivatives" / "ImportedRegistration" / "sub-SAMPLE341" / "imported.tfm"
+    _write_transform(generated, (1.0, 0.0, 0.0))
+    _write_transform(imported, (2.0, 0.0, 0.0))
+    upsert_transform_registry_record(dataset_root, _record(generated, provenance="generated"))
+    upsert_transform_registry_record(dataset_root, _record(imported, provenance="imported"), family="ImportedRegistration")
+
+    match = find_external_pairwise_transform(
+        dataset_root,
+        subject_id="SAMPLE341",
+        site="tibia",
+        stack_index=1,
+        moving_session="T2",
+        fixed_session="T1",
+    )
+
+    assert match is not None
+    assert match.internal_path == imported
+
+
 def test_find_external_pairwise_transform_aborts_on_conflict(tmp_path: Path) -> None:
     dataset_root = tmp_path / "dataset"
     first = dataset_root / "first.tfm"

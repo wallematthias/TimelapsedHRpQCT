@@ -29,8 +29,8 @@ class TransformRegistryConflictError(RuntimeError):
     """Raised when registry lookup finds ambiguous transform records."""
 
 
-def _registry_path(dataset_root: str | Path) -> Path:
-    return get_derivative_family_root(dataset_root, "Registration") / "_artifacts" / "transform_registry.json"
+def _registry_path(dataset_root: str | Path, family: str = "Registration") -> Path:
+    return get_derivative_family_root(dataset_root, family) / "_artifacts" / "transform_registry.json"
 
 
 def _legacy_registry_path(dataset_root: str | Path) -> Path:
@@ -99,7 +99,11 @@ def _deserialize_record(dataset_root: str | Path, payload: dict) -> TransformReg
 
 
 def iter_transform_registry_records(dataset_root: str | Path) -> list[TransformRegistryRecord]:
-    paths = [_registry_path(dataset_root), _legacy_registry_path(dataset_root)]
+    paths = [
+        _registry_path(dataset_root, "ImportedRegistration"),
+        _registry_path(dataset_root, "Registration"),
+        _legacy_registry_path(dataset_root),
+    ]
     records: dict[tuple, TransformRegistryRecord] = {}
     for path in paths:
         for payload in _read_records(path):
@@ -125,8 +129,10 @@ def iter_transform_registry_records(dataset_root: str | Path) -> list[TransformR
 def upsert_transform_registry_record(
     dataset_root: str | Path,
     record: TransformRegistryRecord,
+    *,
+    family: str = "Registration",
 ) -> None:
-    path = _registry_path(dataset_root)
+    path = _registry_path(dataset_root, family)
 
     def stack_key(value: int | None) -> int:
         return 0 if value is None else int(value)
@@ -194,7 +200,8 @@ def find_external_pairwise_transform(
         and record.coordinate_convention == "SimpleITK_LPS_physical"
         and record.source_format.lower() != "computed"
     ]
-    if len(matches) > 1:
+    matches = sorted(matches, key=_transform_record_priority)
+    if len(matches) > 1 and _transform_record_priority(matches[0]) == _transform_record_priority(matches[1]):
         details = ", ".join(str(match.internal_path) for match in matches)
         raise TransformRegistryConflictError(
             "Multiple external pairwise transforms match "
@@ -204,3 +211,7 @@ def find_external_pairwise_transform(
     if not matches:
         return None
     return matches[0]
+
+
+def _transform_record_priority(record: TransformRegistryRecord) -> int:
+    return 0 if any(part == "ImportedRegistration" for part in record.internal_path.parts) else 1

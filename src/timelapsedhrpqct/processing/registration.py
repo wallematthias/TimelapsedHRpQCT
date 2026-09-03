@@ -236,6 +236,23 @@ def _ensure_itk_elastix() -> None:
             "itk-elastix is required for this registration backend. "
             "Install with: pip install itk-elastix"
         )
+    _disable_itk_optional_torch_bridge()
+
+
+def _disable_itk_optional_torch_bridge() -> None:
+    """Disable ITK's optional torch adapter for elastix image conversion.
+
+    Timelapse registration passes SimpleITK/NumPy-backed images into ITK.  The
+    optional torch adapter is not used here, and importing it inside Slicer can
+    trigger binary NumPy compatibility warnings when torch was compiled against
+    a different NumPy ABI.
+    """
+    try:
+        import itk.support.helpers as itk_helpers
+
+        itk_helpers._HAVE_TORCH = False
+    except Exception:
+        pass
 
 
 def _safe_parameter_map_get(parameter_map: Any, key: str, default: Any) -> Any:
