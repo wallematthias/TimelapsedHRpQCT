@@ -174,3 +174,31 @@ def test_find_external_pairwise_transform_aborts_on_conflict(tmp_path: Path) -> 
             moving_session="T2",
             fixed_session="T1",
         )
+
+
+def test_find_external_pairwise_transform_collapses_duplicate_import_records(tmp_path: Path) -> None:
+    dataset_root = tmp_path / "dataset"
+    imported = dataset_root / "derivatives" / "ImportedRegistration" / "sub-SAMPLE341" / "imported.tfm"
+    _write_transform(imported, (2.0, 0.0, 0.0))
+    upsert_transform_registry_record(
+        dataset_root,
+        _record(imported, provenance="first-import"),
+        family="ImportedRegistration",
+    )
+    upsert_transform_registry_record(
+        dataset_root,
+        _record(imported, provenance="second-import", source_path=Path("raw/copy/SAMPLE341_T2-to-T1.DAT")),
+        family="ImportedRegistration",
+    )
+
+    match = find_external_pairwise_transform(
+        dataset_root,
+        subject_id="SAMPLE341",
+        site="tibia",
+        stack_index=1,
+        moving_session="T2",
+        fixed_session="T1",
+    )
+
+    assert match is not None
+    assert match.internal_path == imported

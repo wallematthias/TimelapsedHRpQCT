@@ -201,6 +201,10 @@ def find_external_pairwise_transform(
         and record.source_format.lower() != "computed"
     ]
     matches = sorted(matches, key=_transform_record_priority)
+    unique_matches: dict[Path, TransformRegistryRecord] = {}
+    for match in matches:
+        unique_matches.setdefault(match.internal_path, match)
+    matches = list(unique_matches.values())
     if len(matches) > 1 and _transform_record_priority(matches[0]) == _transform_record_priority(matches[1]):
         details = ", ".join(str(match.internal_path) for match in matches)
         raise TransformRegistryConflictError(
