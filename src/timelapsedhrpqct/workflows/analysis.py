@@ -747,7 +747,7 @@ def _get_analysis_params(config: AppConfig) -> AnalysisParams:
 
     space = "baseline_common"
     method = "grayscale_and_binary"
-    compartments = ["trab", "cort", "full"]
+    compartments = ["full", "trab", "cort"]
     remodeling_thresholds = [225.0]
     cluster_sizes = [12]
     cluster_connectivity = 6
@@ -990,19 +990,20 @@ def _resolve_analysis_compartments(
     for mask_paths in session_mask_paths[1:]:
         common_roles &= set(mask_paths.keys())
 
-    roi_roles = sorted(role for role in common_roles if _is_roi_role(role))
-    if roi_roles:
-        return roi_roles, "roi_masks"
-    if "regmask" in common_roles:
-        return ["regmask"], "regmask"
-
     available_configured = [role for role in configured_compartments if role in common_roles]
     if available_configured:
         return available_configured, "configured_available"
 
-    fallback = [role for role in ("trab", "cort", "full") if role in common_roles]
+    roi_roles = sorted(role for role in common_roles if _is_roi_role(role))
+    if roi_roles:
+        return roi_roles, "roi_masks"
+
+    fallback = [role for role in ("full", "trab", "cort") if role in common_roles]
     if fallback:
         return fallback, "trab_cort_full_fallback"
+
+    if "regmask" in common_roles:
+        return ["regmask"], "regmask"
 
     return configured_compartments, "configured"
 

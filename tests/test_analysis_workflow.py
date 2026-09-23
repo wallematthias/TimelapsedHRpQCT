@@ -2265,3 +2265,28 @@ def test_run_analysis_uses_regmask_as_roi_when_roi_masks_absent(tmp_path: Path) 
 
     meta = json.loads(analysis_metadata_path(dataset_root, subject_id).read_text(encoding="utf-8"))
     assert meta["compartments"] == ["regmask"]
+
+
+def test_resolve_analysis_compartments_prefers_configured_masks_over_regmask(tmp_path: Path) -> None:
+    session_masks = [
+        {
+            "regmask": tmp_path / "ses-001_regmask.nii.gz",
+            "trab": tmp_path / "ses-001_trab.nii.gz",
+            "cort": tmp_path / "ses-001_cort.nii.gz",
+            "full": tmp_path / "ses-001_full.nii.gz",
+        },
+        {
+            "regmask": tmp_path / "ses-002_regmask.nii.gz",
+            "trab": tmp_path / "ses-002_trab.nii.gz",
+            "cort": tmp_path / "ses-002_cort.nii.gz",
+            "full": tmp_path / "ses-002_full.nii.gz",
+        },
+    ]
+
+    compartments, source = analysis_workflow._resolve_analysis_compartments(
+        session_masks,
+        ["full", "trab", "cort"],
+    )
+
+    assert compartments == ["full", "trab", "cort"]
+    assert source == "configured_available"
