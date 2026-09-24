@@ -78,7 +78,7 @@ def _make_multi_union_reference_image(
     reference_image: sitk.Image,
     moving_images: list[sitk.Image],
     moving_to_reference_transforms: list[sitk.Transform],
-    padding_voxels: int = 4,
+    padding_voxels: int = 0,
 ) -> sitk.Image:
     """Helper for make multi union reference image."""
     all_points = _image_physical_corners(reference_image)
@@ -239,7 +239,7 @@ def _resample_once(
 def _make_subject_common_reference_from_baselines(
     stacks_by_index: dict[int, list],
     baseline_session: str,
-    padding_voxels: int = 4,
+    padding_voxels: int = 0,
 ) -> sitk.Image:
     """Helper for make subject common reference from baselines."""
     stack_indices = sorted(stacks_by_index)
@@ -289,7 +289,7 @@ def _resolve_reference_image(
     site: str,
     stacks_by_index: dict[int, list],
     baseline_session: str,
-    padding_voxels: int = 4,
+    padding_voxels: int = 0,
 ) -> tuple[sitk.Image, str]:
     """Resolve reference image."""
     reference_path = _common_reference_path(dataset_root, subject_id, site)
@@ -400,7 +400,7 @@ def run_apply_transforms(
             site=site,
             stacks_by_index=stacks_by_index,
             baseline_session=baseline_session,
-            padding_voxels=4,
+            padding_voxels=0,
         )
 
         records_by_session: dict[str, list] = defaultdict(list)

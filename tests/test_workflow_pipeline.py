@@ -194,6 +194,24 @@ def test_common_reference_from_baselines_streams_without_multi_image_list(
     assert all(size > 0 for size in reference.GetSize())
 
 
+def test_single_stack_common_reference_does_not_add_border_padding(tmp_path: Path) -> None:
+    dataset_root = build_imported_dataset(tmp_path / "dataset", stack_indices=(1,))
+    grouped = group_imported_stacks_by_subject_site_and_stack(
+        iter_imported_stack_records(dataset_root)
+    )
+    records = grouped[("001", "radius")][1]
+    baseline_record = next(record for record in records if record.session_id == "baseline")
+    baseline = sitk.ReadImage(str(baseline_record.image_path))
+
+    reference = _make_subject_common_reference_from_baselines(
+        stacks_by_index=grouped[("001", "radius")],
+        baseline_session="baseline",
+    )
+
+    assert reference.GetSize() == baseline.GetSize()
+    assert reference.GetOrigin() == baseline.GetOrigin()
+
+
 def test_pipeline_runs_end_to_end_with_deterministic_registration_backend(
     tmp_path: Path,
     monkeypatch,
