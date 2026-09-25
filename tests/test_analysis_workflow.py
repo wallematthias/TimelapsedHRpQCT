@@ -1954,6 +1954,103 @@ def test_run_analysis_pairwise_fixed_t0_measures_compartments_from_full_event_ma
     assert int(rows["trab"]["formation_vox"]) == 1
     assert int(rows["cort"]["formation_vox"]) == 1
 
+
+def test_run_analysis_pairwise_fixed_t0_writes_exact_interactive_cache_when_enabled(
+    tmp_path: Path,
+) -> None:
+    dataset_root = _build_pairwise_t0_cross_compartment_event_dataset(tmp_path / "dataset")
+    config = AppConfig()
+    config.analysis = SimpleNamespace(
+        space="pairwise_fixed_t0",
+        method="grayscale_delta_only",
+        compartments=["full", "trab", "cort"],
+        thresholds=[225.0],
+        cluster_sizes=[2],
+        pair_mode="adjacent",
+        use_filled_images=False,
+        gaussian_filter=False,
+        full_mask_dilation_voxels=0,
+        write_interactive_pair_cache=True,
+        valid_region=SimpleNamespace(erosion_voxels=0),
+    )
+    config.visualization = SimpleNamespace(
+        enabled=True,
+        threshold=225.0,
+        cluster_size=2,
+        label_map=None,
+    )
+
+    run_analysis(
+        dataset_root=dataset_root,
+        config=config,
+        thresholds=[225.0],
+        clusters=[2],
+    )
+
+    cache_path = (
+        get_derivatives_root(dataset_root)
+        / "sub-001"
+        / "xct"
+        / "analysis"
+        / "interactive_cache"
+        / "sub-001_voi-radius_t0-C1_t1-C2_pairwise-preview.npz"
+    )
+    assert cache_path.exists()
+
+    with np.load(cache_path, allow_pickle=False) as cache:
+        metadata = json.loads(str(cache["metadata_json"]))
+        assert metadata["space"] == "pairwise_fixed_t0"
+        assert metadata["method"] == "grayscale_delta_only"
+        assert metadata["compartments"] == ["full", "trab", "cort"]
+        assert cache["delta"].shape == (5, 5, 5)
+        assert cache["classification_valid"].dtype == np.uint8
+        assert set(cache.files) >= {
+            "delta",
+            "seg_t0",
+            "seg_t1",
+            "support_t0",
+            "support_t1",
+            "classification_valid",
+            "valid__full",
+            "valid__trab",
+            "valid__cort",
+        }
+
+        shape = tuple(metadata["shape_zyx"])
+        voxel_count = int(np.prod(shape))
+
+        def unpack_mask(name: str) -> np.ndarray:
+            return np.unpackbits(
+                cache[name],
+                count=voxel_count,
+                bitorder="little",
+            ).reshape(shape).astype(bool, copy=False)
+
+        seg_t0 = unpack_mask("seg_t0") if metadata["has_segmentation"] else None
+        seg_t1 = unpack_mask("seg_t1") if metadata["has_segmentation"] else None
+        classification_valid = unpack_mask("classification_valid")
+        preview = compute_pair_remodelling_preview_from_delta(
+            delta=cache["delta"],
+            seg_arr_t0=seg_t0,
+            seg_arr_t1=seg_t1,
+            valid_mask=classification_valid,
+            threshold=225.0,
+            cluster_size=2,
+            method="grayscale_delta_only",
+            support_mask_t0=unpack_mask("support_t0"),
+            support_mask_t1=unpack_mask("support_t1"),
+        )
+        baseline_bone = (seg_t0 & classification_valid) if seg_t0 is not None else classification_valid
+        pairwise_df = pd.read_csv(pairwise_remodelling_csv_path(dataset_root, "001"))
+        for compartment in metadata["compartments"]:
+            valid = unpack_mask(f"valid__{compartment}")
+            denominator = int(np.count_nonzero(baseline_bone & valid))
+            formation_fraction = safe_frac(int(np.count_nonzero(preview.formation & valid)), denominator)
+            resorption_fraction = safe_frac(int(np.count_nonzero(preview.resorption & valid)), denominator)
+            row = pairwise_df[pairwise_df["compartment"] == compartment].iloc[0]
+            assert formation_fraction == pytest.approx(row["formation_frac_bv0"])
+            assert resorption_fraction == pytest.approx(row["resorption_frac_bv0"])
+
     union_vis = analysis_visualize_path(
         dataset_root=dataset_root,
         subject_id="001",

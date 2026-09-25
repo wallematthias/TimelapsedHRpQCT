@@ -780,6 +780,21 @@ def analysis_dir(dataset_root: Path, subject_id: str, site: str | None = None) -
     return get_derivatives_root(dataset_root) / f"sub-{subject_id}" / "xct" / "analysis"
 
 
+def interactive_pair_cache_path(
+    dataset_root: Path,
+    subject_id: str,
+    site: str | None,
+    t0: str,
+    t1: str,
+) -> Path:
+    """Return the opt-in pairwise analysis cache used by interactive clients."""
+    legacy = site is None
+    site = "radius" if site is None else site
+    return analysis_dir(dataset_root, subject_id, None if legacy else site) / "interactive_cache" / (
+        f"{_subject_prefix(subject_id, site, legacy)}_t0-{t0}_t1-{t1}_pairwise-preview.npz"
+    )
+
+
 def pairwise_remodelling_csv_path(dataset_root: Path, subject_id: str, site: str | None = None) -> Path:
     """Return pairwise remodelling csv path."""
     legacy = site is None

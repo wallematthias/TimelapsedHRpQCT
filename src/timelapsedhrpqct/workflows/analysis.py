@@ -49,6 +49,7 @@ from timelapsedhrpqct.dataset.derivative_paths import (
     common_region_path,
     existing_derivative_path,
     final_transform_path,
+    interactive_pair_cache_path,
     pairwise_remodelling_csv_path,
     timelapse_baseline_transform_path,
     trajectory_metrics_csv_path,
@@ -102,6 +103,100 @@ def _load_binary_mask_array(path: Path) -> np.ndarray:
 def _free_memory() -> None:
     """Trigger Python garbage collection after large temporary allocations."""
     gc.collect()
+
+
+def _write_interactive_pair_cache(
+    *,
+    dataset_root: Path,
+    subject_id: str,
+    site: str,
+    t0: str,
+    t1: str,
+    reference: sitk.Image,
+    params: AnalysisParams,
+    compartments: list[str],
+    delta: np.ndarray,
+    seg0: np.ndarray | None,
+    seg1: np.ndarray | None,
+    support0: np.ndarray,
+    support1: np.ndarray,
+    classification_valid: np.ndarray,
+    valid_by_compartment: dict[str, np.ndarray],
+    ring_centers_yx: list[tuple[float, float]],
+) -> Path:
+    """Persist exact pairwise-fixed arrays for fast interactive reclassification."""
+    path = interactive_pair_cache_path(dataset_root, subject_id, site, t0, t1)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    metadata = {
+        "version": 1,
+        "space": "pairwise_fixed_t0",
+        "subject_id": str(subject_id),
+        "site": str(site),
+        "t0": str(t0),
+        "t1": str(t1),
+        "compartments": [str(role) for role in compartments],
+        "method": str(params.method),
+        "cluster_connectivity": int(params.cluster_connectivity),
+        "gaussian_filter": bool(params.gaussian_filter),
+        "gaussian_sigma": float(params.gaussian_sigma),
+        "fraction_denominator": str(params.fraction_denominator),
+        "full_mask_dilation_voxels": int(params.full_mask_dilation_voxels),
+        "marrow_mask_dilation_voxels": int(params.marrow_mask_dilation_voxels),
+        "marrow_mask_erosion_voxels": int(params.marrow_mask_erosion_voxels),
+        "valid_region_erosion_voxels": int(params.erosion_voxels),
+        "ring_artifact_suppression_enabled": bool(params.ring_artifact_suppression_enabled),
+        "ring_artifact_suppression_mode": str(params.ring_artifact_suppression_mode),
+        "ring_artifact_suppression_proximity_voxels": int(
+            params.ring_artifact_suppression_proximity_voxels
+        ),
+        "ring_artifact_suppression_axial_radius_voxels": int(
+            params.ring_artifact_suppression_axial_radius_voxels
+        ),
+        "ring_artifact_suppression_radial_bin_width_voxels": float(
+            params.ring_artifact_suppression_radial_bin_width_voxels
+        ),
+        "ring_artifact_suppression_min_radius_band_events": int(
+            params.ring_artifact_suppression_min_radius_band_events
+        ),
+        "ring_artifact_suppression_radial_band_padding_voxels": int(
+            params.ring_artifact_suppression_radial_band_padding_voxels
+        ),
+        "ring_artifact_suppression_max_radius_bands": int(
+            params.ring_artifact_suppression_max_radius_bands
+        ),
+        "ring_artifact_suppression_min_radius_band_separation_voxels": int(
+            params.ring_artifact_suppression_min_radius_band_separation_voxels
+        ),
+        "ring_artifact_suppression_centers_yx": [list(center) for center in ring_centers_yx],
+        "has_segmentation": seg0 is not None and seg1 is not None,
+        "shape_zyx": [int(value) for value in delta.shape],
+    }
+
+    def pack_mask(mask: np.ndarray) -> np.ndarray:
+        return np.packbits(
+            np.asarray(mask, dtype=bool).reshape(-1),
+            bitorder="little",
+        )
+    arrays: dict[str, np.ndarray] = {
+        "metadata_json": np.asarray(json.dumps(metadata, sort_keys=True)),
+        "spacing_xyz": np.asarray(reference.GetSpacing(), dtype=np.float64),
+        "origin_xyz": np.asarray(reference.GetOrigin(), dtype=np.float64),
+        "direction": np.asarray(reference.GetDirection(), dtype=np.float64),
+        "delta": np.asarray(delta, dtype=np.float32),
+        "seg_t0": pack_mask(seg0 if seg0 is not None else np.zeros_like(delta, dtype=bool)),
+        "seg_t1": pack_mask(seg1 if seg1 is not None else np.zeros_like(delta, dtype=bool)),
+        "support_t0": pack_mask(support0),
+        "support_t1": pack_mask(support1),
+        "classification_valid": pack_mask(classification_valid),
+    }
+    for role in compartments:
+        arrays[f"valid__{role}"] = pack_mask(valid_by_compartment[role])
+
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    with temporary.open("wb") as stream:
+        np.savez(stream, **arrays)
+    temporary.replace(path)
+    return path
 
 
 def _resample_image(
@@ -759,6 +854,7 @@ def _get_analysis_params(config: AppConfig) -> AnalysisParams:
     fraction_denominator = "baseline_bone"
     image_interpolator = "linear"
     prefer_direct_pairwise_transforms = True
+    write_interactive_pair_cache = False
     full_mask_dilation_voxels = 2
     change_region_source = "common_mask"
     binary_reclassification_enabled = True
@@ -799,6 +895,9 @@ def _get_analysis_params(config: AppConfig) -> AnalysisParams:
                 "prefer_direct_pairwise_transforms",
                 prefer_direct_pairwise_transforms,
             )
+        )
+        write_interactive_pair_cache = bool(
+            getattr(cfg, "write_interactive_pair_cache", write_interactive_pair_cache)
         )
         full_mask_dilation_voxels = int(
             getattr(cfg, "full_mask_dilation_voxels", full_mask_dilation_voxels)
@@ -931,6 +1030,7 @@ def _get_analysis_params(config: AppConfig) -> AnalysisParams:
         fraction_denominator=fraction_denominator,
         image_interpolator=image_interpolator,
         prefer_direct_pairwise_transforms=prefer_direct_pairwise_transforms,
+        write_interactive_pair_cache=write_interactive_pair_cache,
         full_mask_dilation_voxels=full_mask_dilation_voxels,
         change_region_source=change_region_source,
         binary_reclassification_enabled=binary_reclassification_enabled,
@@ -1717,6 +1817,27 @@ def _pairwise_fixed_t0_outputs(
             for compartment_valid in valid_by_compartment.values():
                 classification_valid |= np.asarray(compartment_valid, dtype=bool)
         visualization_trigger_compartment = effective_compartments[-1]
+
+        if params.write_interactive_pair_cache:
+            cache_path = _write_interactive_pair_cache(
+                dataset_root=dataset_root,
+                subject_id=subject_id,
+                site=site,
+                t0=t0,
+                t1=t1,
+                reference=ref_img,
+                params=params,
+                compartments=effective_compartments,
+                delta=delta,
+                seg0=seg0_for_analysis,
+                seg1=seg1_for_analysis,
+                support0=full0,
+                support1=full1,
+                classification_valid=classification_valid,
+                valid_by_compartment=valid_by_compartment,
+                ring_centers_yx=list(ring_centers_yx or []),
+            )
+            print(f"[analysis] wrote interactive pair cache: {cache_path}")
 
         for thr in params.remodeling_thresholds:
             thr = float(thr)

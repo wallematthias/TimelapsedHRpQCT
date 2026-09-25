@@ -31,6 +31,7 @@ class AnalysisParams:
     fraction_denominator: str
     image_interpolator: str
     prefer_direct_pairwise_transforms: bool
+    write_interactive_pair_cache: bool
     full_mask_dilation_voxels: int
     change_region_source: str
     binary_reclassification_enabled: bool

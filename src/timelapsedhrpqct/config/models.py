@@ -342,6 +342,7 @@ class AnalysisConfig:
     fraction_denominator: str = "baseline_bone"
     image_interpolator: str = "linear"
     prefer_direct_pairwise_transforms: bool = True
+    write_interactive_pair_cache: bool = False
     full_mask_dilation_voxels: int = 2
     marrow_mask_dilation_voxels: int = 2
     marrow_mask_erosion_voxels: int = 0
