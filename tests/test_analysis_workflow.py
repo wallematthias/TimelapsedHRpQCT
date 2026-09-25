@@ -21,6 +21,7 @@ from timelapsedhrpqct.analysis.remodelling import (
     maybe_smooth_density,
     maybe_smooth_density_with_domain,
     pair_indices,
+    repartition_compartment_masks_to_support,
     remove_small,
     remodelling_fraction_denominator,
     safe_corr,
@@ -2290,3 +2291,26 @@ def test_resolve_analysis_compartments_prefers_configured_masks_over_regmask(tmp
 
     assert compartments == ["full", "trab", "cort"]
     assert source == "configured_available"
+
+
+def test_repartition_compartment_masks_to_dilated_support_matches_full_extent() -> None:
+    full = np.zeros((1, 7, 7), dtype=bool)
+    full[:, 2:5, 2:5] = True
+    trab = np.zeros_like(full)
+    trab[:, 3:5, 2:5] = True
+    cort = full & ~trab
+    expanded = dilate_mask_xy(full, 1)
+
+    remapped = repartition_compartment_masks_to_support(
+        {"full": full, "trab": trab, "cort": cort},
+        expanded,
+    )
+    repeated = repartition_compartment_masks_to_support(
+        {"full": full, "trab": trab, "cort": cort},
+        dilate_mask_xy(full, 1),
+    )
+
+    assert np.array_equal(remapped["full"], expanded)
+    assert np.array_equal(remapped["trab"] | remapped["cort"], expanded)
+    assert not np.any(remapped["trab"] & remapped["cort"])
+    assert all(np.array_equal(remapped[role], repeated[role]) for role in remapped)

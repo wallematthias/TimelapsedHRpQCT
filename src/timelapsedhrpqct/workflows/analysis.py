@@ -28,7 +28,7 @@ from timelapsedhrpqct.analysis.remodelling import (
     maybe_smooth_density,
     maybe_smooth_density_with_domain,
     pair_indices,
-    propagate_seed_masks_to_support,
+    repartition_compartment_masks_to_support,
     remove_small,
     remodelling_fraction_denominator,
     safe_corr,
@@ -1108,30 +1108,6 @@ def _compartment_exists(mask_paths: dict[str, Path], compartment: str) -> bool:
     return compartment in mask_paths and mask_paths[compartment].exists()
 
 
-def _repartition_compartment_masks_to_support(
-    compartment_masks: dict[str, np.ndarray],
-    support_mask: np.ndarray,
-) -> dict[str, np.ndarray]:
-    """Repartition non-full compartments to match an expanded support mask."""
-    support = np.asarray(support_mask, dtype=bool)
-    remapped: dict[str, np.ndarray] = {
-        role: np.asarray(mask, dtype=bool) for role, mask in compartment_masks.items()
-    }
-    remapped["full"] = support
-
-    non_full_roles = [role for role in remapped.keys() if role != "full"]
-    if not non_full_roles:
-        return remapped
-
-    seed_masks = {
-        role: remapped[role] & support for role in non_full_roles
-    }
-    propagated = propagate_seed_masks_to_support(support, seed_masks)
-    for role in non_full_roles:
-        remapped[role] = propagated.get(role, np.zeros_like(support, dtype=bool))
-    return remapped
-
-
 def _resolve_pairwise_reference_stack_index(
     dataset_root: Path,
     subject_id: str,
@@ -1232,7 +1208,7 @@ def _baseline_common_outputs(
             session_compartment_masks[role] = role_arr
 
         if params.full_mask_dilation_voxels > 0:
-            session_compartment_masks = _repartition_compartment_masks_to_support(
+            session_compartment_masks = repartition_compartment_masks_to_support(
                 session_compartment_masks,
                 support_arr,
             )
@@ -1668,11 +1644,11 @@ def _pairwise_fixed_t0_outputs(
             )
 
             if params.full_mask_dilation_voxels > 0 and non_full_roles:
-                comp_masks_t0 = _repartition_compartment_masks_to_support(
+                comp_masks_t0 = repartition_compartment_masks_to_support(
                     {"full": full0, **comp_masks_t0},
                     full0,
                 )
-                comp_masks_t1 = _repartition_compartment_masks_to_support(
+                comp_masks_t1 = repartition_compartment_masks_to_support(
                     {"full": full1, **comp_masks_t1},
                     full1,
                 )

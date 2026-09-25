@@ -244,6 +244,28 @@ def propagate_seed_masks_to_support(
     }
 
 
+def repartition_compartment_masks_to_support(
+    compartment_masks: dict[str, np.ndarray],
+    support_mask: np.ndarray,
+) -> dict[str, np.ndarray]:
+    """Repartition non-full compartments to match an expanded support mask."""
+    support = np.asarray(support_mask, dtype=bool)
+    remapped = {
+        role: np.asarray(mask, dtype=bool) for role, mask in compartment_masks.items()
+    }
+    remapped["full"] = support
+
+    non_full_roles = [role for role in remapped if role != "full"]
+    if not non_full_roles:
+        return remapped
+
+    seeds = {role: remapped[role] & support for role in non_full_roles}
+    propagated = propagate_seed_masks_to_support(support, seeds)
+    for role in non_full_roles:
+        remapped[role] = propagated.get(role, np.zeros_like(support, dtype=bool))
+    return remapped
+
+
 def build_series_common_masks(
     mask_arrs_by_role: dict[str, list[np.ndarray]],
     compartments: list[str],
