@@ -21,7 +21,7 @@ dependencies = [
   "scipy",
   "SimpleITK",
   "tifffile<2026",
-  "bone-imaging-derivatives>=0.1.4",
+  "bone-imaging-derivatives>=0.1.5",
 ]
 
 [project.optional-dependencies]
