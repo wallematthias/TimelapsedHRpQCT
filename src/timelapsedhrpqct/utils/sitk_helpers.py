@@ -21,6 +21,15 @@ def load_image(path: Path) -> sitk.Image:
     return sitk.ReadImage(str(path))
 
 
+def load_mask_image(path: Path) -> sitk.Image:
+    """Load a binary/label image without applying density calibration."""
+    path = Path(path)
+    if path.name.lower().endswith((".aim", ".aim;1", ".aim;2", ".aim;3", ".aim;4")):
+        image, _metadata = read_aim(path, scaling="native")
+        return image
+    return sitk.ReadImage(str(path))
+
+
 def write_image(image: sitk.Image, path: Path) -> None:
     """Helper for write image."""
     path.parent.mkdir(parents=True, exist_ok=True)

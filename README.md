@@ -170,7 +170,7 @@ Enable copying raw files into `sourcedata/hrpqct` only when desired:
 timelapse run /path/to/raw_data --copy-raw-inputs
 ```
 
-Enable moving raw files into dataset root `sub-*/site-*/ses-*` layout only when desired:
+Enable moving raw files into the normalized dataset layout only when desired:
 
 ```bash
 timelapse run /path/to/raw_data --restructure-raw
@@ -283,7 +283,7 @@ Behavior:
 - If no `REGMASK` exists, registration falls back to `trab+cort` union, then `full`, then generic `MASK*` unions.
 - For analysis compartments, `ROI*` masks are preferred when present across sessions.
 - If no `ROI*` masks are present, `regmask` is used as analysis ROI.
-- Otherwise analysis uses configured compartments (or available `trab/cort/full` fallbacks).
+- Otherwise analysis uses configured compartments filtered by masks available in the current derivative layout.
 
 ## Multistack Filename Parsing Notes
 

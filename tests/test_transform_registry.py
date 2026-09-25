@@ -73,7 +73,7 @@ def test_transform_registry_round_trips_relative_paths(tmp_path: Path) -> None:
     assert not Path(registry_payload["records"][0]["internal_path"]).is_absolute()
 
 
-def test_transform_registry_reads_legacy_timelapsed_registry(tmp_path: Path) -> None:
+def test_transform_registry_ignores_deprecated_timelapsed_registry(tmp_path: Path) -> None:
     dataset_root = tmp_path / "dataset"
     transform_path = dataset_root / "derivatives" / "TimelapsedHRpQCT" / "sub-SAMPLE341" / "tfm.tfm"
     _write_transform(transform_path, (1.0, 2.0, 3.0))
@@ -112,16 +112,12 @@ def test_transform_registry_reads_legacy_timelapsed_registry(tmp_path: Path) -> 
         encoding="utf-8",
     )
 
-    records = iter_transform_registry_records(dataset_root)
-
-    assert len(records) == 1
-    assert records[0].internal_path == transform_path
-    assert records[0].provenance == "legacy-test"
+    assert iter_transform_registry_records(dataset_root) == []
 
 
 def test_find_external_pairwise_transform_requires_exactly_one_match(tmp_path: Path) -> None:
     dataset_root = tmp_path / "dataset"
-    transform_path = dataset_root / "derivatives" / "TimelapsedHRpQCT" / "sub-SAMPLE341" / "tfm.tfm"
+    transform_path = dataset_root / "derivatives" / "Registration" / "sub-SAMPLE341" / "tfm.tfm"
     _write_transform(transform_path, (1.0, 2.0, 3.0))
     upsert_transform_registry_record(dataset_root, _record(transform_path))
 
@@ -136,6 +132,28 @@ def test_find_external_pairwise_transform_requires_exactly_one_match(tmp_path: P
 
     assert match is not None
     assert match.internal_path == transform_path
+
+
+def test_find_external_pairwise_transform_prefers_imported_registration(tmp_path: Path) -> None:
+    dataset_root = tmp_path / "dataset"
+    generated = dataset_root / "derivatives" / "Registration" / "sub-SAMPLE341" / "generated.tfm"
+    imported = dataset_root / "derivatives" / "ImportedRegistration" / "sub-SAMPLE341" / "imported.tfm"
+    _write_transform(generated, (1.0, 0.0, 0.0))
+    _write_transform(imported, (2.0, 0.0, 0.0))
+    upsert_transform_registry_record(dataset_root, _record(generated, provenance="generated"))
+    upsert_transform_registry_record(dataset_root, _record(imported, provenance="imported"), family="ImportedRegistration")
+
+    match = find_external_pairwise_transform(
+        dataset_root,
+        subject_id="SAMPLE341",
+        site="tibia",
+        stack_index=1,
+        moving_session="T2",
+        fixed_session="T1",
+    )
+
+    assert match is not None
+    assert match.internal_path == imported
 
 
 def test_find_external_pairwise_transform_aborts_on_conflict(tmp_path: Path) -> None:
@@ -156,3 +174,31 @@ def test_find_external_pairwise_transform_aborts_on_conflict(tmp_path: Path) -> 
             moving_session="T2",
             fixed_session="T1",
         )
+
+
+def test_find_external_pairwise_transform_collapses_duplicate_import_records(tmp_path: Path) -> None:
+    dataset_root = tmp_path / "dataset"
+    imported = dataset_root / "derivatives" / "ImportedRegistration" / "sub-SAMPLE341" / "imported.tfm"
+    _write_transform(imported, (2.0, 0.0, 0.0))
+    upsert_transform_registry_record(
+        dataset_root,
+        _record(imported, provenance="first-import"),
+        family="ImportedRegistration",
+    )
+    upsert_transform_registry_record(
+        dataset_root,
+        _record(imported, provenance="second-import", source_path=Path("raw/copy/SAMPLE341_T2-to-T1.DAT")),
+        family="ImportedRegistration",
+    )
+
+    match = find_external_pairwise_transform(
+        dataset_root,
+        subject_id="SAMPLE341",
+        site="tibia",
+        stack_index=1,
+        moving_session="T2",
+        fixed_session="T1",
+    )
+
+    assert match is not None
+    assert match.internal_path == imported

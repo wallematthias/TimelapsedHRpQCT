@@ -5,7 +5,7 @@ def build_pairwise_registration_metadata(
     *,
     subject_id: str,
     site: str | None = None,
-    stack_index: int,
+    stack_index: int | None,
     moving_session: str,
     fixed_session: str,
     metric_value: float,
@@ -21,16 +21,17 @@ def build_pairwise_registration_metadata(
 ) -> dict:
     """Build pairwise registration metadata."""
     site_token = f"_site-{site}" if site is not None else ""
+    stack_token = "" if stack_index is None else f"_stack-{stack_index:02d}"
     return {
         "subject_id": subject_id,
         "site": "radius" if site is None else site,
         "stack_index": stack_index,
         "kind": "pairwise",
         "space_from": (
-            f"sub-{subject_id}{site_token}_ses-{moving_session}_stack-{stack_index:02d}_native"
+            f"sub-{subject_id}{site_token}_ses-{moving_session}{stack_token}_native"
         ),
         "space_to": (
-            f"sub-{subject_id}{site_token}_ses-{fixed_session}_stack-{stack_index:02d}_native"
+            f"sub-{subject_id}{site_token}_ses-{fixed_session}{stack_token}_native"
         ),
         "metric_value": metric_value,
         "optimizer_stop_condition": optimizer_stop_condition,
@@ -49,7 +50,7 @@ def build_baseline_registration_metadata(
     *,
     subject_id: str,
     site: str | None = None,
-    stack_index: int,
+    stack_index: int | None,
     moving_session: str,
     baseline_session: str,
     space_from_session: str,
@@ -60,16 +61,17 @@ def build_baseline_registration_metadata(
 ) -> dict:
     """Build baseline registration metadata."""
     site_token = f"_site-{site}" if site is not None else ""
+    stack_token = "" if stack_index is None else f"_stack-{stack_index:02d}"
     metadata = {
         "subject_id": subject_id,
         "site": "radius" if site is None else site,
         "stack_index": stack_index,
         "kind": "baseline_composed",
         "space_from": (
-            f"sub-{subject_id}{site_token}_ses-{space_from_session}_stack-{stack_index:02d}_native"
+            f"sub-{subject_id}{site_token}_ses-{space_from_session}{stack_token}_native"
         ),
         "space_to": (
-            f"sub-{subject_id}{site_token}_ses-{baseline_session}_stack-{stack_index:02d}_baseline"
+            f"sub-{subject_id}{site_token}_ses-{baseline_session}{stack_token}_baseline"
         ),
         "baseline_session": baseline_session,
     }

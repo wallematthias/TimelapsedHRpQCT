@@ -9,7 +9,16 @@ import yaml
 
 
 PROFILE_PACKAGE_DIR = "configs/profiles"
-PRIVATE_PROFILE_NAMES = {"shriners", "ucsf"}
+USER_FACING_PROFILE_NAMES = {
+    "eth-uofc",
+    "multistack",
+    "ped-fx",
+    "standard",
+    "xct1-standard",
+    "ucsf",
+    "shriners",
+}
+PRIVATE_PROFILE_NAMES: set[str] = set()
 
 
 def _include_private_profiles() -> bool:
@@ -29,6 +38,7 @@ def list_config_profiles() -> list[str]:
     """Return bundled user-facing config profile names."""
     root = _profiles_root()
     names = [path.name.removesuffix(".yml") for path in root.iterdir() if path.name.endswith(".yml")]
+    names = [name for name in names if name in USER_FACING_PROFILE_NAMES]
     if not _include_private_profiles():
         names = [name for name in names if name not in PRIVATE_PROFILE_NAMES]
     return sorted(names)

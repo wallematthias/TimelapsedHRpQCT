@@ -5,7 +5,7 @@ from pathlib import Path
 from timelapsedhrpqct.dataset.models import RawSession
 
 
-PIPELINE_NAME = "TimelapsedHRpQCT"
+PIPELINE_NAME = "Timelapse"
 
 
 def get_subject_dir(root: str | Path, subject_id: str) -> Path:

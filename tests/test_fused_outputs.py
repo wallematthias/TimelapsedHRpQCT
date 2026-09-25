@@ -34,6 +34,24 @@ def test_build_fused_session_metadata_preserves_expected_contract() -> None:
     assert metadata["masks"]["full"] == "/tmp/mask-full.mha"
 
 
+def test_build_fused_session_metadata_omits_stack_token_for_unstacked_contributors() -> None:
+    metadata = build_fused_session_metadata(
+        subject_id="001",
+        site="radiusleft",
+        session_id="002",
+        baseline_session="001",
+        reference_source="common_region",
+        reference_size=[10, 11, 12],
+        contributors=[{"stack_index": None}],
+        fused_image_path=Path("/tmp/image.nii.gz"),
+        fused_seg_path=None,
+        fused_mask_paths={},
+    )
+
+    assert metadata["num_stacks"] == 1
+    assert metadata["space_from"] == ["sub-001_site-radiusleft_ses-002_native"]
+
+
 def test_build_fused_session_record_keeps_paths_and_ids() -> None:
     record = build_fused_session_record(
         subject_id="001",

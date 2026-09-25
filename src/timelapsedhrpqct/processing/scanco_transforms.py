@@ -8,17 +8,16 @@ from pathlib import Path
 
 import SimpleITK as sitk
 
+from bone_imaging_derivatives import DerivativeRecord, record_output_path
+
 from timelapsedhrpqct.config.models import DiscoveryConfig
-from timelapsedhrpqct.dataset.derivative_paths import (
-    timelapse_pairwise_metadata_path,
-    timelapse_pairwise_transform_path,
-)
 from timelapsedhrpqct.dataset.filename_decoder import normalize_session_id, normalize_site
 from timelapsedhrpqct.dataset.models import RawSession, StackArtifact
 from timelapsedhrpqct.dataset.transform_registry import (
     TransformRegistryRecord,
     upsert_transform_registry_record,
 )
+from timelapsedhrpqct.derivatives import merge_family_manifest
 from timelapsedhrpqct.processing.transform_chain import flatten_transform
 
 
@@ -27,8 +26,9 @@ _NUMBER_RE = re.compile(r"[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[Ee][-+]?\d+)?")
 _BIDS_PAIRWISE_RE = re.compile(
     r"(?i)"
     r"sub-(?P<subject>.+?)"
-    r"(?:_site-(?P<site>.+?))?"
-    r"_stack-(?P<stack>\d+)"
+    r"(?:_ses-(?P<session>.+?))?"
+    r"(?:_(?:site|voi)-(?P<site>.+?))?"
+    r"(?:_stack-(?P<stack>\d+))?"
     r"_from-ses-(?P<moving>.+?)"
     r"_to-ses-(?P<fixed>.+?)"
     r"_pairwise\.dat$"
@@ -46,7 +46,7 @@ _RAW_DASH_TO_RE = re.compile(
 class ManufacturerTransformRecord:
     subject_id: str
     site: str
-    stack_index: int
+    stack_index: int | None
     moving_session: str
     fixed_session: str
     source_path: Path
@@ -65,6 +65,28 @@ def raw_manufacturer_transform_path(
         / f"ses-{record.fixed_session}"
         / f"{record.subject_id}_{record.moving_session}-to-{record.fixed_session}.DAT"
     )
+
+
+def imported_pairwise_transform_path(
+    dataset_root: str | Path,
+    record: ManufacturerTransformRecord,
+) -> Path:
+    stack = f"_stack-{int(record.stack_index):02d}" if record.stack_index is not None else ""
+    return (
+        record_output_path(dataset_root, "ImportedRegistration", record.subject_id, record.site, f"ses-{record.moving_session}")
+        / "pairwise"
+        / (
+            f"sub-{record.subject_id}_ses-{record.moving_session}_voi-{record.site}{stack}"
+            f"_from-ses-{record.moving_session}_to-ses-{record.fixed_session}_pairwise.tfm"
+        )
+    )
+
+
+def imported_pairwise_metadata_path(
+    dataset_root: str | Path,
+    record: ManufacturerTransformRecord,
+) -> Path:
+    return imported_pairwise_transform_path(dataset_root, record).with_suffix(".json")
 
 
 def _is_dat_file(path: Path) -> bool:
@@ -112,7 +134,7 @@ def _record_from_match(
     fixed_session: str,
     discovery_config: DiscoveryConfig,
 ) -> ManufacturerTransformRecord:
-    stack_index = 1 if not stack_text else int(stack_text)
+    stack_index = None if not stack_text else int(stack_text)
     return ManufacturerTransformRecord(
         subject_id=subject_id,
         site=(site or discovery_config.default_site).lower(),
@@ -161,7 +183,7 @@ def discover_manufacturer_transform_records(
     root: str | Path,
     discovery_config: DiscoveryConfig,
 ) -> list[ManufacturerTransformRecord]:
-    records_by_key: dict[tuple[str, str, int, str, str], ManufacturerTransformRecord] = {}
+    records_by_key: dict[tuple[str, str, int | None, str, str], ManufacturerTransformRecord] = {}
     for path in Path(root).rglob("*"):
         if not _is_dat_file(path):
             continue
@@ -178,7 +200,7 @@ def discover_manufacturer_transform_records(
         records_by_key.setdefault(key, record)
     return sorted(
         records_by_key.values(),
-        key=lambda r: (r.subject_id, r.site, r.stack_index, r.fixed_session, r.moving_session),
+        key=lambda r: (r.subject_id, r.site, r.stack_index or 0, r.fixed_session, r.moving_session),
     )
 
 
@@ -282,6 +304,7 @@ def import_manufacturer_pairwise_transforms(
     available_sessions = {(s.subject_id, s.site or "radius", s.session_id) for s in raw_sessions}
     available_stacks = {(a.subject_id, a.site, a.session_id, a.stack_index) for a in stack_artifacts}
     written: list[Path] = []
+    manifest_records: list[DerivativeRecord] = []
 
     for record in records:
         fixed_key = (record.subject_id, record.site, record.fixed_session)
@@ -309,25 +332,11 @@ def import_manufacturer_pairwise_transforms(
             shutil.copy2(record.source_path, raw_dst)
 
         transform = read_scanco_dat_transform(record.source_path)
-        transform_path = timelapse_pairwise_transform_path(
-            dataset_root,
-            record.subject_id,
-            record.site,
-            record.stack_index,
-            record.moving_session,
-            record.fixed_session,
-        )
+        transform_path = imported_pairwise_transform_path(dataset_root, record)
         transform_path.parent.mkdir(parents=True, exist_ok=True)
         sitk.WriteTransform(flatten_transform(transform), str(transform_path))
 
-        metadata_path = timelapse_pairwise_metadata_path(
-            dataset_root,
-            record.subject_id,
-            record.site,
-            record.stack_index,
-            record.moving_session,
-            record.fixed_session,
-        )
+        metadata_path = imported_pairwise_metadata_path(dataset_root, record)
         metadata_path.parent.mkdir(parents=True, exist_ok=True)
         metadata_path.write_text(
             "{\n"
@@ -358,7 +367,38 @@ def import_manufacturer_pairwise_transforms(
                 provenance="manufacturer_scanco_dat",
                 import_timestamp=datetime.now(UTC).isoformat(),
             ),
+            family="ImportedRegistration",
         )
         written.append(transform_path)
+        manifest_records.append(
+            DerivativeRecord(
+                derivative="ImportedRegistration",
+                role="transform_pairwise",
+                subject_id=record.subject_id,
+                site=record.site,
+                session_id=record.moving_session,
+                stack_index=record.stack_index,
+                space="native",
+                path=transform_path,
+                source="provided",
+                inputs=(str(record.source_path),),
+                metadata={
+                    "from_session_id": record.moving_session,
+                    "to_session_id": record.fixed_session,
+                    "source_format": "dat",
+                    "source_direction": "fixed_to_moving",
+                    "internal_direction": "moving_to_fixed",
+                    "coordinate_convention": "SimpleITK_LPS_physical",
+                },
+                content_type="transform",
+            )
+        )
 
+    if manifest_records:
+        merge_family_manifest(
+            dataset_root,
+            "ImportedRegistration",
+            {"name": "timelapsedhrpqct", "version": "unknown"},
+            manifest_records,
+        )
     return written

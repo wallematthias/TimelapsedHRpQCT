@@ -12,10 +12,10 @@ from timelapsedhrpqct.processing.import_outputs import (
     build_stack_metadata,
     build_stack_output_paths,
 )
-from timelapsedhrpqct.utils.sitk_helpers import load_image
+from timelapsedhrpqct.utils.sitk_helpers import load_image, load_mask_image
 
 
-def test_build_stack_output_paths_matches_existing_layout() -> None:
+def test_build_stack_output_paths_matches_normalized_layout() -> None:
     dataset_root = Path("/tmp/dataset")
     session = RawSession(
         subject_id="001",
@@ -32,11 +32,37 @@ def test_build_stack_output_paths_matches_existing_layout() -> None:
     )
 
     assert str(paths["image"]).endswith(
-        "TimelapsedHRpQCT/sub-001/ses-baseline/stacks/sub-001_ses-baseline_stack-02_image.nii.gz"
+        "Timelapse/sub-001/ses-baseline/xct/stacks/"
+        "sub-001_ses-baseline_voi-radius_stack-02_image.nii.gz"
     )
     assert str(paths["masks"]["full"]).endswith("_mask-full.nii.gz")
     assert str(paths["seg"]).endswith("_seg.nii.gz")
     assert str(paths["metadata"]).endswith("_stack-02.json")
+
+
+def test_build_stack_output_paths_omits_stack_token_for_unstacked_input() -> None:
+    dataset_root = Path("/tmp/dataset")
+    session = RawSession(
+        subject_id="001",
+        session_id="baseline",
+        site="radiusleft",
+        raw_image_path=Path("/tmp/raw.AIM"),
+    )
+
+    paths = build_stack_output_paths(
+        dataset_root=dataset_root,
+        raw_session=session,
+        stack_index=None,
+        mask_roles=["full"],
+        has_seg=False,
+    )
+
+    assert str(paths["image"]).endswith(
+        "Timelapse/sub-001/ses-baseline/xct/stacks/"
+        "sub-001_ses-baseline_voi-radiusleft_image.nii.gz"
+    )
+    assert "_stack-" not in paths["image"].name
+    assert paths["metadata"].name == "sub-001_ses-baseline_voi-radiusleft.json"
 
 
 def test_build_crop_and_stack_metadata_preserve_contract() -> None:
@@ -102,3 +128,20 @@ def test_load_image_uses_aim_reader_for_original_aim_paths(monkeypatch, tmp_path
 
     assert loaded.GetSize() == (3, 4, 5)
     assert calls == [(path, "bmd")]
+
+
+def test_load_mask_image_uses_native_aim_units(monkeypatch, tmp_path: Path) -> None:
+    path = tmp_path / "source_mask.AIM"
+    image = sitk.Image([3, 4, 5], sitk.sitkUInt8)
+    calls = []
+
+    def fake_read_aim(path_arg: Path, scaling: str = "native"):
+        calls.append((Path(path_arg), scaling))
+        return image, {"format": "AIM"}
+
+    monkeypatch.setattr("timelapsedhrpqct.utils.sitk_helpers.read_aim", fake_read_aim)
+
+    loaded = load_mask_image(path)
+
+    assert loaded.GetSize() == (3, 4, 5)
+    assert calls == [(path, "native")]

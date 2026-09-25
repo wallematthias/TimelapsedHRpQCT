@@ -38,6 +38,7 @@ from timelapsedhrpqct.utils.sitk_helpers import (
     array_to_image,
     image_to_array,
     load_image,
+    load_mask_image,
     write_image,
     write_json,
 )
@@ -101,7 +102,7 @@ def run_filling(
 
         for session in sessions:
             image_img = load_image(session.image_path)
-            mask_img = load_image(session.full_mask_path)
+            mask_img = load_mask_image(session.full_mask_path)
 
             image_imgs.append(image_img)
             real_mask_imgs.append(mask_img)
@@ -110,7 +111,7 @@ def run_filling(
             session_ids.append(session.session_id)
 
             if has_seg and session.seg_path is not None:
-                real_seg_arrs.append(image_to_array(load_image(session.seg_path)) > 0)
+                real_seg_arrs.append(image_to_array(load_mask_image(session.seg_path)) > 0)
 
         reference = image_imgs[0]
 

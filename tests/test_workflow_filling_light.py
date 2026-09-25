@@ -35,6 +35,7 @@ def test_run_filling_single_session_no_seg(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setattr(wf, "discover_filling_subject_ids", lambda _root: [("001", "radius")])
     monkeypatch.setattr(wf, "discover_filling_sessions", lambda *_args, **_kwargs: [sess])
     monkeypatch.setattr(wf, "load_image", lambda _p: _ref_image())
+    monkeypatch.setattr(wf, "load_mask_image", lambda _p: _ref_image())
     monkeypatch.setattr(wf, "image_to_array", lambda _img: np.ones((2, 2, 2), dtype=np.float32))
     monkeypatch.setattr(
         wf,
@@ -89,6 +90,7 @@ def test_run_filling_single_session_with_seg(tmp_path: Path, monkeypatch) -> Non
     monkeypatch.setattr(wf, "discover_filling_subject_ids", lambda _root: [("001", "radius")])
     monkeypatch.setattr(wf, "discover_filling_sessions", lambda *_args, **_kwargs: [sess])
     monkeypatch.setattr(wf, "load_image", lambda _p: _ref_image())
+    monkeypatch.setattr(wf, "load_mask_image", lambda _p: _ref_image())
     monkeypatch.setattr(wf, "image_to_array", lambda _img: np.ones((2, 2, 2), dtype=np.float32))
     monkeypatch.setattr(
         wf,

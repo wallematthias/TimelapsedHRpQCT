@@ -453,17 +453,23 @@ def import_raw_session(
     original_image_geometry = _image_geometry_dict(image)
 
     provided_masks: dict[str, sitk.Image] = {}
+    reusable_mask_paths: dict[str, Path] = {}
     normalized_mask_paths = _normalize_mask_roles(raw_session.raw_mask_paths)
     for role, path in normalized_mask_paths.items():
         mask_img, _mask_meta = read_aim(path, scaling="native")
+        if same_geometry(mask_img, image):
+            reusable_mask_paths[role] = path
         provided_masks[role] = align_mask_to_image(
             mask=sitk.Cast(mask_img, sitk.sitkUInt8),
             image=image,
         )
 
     seg_image: sitk.Image | None = None
+    reusable_seg_path: Path | None = None
     if raw_session.raw_seg_path is not None:
         seg_image, _seg_meta = read_aim(raw_session.raw_seg_path, scaling="native")
+        if same_geometry(seg_image, image):
+            reusable_seg_path = raw_session.raw_seg_path
         seg_image = sitk.Cast(seg_image, sitk.sitkUInt16)
         seg_image = _align_label_image_to_reference(
             label_image=seg_image,
@@ -582,6 +588,14 @@ def import_raw_session(
             stack_depth=config.import_.stack_depth,
             on_incomplete_stack=config.import_.on_incomplete_stack,
         )
+        if len(stack_ranges) == 1:
+            stack_ranges = [
+                StackSliceRange(
+                    stack_index=None,
+                    z_start=stack_ranges[0].z_start,
+                    z_stop=stack_ranges[0].z_stop,
+                )
+            ]
 
     stack_artifacts: list[StackArtifact] = []
 
@@ -596,19 +610,36 @@ def import_raw_session(
         )
 
         stack_image = _slice_image(image, stack_range)
+        can_reuse_unsplit_sources = (
+            stack_range.stack_index is None
+            and stack_range.z_start == 0
+            and stack_range.z_stop == z_slices
+            and subject_crop_spec is None
+            and raw_session.stack_index is None
+        )
 
         stack_mask_paths: dict[str, Path] = {}
         for role, mask in resolved_masks.items():
-            stack_mask = _slice_image(mask, stack_range)
-            mask_path = output_paths["masks"][role]
-            _write_image(stack_mask, mask_path)
+            if (
+                can_reuse_unsplit_sources
+                and mask_provenance.get(role) == "provided"
+                and role in reusable_mask_paths
+            ):
+                mask_path = reusable_mask_paths[role]
+            else:
+                stack_mask = _slice_image(mask, stack_range)
+                mask_path = output_paths["masks"][role]
+                _write_image(stack_mask, mask_path)
             stack_mask_paths[role] = mask_path
 
         stack_seg_path: Path | None = None
         if seg_image is not None:
-            stack_seg = _slice_image(seg_image, stack_range)
-            stack_seg_path = output_paths["seg"]
-            _write_image(stack_seg, stack_seg_path)
+            if can_reuse_unsplit_sources and reusable_seg_path is not None:
+                stack_seg_path = reusable_seg_path
+            else:
+                stack_seg = _slice_image(seg_image, stack_range)
+                stack_seg_path = output_paths["seg"]
+                _write_image(stack_seg, stack_seg_path)
 
         metadata_path = output_paths["metadata"]
         _ensure_parent(metadata_path)

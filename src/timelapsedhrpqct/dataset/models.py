@@ -56,7 +56,7 @@ class StackSliceRange:
     - z_stop is exclusive
     """
 
-    stack_index: int
+    stack_index: int | None
     z_start: int
     z_stop: int
 
@@ -67,8 +67,8 @@ class StackSliceRange:
 
     def validate(self) -> None:
         """Validate stack slice index and bounds ordering."""
-        if self.stack_index < 1:
-            raise ValueError("stack_index must be >= 1")
+        if self.stack_index is not None and self.stack_index < 1:
+            raise ValueError("stack_index must be >= 1 when provided")
         if self.z_start < 0:
             raise ValueError("z_start must be >= 0")
         if self.z_stop <= self.z_start:
@@ -85,7 +85,7 @@ class StackArtifact:
 
     subject_id: str
     session_id: str
-    stack_index: int
+    stack_index: int | None
     image_path: Path
     mask_paths: dict[MaskRole, Path] = field(default_factory=dict)
     seg_path: Path | None = None
@@ -109,8 +109,8 @@ class StackArtifact:
             raise ValueError("site must not be empty")
         if not self.session_id:
             raise ValueError("session_id must not be empty")
-        if self.stack_index < 1:
-            raise ValueError("stack_index must be >= 1")
+        if self.stack_index is not None and self.stack_index < 1:
+            raise ValueError("stack_index must be >= 1 when provided")
         if not self.image_path:
             raise ValueError("image_path must be provided")
         if self.slice_range is not None:

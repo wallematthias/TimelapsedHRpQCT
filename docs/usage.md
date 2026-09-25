@@ -145,9 +145,9 @@ timelapse import /path/to/raw_data
 This creates:
 
 - optional copied raw AIM files under `sourcedata/hrpqct` (only when `--copy-raw-inputs`)
-- optional moved raw AIM files under `sub-*/site-*/ses-*` (only when `--restructure-raw`)
-- imported stack artifacts under `TimelapsedHRpQCT/sub-*/ses-*/stacks`
-- persistent imported-stack records under `TimelapsedHRpQCT/_artifacts`
+- optional moved raw AIM files under normalized subject/session folders (only when `--restructure-raw`)
+- imported stack artifacts under `derivatives/Timelapse/sub-*/ses-*/xct/stacks`
+- persistent imported-stack records under `Timelapse/_artifacts`
 
 ### 2. Prepare masks, ROIs, and segmentation
 
@@ -278,17 +278,17 @@ Role notes:
 Important output areas:
 
 - `sourcedata/hrpqct/`: optional copied raw AIM files (only when raw copy is enabled)
-- `sub-*/site-*/ses-*/`: optional moved raw AIM files (only when `--restructure-raw`)
-- `TimelapsedHRpQCT/_artifacts/`: persistent artifact indices
-- `TimelapsedHRpQCT/sub-*/ses-*/stacks/`: imported stacks
-- `TimelapsedHRpQCT/sub-*/registration/`: within-stack longitudinal transforms
-- `TimelapsedHRpQCT/sub-*/stack_correction/`: multistack correction outputs
-- `TimelapsedHRpQCT/sub-*/transforms/final/`: canonical final transforms
-- `TimelapsedHRpQCT/sub-*/transformed_images/`: fused transformed sessions
+- normalized `sub-*/ses-*/xct/` style folders for optional moved raw AIM files (only when `--restructure-raw`)
+- `Timelapse/_artifacts/`: persistent artifact indices
+- `Timelapse/sub-*/ses-*/xct/stacks/`: imported stacks
+- `Registration/sub-*/ses-*/xct/{baseline,pairwise,baseline_qc}/`: within-stack longitudinal transforms and QC images
+- `Timelapse/sub-*/xct/stack_correction/`: multistack correction outputs
+- `Timelapse/sub-*/xct/transforms/final/`: canonical final transforms
+- `Timelapse/sub-*/ses-*/xct/transformed/`: fused transformed sessions
+- `Timelapse/sub-*/ses-*/xct/filled/`: filled fused sessions
+- `Timelapse/sub-*/xct/analysis/`: CSV outputs, common regions, visualizations, summary JSON
 
-Older path names such as `timelapse_registration/` and `transformed/` are supported when the current artifact registries exist.
-- `TimelapsedHRpQCT/sub-*/filled/`: filled fused sessions
-- `TimelapsedHRpQCT/sub-*/analysis/`: CSV outputs, common regions, visualizations, summary JSON
+Old Timelapsed layouts such as `site-*`, `transformed_images/`, and `timelapse_registration/` are deprecated and are not resolved implicitly during new runs.
 
 ### Migrating Legacy Derivatives
 
@@ -299,7 +299,7 @@ timelapse migrate-legacy /path/to/raw_data/TimelapsedHRpQCT --dry-run
 timelapse migrate-legacy /path/to/raw_data/TimelapsedHRpQCT
 ```
 
-The migration writes current `transformed_images/` NIfTI outputs, rebuilds `_artifacts/fused_sessions.json`, and removes converted `.mha` files plus non-full remodelling visualization images by default. Use `--keep-legacy-files` only when you explicitly want to retain the old `.mha` files.
+The migration command is explicit. New runs do not automatically read through old-layout outputs. After migration, rerun discovery/inspection before analysis.
 
 Analysis CSV notes:
 

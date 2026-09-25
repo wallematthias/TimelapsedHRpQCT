@@ -13,7 +13,7 @@ from timelapsedhrpqct.processing.filling_io import (
 
 def test_discover_filling_sessions_sorts_and_filters_full_mask(tmp_path: Path) -> None:
     dataset_root = tmp_path / "dataset"
-    base = dataset_root / "derivatives" / "TimelapsedHRpQCT" / "sub-001"
+    base = dataset_root / "derivatives" / "Timelapse" / "sub-001"
     image_a = base / "ses-C2" / "transformed" / "a.mha"
     image_b = base / "ses-C1" / "transformed" / "b.mha"
     full_b = base / "ses-C1" / "transformed" / "full.mha"
@@ -71,10 +71,10 @@ def test_build_filling_metadata_and_record_preserve_contract(tmp_path: Path) -> 
     assert meta["allowed_support"] == {"n": 1}
     assert meta["fill_region"] == {"gap": 2}
 
-    filled_img = dataset_root / "derivatives" / "TimelapsedHRpQCT" / "sub-001" / "filled" / "ses-C1" / "sub-001_ses-C1_image_fusedfilled.mha"
-    filled_mask = dataset_root / "derivatives" / "TimelapsedHRpQCT" / "sub-001" / "filled" / "ses-C1" / "sub-001_ses-C1_mask-full_fusedfilled.mha"
-    filladded = dataset_root / "derivatives" / "TimelapsedHRpQCT" / "sub-001" / "filled" / "ses-C1" / "sub-001_ses-C1_mask-filladded.mha"
-    meta_path = dataset_root / "derivatives" / "TimelapsedHRpQCT" / "sub-001" / "filled" / "ses-C1" / "sub-001_ses-C1_filling.json"
+    filled_img = dataset_root / "derivatives" / "Timelapse" / "sub-001" / "ses-C1" / "xct" / "filled" / "sub-001_ses-C1_voi-radius_image-fusedfilled.nii.gz"
+    filled_mask = dataset_root / "derivatives" / "Timelapse" / "sub-001" / "ses-C1" / "xct" / "filled" / "sub-001_ses-C1_voi-radius_desc-full_mask-fusedfilled.nii.gz"
+    filladded = dataset_root / "derivatives" / "Timelapse" / "sub-001" / "ses-C1" / "xct" / "filled" / "sub-001_ses-C1_voi-radius_desc-filladded_mask.nii.gz"
+    meta_path = dataset_root / "derivatives" / "Timelapse" / "sub-001" / "ses-C1" / "xct" / "filled" / "sub-001_ses-C1_voi-radius_filling.json"
     for path in (filled_img, filled_mask, filladded, meta_path):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("", encoding="utf-8")
